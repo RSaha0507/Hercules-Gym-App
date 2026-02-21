@@ -50,14 +50,16 @@ export default function ApprovalsScreen() {
   const [isErrorFeedback, setIsErrorFeedback] = useState(false);
   const isFetchingRef = useRef(false);
 
-  const loadRequests = useCallback(async () => {
-    if (isFetchingRef.current) return;
+  const loadRequests = useCallback(async (): Promise<ApprovalRequest[]> => {
+    if (isFetchingRef.current) return [];
     isFetchingRef.current = true;
     try {
       const data = await api.getPendingApprovals();
       setRequests(data);
+      return data;
     } catch (error) {
       console.log('Error loading approvals:', error);
+      return [];
     } finally {
       isFetchingRef.current = false;
       setIsLoading(false);
@@ -120,11 +122,13 @@ export default function ApprovalsScreen() {
       const detailText = typeof detail === 'string' ? detail : 'Failed to approve. Please try again.';
       const isAlreadyProcessed = detailText.toLowerCase().includes('already') || detailText.toLowerCase().includes('not found');
 
-      if (isAlreadyProcessed) {
-        await loadRequests();
+      const latestRequests = await loadRequests();
+      const stillPending = latestRequests.some((r) => r.id === request.id);
+
+      if (isAlreadyProcessed || !stillPending) {
         setSuccessTitle('Synced');
         setIsErrorFeedback(false);
-        setSuccessMessage('Request was already processed. The list is now up to date.');
+        setSuccessMessage(stillPending ? 'Request was already processed. The list is now up to date.' : `${request.user_name} has been approved successfully.`);
       } else {
         setSuccessTitle('Action Failed');
         setIsErrorFeedback(true);
@@ -159,11 +163,13 @@ export default function ApprovalsScreen() {
       const detailText = typeof detail === 'string' ? detail : 'Failed to reject. Please try again.';
       const isAlreadyProcessed = detailText.toLowerCase().includes('already') || detailText.toLowerCase().includes('not found');
 
-      if (isAlreadyProcessed) {
-        await loadRequests();
+      const latestRequests = await loadRequests();
+      const stillPending = latestRequests.some((r) => r.id === request.id);
+
+      if (isAlreadyProcessed || !stillPending) {
         setSuccessTitle('Synced');
         setIsErrorFeedback(false);
-        setSuccessMessage('Request was already processed. The list is now up to date.');
+        setSuccessMessage(stillPending ? 'Request was already processed. The list is now up to date.' : `${request.user_name}'s request has been rejected.`);
       } else {
         setSuccessTitle('Action Failed');
         setIsErrorFeedback(true);
