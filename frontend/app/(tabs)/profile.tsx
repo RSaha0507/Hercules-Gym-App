@@ -1,0 +1,649 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Image,
+  Modal,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import { useAuth } from '../../src/context/AuthContext';
+import { useTheme } from '../../src/context/ThemeContext';
+import { api } from '../../src/services/api';
+
+export default function ProfileScreen() {
+  const { user, logout } = useAuth();
+  const { theme, isDark, toggleTheme } = useTheme();
+  const [memberProfile, setMemberProfile] = useState<any>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const loadProfile = useCallback(async () => {
+    if (user?.role === 'member' && user?.id) {
+      try {
+        const data = await api.getMember(user.id);
+        setMemberProfile(data.profile);
+      } catch (error) {
+        console.log('Error loading profile:', error);
+      }
+    }
+  }, [user?.id, user?.role]);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+    } catch (error) {
+      console.log('Logout error:', error);
+    } finally {
+      setIsLoggingOut(false);
+      setShowLogoutModal(false);
+    }
+  };
+
+  const getRoleGradient = () => {
+    switch (user?.role) {
+      case 'admin':
+        return ['#E63946', '#831018'] as [string, string];
+      case 'trainer':
+        return ['#F59E0B', '#D97706'] as [string, string];
+      default:
+        return ['#3B82F6', '#1D4ED8'] as [string, string];
+    }
+  };
+
+  const MenuItem = ({ icon, label, onPress, color, showArrow = true, badge }: {
+    icon: string;
+    label: string;
+    onPress: () => void;
+    color?: string;
+    showArrow?: boolean;
+    badge?: string;
+  }) => (
+    <TouchableOpacity 
+      style={[styles.menuItem, { backgroundColor: theme.card }]} 
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View style={[styles.menuIcon, { backgroundColor: (color || theme.primary) + '15' }]}>
+        <Ionicons name={icon as any} size={22} color={color || theme.primary} />
+      </View>
+      <Text style={[styles.menuLabel, { color: color || theme.text }]}>{label}</Text>
+      {badge && (
+        <View style={[styles.menuBadge, { backgroundColor: theme.primary }]}>
+          <Text style={styles.menuBadgeText}>{badge}</Text>
+        </View>
+      )}
+      {showArrow && <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />}
+    </TouchableOpacity>
+  );
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={[styles.title, { color: theme.text }]}>Profile</Text>
+          <TouchableOpacity 
+            style={[styles.settingsButton, { backgroundColor: theme.card }]}
+            onPress={toggleTheme}
+          >
+            <Ionicons name={isDark ? 'sunny' : 'moon'} size={22} color={theme.primary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Profile Card */}
+        <LinearGradient
+          colors={getRoleGradient()}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.profileCard}
+        >
+          <View style={styles.profileTop}>
+            <View style={styles.avatarContainer}>
+              {user?.profile_image ? (
+                <Image source={{ uri: user.profile_image }} style={styles.avatarImage} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarText}>
+                    {user?.full_name?.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.onlineIndicator} />
+            </View>
+            <View style={styles.profileInfo}>
+              <Text style={styles.userName}>{user?.full_name}</Text>
+              <Text style={styles.userEmail}>{user?.email}</Text>
+              <View style={styles.roleBadge}>
+                <Ionicons 
+                  name={user?.role === 'admin' ? 'shield' : user?.role === 'trainer' ? 'fitness' : 'person'} 
+                  size={12} 
+                  color="#FFF" 
+                />
+                <Text style={styles.roleText}>
+                  {user?.role?.charAt(0).toUpperCase()}{user?.role?.slice(1)}
+                  {user?.is_primary_admin && ' (Primary)'}
+                </Text>
+              </View>
+            </View>
+          </View>
+          
+          {user?.center && (
+            <View style={styles.centerRow}>
+              <Ionicons name="location" size={16} color="rgba(255,255,255,0.8)" />
+              <Text style={styles.centerText}>{user.center} Center</Text>
+            </View>
+          )}
+
+          {memberProfile?.member_id && (
+            <View style={styles.memberIdRow}>
+              <Ionicons name="card" size={16} color="rgba(255,255,255,0.8)" />
+              <Text style={styles.memberIdText}>ID: {memberProfile.member_id}</Text>
+            </View>
+          )}
+        </LinearGradient>
+
+        {/* Membership Status for Members */}
+        {user?.role === 'member' && memberProfile?.membership && (
+          <View style={[styles.membershipCard, { 
+            backgroundColor: theme.card,
+            borderLeftColor: memberProfile.membership.is_active ? theme.success : theme.error,
+          }]}>
+            <View style={styles.membershipHeader}>
+              <View style={[
+                styles.membershipStatus, 
+                { backgroundColor: memberProfile.membership.is_active ? theme.success + '20' : theme.error + '20' }
+              ]}>
+                <Ionicons 
+                  name={memberProfile.membership.is_active ? 'checkmark-circle' : 'alert-circle'} 
+                  size={16} 
+                  color={memberProfile.membership.is_active ? theme.success : theme.error} 
+                />
+                <Text style={[
+                  styles.membershipStatusText, 
+                  { color: memberProfile.membership.is_active ? theme.success : theme.error }
+                ]}>
+                  {memberProfile.membership.is_active ? 'Active' : 'Expired'}
+                </Text>
+              </View>
+              <Text style={[styles.membershipPlan, { color: theme.text }]}>
+                {memberProfile.membership.plan_name}
+              </Text>
+            </View>
+            <View style={styles.membershipDates}>
+              <View style={styles.membershipDate}>
+                <Text style={[styles.membershipDateLabel, { color: theme.textSecondary }]}>Start</Text>
+                <Text style={[styles.membershipDateValue, { color: theme.text }]}>
+                  {new Date(memberProfile.membership.start_date).toLocaleDateString()}
+                </Text>
+              </View>
+              <View style={[styles.membershipDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.membershipDate}>
+                <Text style={[styles.membershipDateLabel, { color: theme.textSecondary }]}>Expires</Text>
+                <Text style={[styles.membershipDateValue, { color: theme.text }]}>
+                  {new Date(memberProfile.membership.end_date).toLocaleDateString()}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Quick Stats */}
+        {user?.role === 'member' && (
+          <View style={styles.statsRow}>
+            <View style={[styles.statCard, { backgroundColor: theme.card }]}>
+              <Ionicons name="calendar" size={24} color={theme.primary} />
+              <Text style={[styles.statValue, { color: theme.text }]}>
+                {memberProfile?.attendance_count || 0}
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Visits</Text>
+            </View>
+            <View style={[styles.statCard, { backgroundColor: theme.card }]}>
+              <Ionicons name="flame" size={24} color="#F59E0B" />
+              <Text style={[styles.statValue, { color: theme.text }]}>
+                {memberProfile?.streak || 0}
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Day Streak</Text>
+            </View>
+            <View style={[styles.statCard, { backgroundColor: theme.card }]}>
+              <Ionicons name="trophy" size={24} color="#10B981" />
+              <Text style={[styles.statValue, { color: theme.text }]}>
+                {memberProfile?.goals_achieved || 0}
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Goals</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Menu Items */}
+        <View style={styles.menuSection}>
+          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Account</Text>
+          <MenuItem icon="person-outline" label="Edit Profile" onPress={() => router.push('/profile/edit')} />
+          {user?.role === 'member' && (
+            <>
+              <MenuItem icon="body-outline" label="Body Metrics" onPress={() => router.push('/profile/metrics')} />
+              <MenuItem icon="barbell-outline" label="My Workouts" onPress={() => router.push('/profile/workouts')} />
+              <MenuItem icon="nutrition-outline" label="My Diet Plan" onPress={() => router.push('/profile/diet')} />
+            </>
+          )}
+        </View>
+
+        <View style={styles.menuSection}>
+          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Preferences</Text>
+          <TouchableOpacity 
+            style={[styles.menuItem, { backgroundColor: theme.card }]} 
+            onPress={toggleTheme}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.menuIcon, { backgroundColor: theme.primary + '15' }]}>
+              <Ionicons name={isDark ? 'sunny' : 'moon'} size={22} color={theme.primary} />
+            </View>
+            <Text style={[styles.menuLabel, { color: theme.text }]}>
+              {isDark ? 'Light Mode' : 'Dark Mode'}
+            </Text>
+            <View style={[styles.toggle, { backgroundColor: isDark ? theme.primary : theme.inputBg }]}>
+              <View style={[
+                styles.toggleDot, 
+                { backgroundColor: '#FFF', marginLeft: isDark ? 22 : 2 }
+              ]} />
+            </View>
+          </TouchableOpacity>
+          <MenuItem icon="notifications-outline" label="Notifications" onPress={() => router.push('/profile/notifications')} />
+          <MenuItem icon="language-outline" label="Language" onPress={() => {}} badge="English" />
+        </View>
+
+        <View style={styles.menuSection}>
+          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Support</Text>
+          <MenuItem icon="help-circle-outline" label="Help & Support" onPress={() => router.push('/profile/help')} />
+          <MenuItem icon="document-text-outline" label="Terms of Service" onPress={() => {}} />
+          <MenuItem icon="shield-checkmark-outline" label="Privacy Policy" onPress={() => {}} />
+        </View>
+
+        <View style={styles.menuSection}>
+          <TouchableOpacity 
+            style={[styles.logoutButton, { backgroundColor: theme.error + '10' }]} 
+            onPress={() => setShowLogoutModal(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="log-out-outline" size={22} color={theme.error} />
+            <Text style={[styles.logoutText, { color: theme.error }]}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* App Version */}
+        <View style={styles.footer}>
+          <Text style={[styles.version, { color: theme.textSecondary }]}>Hercules Gym v1.0.0</Text>
+          <Text style={[styles.copyright, { color: theme.textSecondary }]}>© 2024 Hercules Fitness</Text>
+        </View>
+      </ScrollView>
+
+      {/* Logout Confirmation Modal */}
+      <Modal visible={showLogoutModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
+            <View style={[styles.modalIconContainer, { backgroundColor: theme.error + '15' }]}>
+              <Ionicons name="log-out-outline" size={48} color={theme.error} />
+            </View>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Logout</Text>
+            <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>
+              Are you sure you want to logout from your account?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalCancelButton, { borderColor: theme.border }]}
+                onPress={() => setShowLogoutModal(false)}
+                disabled={isLoggingOut}
+              >
+                <Text style={[styles.modalCancelText, { color: theme.text }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalConfirmButton, { backgroundColor: theme.error }]}
+                onPress={handleLogout}
+                disabled={isLoggingOut}
+              >
+                {isLoggingOut ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <Text style={styles.modalConfirmText}>Logout</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+  },
+  settingsButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileCard: {
+    marginHorizontal: 20,
+    padding: 24,
+    borderRadius: 24,
+  },
+  profileTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatarContainer: {
+    position: 'relative',
+  },
+  avatarPlaceholder: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+  },
+  avatarText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#FFF',
+  },
+  onlineIndicator: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#10B981',
+    borderWidth: 2,
+    borderColor: '#FFF',
+  },
+  profileInfo: {
+    marginLeft: 16,
+    flex: 1,
+  },
+  userName: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#FFF',
+  },
+  userEmail: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 2,
+  },
+  roleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    alignSelf: 'flex-start',
+    marginTop: 10,
+  },
+  roleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFF',
+  },
+  centerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.2)',
+  },
+  centerText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  memberIdRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  memberIdText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  membershipCard: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 16,
+    borderLeftWidth: 4,
+  },
+  membershipHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  membershipStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  membershipStatusText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  membershipPlan: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  membershipDates: {
+    flexDirection: 'row',
+    marginTop: 16,
+  },
+  membershipDate: {
+    flex: 1,
+  },
+  membershipDateLabel: {
+    fontSize: 11,
+    textTransform: 'uppercase',
+  },
+  membershipDateValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  membershipDivider: {
+    width: 1,
+    marginHorizontal: 16,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    marginTop: 16,
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 8,
+  },
+  statLabel: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  menuSection: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginBottom: 12,
+    marginLeft: 4,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 8,
+  },
+  menuIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  menuLabel: {
+    flex: 1,
+    fontSize: 16,
+    marginLeft: 14,
+    fontWeight: '500',
+  },
+  menuBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    marginRight: 8,
+  },
+  menuBadgeText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  toggle: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+  },
+  toggleDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 16,
+    gap: 10,
+  },
+  logoutText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  footer: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    gap: 4,
+  },
+  version: {
+    fontSize: 13,
+  },
+  copyright: {
+    fontSize: 11,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+  },
+  modalIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  modalConfirmButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalConfirmText: {
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+});

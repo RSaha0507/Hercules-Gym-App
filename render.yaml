@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: hercules-gym-api-rsaha0507
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: APP_ENV
+        value: production
+      - key: DB_NAME
+        value: hercules_gym
+      - key: MONGO_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: SOCKET_CORS_ORIGINS
+        sync: false
