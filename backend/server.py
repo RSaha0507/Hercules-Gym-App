@@ -586,13 +586,13 @@ def normalize_indian_phone(phone: str) -> str:
 
 async def generate_member_registration_email(normalized_phone: str) -> str:
     digits = "".join(ch for ch in normalized_phone if ch.isdigit())[-10:]
-    base_email = f"m{digits}@member.hercules.local"
+    base_email = f"m{digits}@herculesgym.app"
     existing = await db.users.find_one({"email": base_email})
     if not existing:
         return base_email
 
     while True:
-        candidate = f"m{digits}.{uuid.uuid4().hex[:6]}@member.hercules.local"
+        candidate = f"m{digits}.{uuid.uuid4().hex[:6]}@herculesgym.app"
         existing_candidate = await db.users.find_one({"email": candidate})
         if not existing_candidate:
             return candidate
