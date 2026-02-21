@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -178,7 +179,17 @@ export default function WorkoutsScreen() {
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>{section.day}</Text>
                 {section.items.map((item) => (
                   <View key={item.id} style={[styles.card, { backgroundColor: theme.card }]}>
-                    <Text style={[styles.name, { color: theme.text }]}>{item.name}</Text>
+                    <View style={styles.cardHeader}>
+                      <Image source={require('../../assets/images/app-image.png')} style={styles.cardImage} />
+                      <View style={styles.cardHeaderInfo}>
+                        <Text style={[styles.name, { color: theme.text }]} numberOfLines={2}>
+                          {item.name}
+                        </Text>
+                        <Text style={[styles.workoutMeta, { color: theme.textSecondary }]}>
+                          {(item.exercises || []).length} exercises
+                        </Text>
+                      </View>
+                    </View>
                     {item.notes ? (
                       <Text style={[styles.notes, { color: theme.textSecondary }]}>{item.notes}</Text>
                     ) : null}
@@ -213,22 +224,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
   backButton: { padding: 4 },
   title: { fontSize: 20, fontWeight: '700' },
   dayTabs: {
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 14,
     gap: 8,
   },
   dayChip: {
     borderWidth: 1,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingVertical: 9,
+    borderRadius: 16,
   },
-  dayChipText: { fontSize: 13, fontWeight: '600' },
+  dayChipText: { fontSize: 13, fontWeight: '700' },
   center: {
     flex: 1,
     justifyContent: 'center',
@@ -237,17 +248,42 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingBottom: 24,
+    paddingBottom: 120,
     gap: 14,
   },
   sectionWrap: { gap: 8 },
   sectionTitle: { fontSize: 18, fontWeight: '700' },
   card: {
-    borderRadius: 14,
+    borderRadius: 20,
     padding: 14,
     gap: 8,
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.04,
+    shadowRadius: 14,
+    elevation: 1,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  cardImage: {
+    width: 68,
+    height: 68,
+    borderRadius: 14,
+  },
+  cardHeaderInfo: {
+    flex: 1,
+    gap: 2,
   },
   name: { fontSize: 16, fontWeight: '700' },
+  workoutMeta: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   notes: { fontSize: 13 },
   exerciseWrap: { gap: 8 },
   exerciseRow: { gap: 2 },

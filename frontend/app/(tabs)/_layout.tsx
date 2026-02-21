@@ -39,8 +39,8 @@ export default function TabLayout() {
     }
 
     return (
-      <View style={[styles.iconContainer, focused && { backgroundColor: theme.primary + '20' }]}>
-        <Ionicons name={iconName} size={22} color={focused ? theme.primary : theme.textSecondary} />
+      <View style={[styles.iconContainer, focused && { backgroundColor: theme.primary }]}>
+        <Ionicons name={iconName} size={20} color={focused ? '#FFFFFF' : theme.textSecondary} />
       </View>
     );
   };
@@ -55,18 +55,28 @@ export default function TabLayout() {
         headerShown: false,
         tabBarStyle: {
           backgroundColor: theme.surface,
-          borderTopColor: theme.border,
-          borderTopWidth: 1,
-          height: 60 + insets.bottom,
+          borderTopColor: 'transparent',
+          borderTopWidth: 0,
+          elevation: 0,
+          height: 72 + insets.bottom,
           paddingBottom: Math.max(insets.bottom, 8),
           paddingTop: 8,
+          marginHorizontal: 12,
+          marginBottom: 8,
+          borderRadius: 28,
+          position: 'absolute',
+          shadowColor: '#111827',
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 0.08,
+          shadowRadius: 16,
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarHideOnKeyboard: true,
         tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: '500',
+          fontSize: 11,
+          fontWeight: '600',
+          marginTop: -2,
         },
       }}
     >
@@ -128,7 +138,10 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   iconContainer: {
-    padding: 4,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

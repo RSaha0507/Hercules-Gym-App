@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
@@ -48,17 +47,6 @@ export default function ProfileScreen() {
     } finally {
       setIsLoggingOut(false);
       setShowLogoutModal(false);
-    }
-  };
-
-  const getRoleGradient = () => {
-    switch (user?.role) {
-      case 'admin':
-        return ['#E63946', '#831018'] as [string, string];
-      case 'trainer':
-        return ['#F59E0B', '#D97706'] as [string, string];
-      default:
-        return ['#3B82F6', '#1D4ED8'] as [string, string];
     }
   };
 
@@ -103,56 +91,41 @@ export default function ProfileScreen() {
         </View>
 
         {/* Profile Card */}
-        <LinearGradient
-          colors={getRoleGradient()}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.profileCard}
-        >
-          <View style={styles.profileTop}>
-            <View style={styles.avatarContainer}>
-              {user?.profile_image ? (
-                <Image source={{ uri: user.profile_image }} style={styles.avatarImage} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarText}>
-                    {user?.full_name?.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-              )}
-              <View style={styles.onlineIndicator} />
-            </View>
-            <View style={styles.profileInfo}>
-              <Text style={styles.userName}>{user?.full_name}</Text>
-              <Text style={styles.userEmail}>{user?.email}</Text>
-              <View style={styles.roleBadge}>
-                <Ionicons 
-                  name={user?.role === 'admin' ? 'shield' : user?.role === 'trainer' ? 'fitness' : 'person'} 
-                  size={12} 
-                  color="#FFF" 
-                />
-                <Text style={styles.roleText}>
-                  {user?.role?.charAt(0).toUpperCase()}{user?.role?.slice(1)}
-                  {user?.is_primary_admin && ' (Primary)'}
+        <View style={[styles.profileCard, { backgroundColor: theme.card }]}>
+          <View style={styles.avatarContainer}>
+            {user?.profile_image ? (
+              <Image source={{ uri: user.profile_image }} style={styles.avatarImage} />
+            ) : (
+              <View style={[styles.avatarPlaceholder, { backgroundColor: theme.inputBg }]}>
+                <Text style={[styles.avatarText, { color: theme.text }]}>
+                  {user?.full_name?.charAt(0).toUpperCase()}
                 </Text>
               </View>
-            </View>
+            )}
           </View>
-          
+          <Text style={[styles.userName, { color: theme.text }]}>{user?.full_name}</Text>
+          <Text style={[styles.userEmail, { color: theme.textSecondary }]}>{user?.email}</Text>
+          <View style={[styles.roleBadge, { backgroundColor: theme.primary + '18' }]}>
+            <Text style={[styles.roleText, { color: theme.primary }]}>
+              {user?.role?.charAt(0).toUpperCase()}{user?.role?.slice(1)}
+              {user?.is_primary_admin && ' (Primary)'}
+            </Text>
+          </View>
+
           {user?.center && (
-            <View style={styles.centerRow}>
-              <Ionicons name="location" size={16} color="rgba(255,255,255,0.8)" />
-              <Text style={styles.centerText}>{user.center} Center</Text>
+            <View style={[styles.centerRow, { borderTopColor: theme.border }]}>
+              <Ionicons name="location" size={16} color={theme.primary} />
+              <Text style={[styles.centerText, { color: theme.text }]}>{user.center} Center</Text>
             </View>
           )}
 
           {memberProfile?.member_id && (
             <View style={styles.memberIdRow}>
-              <Ionicons name="card" size={16} color="rgba(255,255,255,0.8)" />
-              <Text style={styles.memberIdText}>ID: {memberProfile.member_id}</Text>
+              <Ionicons name="card" size={16} color={theme.textSecondary} />
+              <Text style={[styles.memberIdText, { color: theme.textSecondary }]}>ID: {memberProfile.member_id}</Text>
             </View>
           )}
-        </LinearGradient>
+        </View>
 
         {/* Membership Status for Members */}
         {user?.role === 'member' && memberProfile?.membership && (
@@ -336,112 +309,96 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 14,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '700',
   },
   settingsButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   profileCard: {
     marginHorizontal: 20,
-    padding: 24,
+    padding: 22,
     borderRadius: 24,
-  },
-  profileTop: {
-    flexDirection: 'row',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.04,
+    shadowRadius: 14,
+    elevation: 1,
   },
   avatarContainer: {
     position: 'relative',
   },
   avatarPlaceholder: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
   },
   avatarText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#FFF',
-  },
-  onlineIndicator: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#10B981',
-    borderWidth: 2,
-    borderColor: '#FFF',
-  },
-  profileInfo: {
-    marginLeft: 16,
-    flex: 1,
+    fontSize: 30,
+    fontWeight: '800',
   },
   userName: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#FFF',
+    fontSize: 34,
+    fontWeight: '800',
+    marginTop: 14,
   },
   userEmail: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 2,
+    marginTop: 4,
   },
   roleBadge: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
-    alignSelf: 'flex-start',
-    marginTop: 10,
+    marginTop: 12,
   },
   roleText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#FFF',
+    fontWeight: '700',
   },
   centerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 16,
+    marginTop: 18,
     paddingTop: 16,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.2)',
+    width: '100%',
+    justifyContent: 'center',
   },
   centerText: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.9)',
+    fontWeight: '600',
   },
   memberIdRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 8,
+    marginTop: 10,
   },
   memberIdText: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.9)',
   },
   membershipCard: {
     marginHorizontal: 20,
@@ -449,6 +406,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     borderLeftWidth: 4,
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   membershipHeader: {
     flexDirection: 'row',
@@ -500,8 +459,10 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     padding: 16,
-    borderRadius: 16,
+    borderRadius: 18,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   statValue: {
     fontSize: 24,
@@ -513,27 +474,27 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   menuSection: {
-    marginTop: 24,
+    marginTop: 20,
     paddingHorizontal: 20,
   },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
+    fontSize: 16,
+    fontWeight: '700',
     marginBottom: 12,
-    marginLeft: 4,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 8,
+    padding: 14,
+    borderRadius: 18,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   menuIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -570,8 +531,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
-    borderRadius: 16,
+    borderRadius: 18,
     gap: 10,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
   },
   logoutText: {
     fontSize: 16,

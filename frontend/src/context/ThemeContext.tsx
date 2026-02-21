@@ -2,19 +2,19 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const lightTheme = {
-  primary: '#E63946',
-  primaryDark: '#C62828',
-  secondary: '#1D3557',
-  background: '#FFFFFF',
-  surface: '#F5F5F5',
+  primary: '#F59E0B',
+  primaryDark: '#D97706',
+  secondary: '#111111',
+  background: '#F3F4F6',
+  surface: '#FFFFFF',
   card: '#FFFFFF',
-  text: '#1D1D1D',
+  text: '#111827',
   textSecondary: '#6B7280',
   border: '#E5E7EB',
   success: '#10B981',
   warning: '#F59E0B',
   error: '#EF4444',
-  inputBg: '#F3F4F6',
+  inputBg: '#ECEEF2',
 };
 
 const darkTheme = {
@@ -44,7 +44,7 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
     loadTheme();

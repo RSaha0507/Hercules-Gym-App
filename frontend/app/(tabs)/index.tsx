@@ -395,6 +395,7 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
       >
         {/* Header */}
@@ -511,6 +512,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  scrollContent: {
+    paddingBottom: 112,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -562,15 +566,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
   greeting: {
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: '500',
   },
   userName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginTop: 4,
+    fontSize: 34,
+    fontWeight: '800',
+    marginTop: 2,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -578,20 +584,23 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   roleBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
   roleText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'capitalize',
   },
   headerLogo: {
-    width: 60,
-    height: 60,
+    width: 56,
+    height: 56,
+    borderRadius: 14,
   },
   dashboardContainer: {
     paddingHorizontal: 20,
+    gap: 12,
   },
   centerFilter: {
     flexDirection: 'row',
@@ -601,26 +610,30 @@ const styles = StyleSheet.create({
   },
   centerChip: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingVertical: 9,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   centerChipText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   centerBadgeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   centerBadgeText: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '600',
   },
   statsGrid: {
     flexDirection: 'row',
@@ -629,32 +642,43 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    minWidth: '45%',
-    padding: 16,
-    borderRadius: 16,
+    minWidth: '47%',
+    padding: 18,
+    borderRadius: 20,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.04,
+    shadowRadius: 14,
+    elevation: 1,
   },
   statIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 32,
+    fontWeight: '800',
+    lineHeight: 36,
   },
   statLabel: {
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 13,
+    marginTop: 6,
     textAlign: 'center',
+    lineHeight: 17,
   },
   revenueCard: {
     padding: 20,
-    borderRadius: 16,
+    borderRadius: 20,
     marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   revenueHeader: {
     flexDirection: 'row',
@@ -664,7 +688,7 @@ const styles = StyleSheet.create({
   revenueInfo: {},
   revenueValue: {
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   revenueLabel: {
     fontSize: 13,
@@ -678,8 +702,10 @@ const styles = StyleSheet.create({
   alertCard: {
     flex: 1,
     padding: 14,
-    borderRadius: 14,
+    borderRadius: 18,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   alertValue: {
     fontSize: 20,
@@ -695,7 +721,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    borderRadius: 16,
+    borderRadius: 18,
     marginBottom: 16,
     gap: 12,
   },
@@ -712,8 +738,10 @@ const styles = StyleSheet.create({
   },
   membershipCard: {
     padding: 20,
-    borderRadius: 16,
+    borderRadius: 20,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   membershipHeader: {
     flexDirection: 'row',
@@ -741,7 +769,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   section: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -751,7 +780,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 12,
   },
   quickActions: {
@@ -760,29 +789,39 @@ const styles = StyleSheet.create({
   },
   quickAction: {
     flex: 1,
-    padding: 16,
-    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 10,
+    borderRadius: 18,
     alignItems: 'center',
     gap: 8,
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
   },
   quickActionText: {
     color: '#FFF',
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '700',
   },
   emptyCard: {
-    padding: 40,
-    borderRadius: 16,
+    padding: 34,
+    borderRadius: 20,
     alignItems: 'center',
     gap: 12,
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: 15,
   },
   announcementCard: {
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 18,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
   },
   announcementHeader: {
     flexDirection: 'row',
@@ -791,8 +830,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   announcementTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     flex: 1,
   },
   announcementContent: {
