@@ -11,6 +11,7 @@ from typing import List, Optional, Literal
 import uuid
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
+import bcrypt
 from jose import JWTError, jwt
 import socketio
 from bson import ObjectId
@@ -57,8 +58,8 @@ CenterType = Literal["Ranaghat", "Chakdah", "Madanpur"]
 
 # Password hashing
 pwd_context = CryptContext(
-    # Keep bcrypt for backward-compat verification, use pbkdf2_sha256 for new hashes.
-    schemes=["pbkdf2_sha256", "bcrypt"],
+    # Use pbkdf2 for all new hashes to avoid runtime bcrypt backend issues.
+    schemes=["pbkdf2_sha256"],
     deprecated="auto",
 )
 
@@ -415,6 +416,12 @@ class DietPlanCreate(BaseModel):
 # ==================== HELPER FUNCTIONS ====================
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    # Backward compatibility: verify existing bcrypt hashes directly.
+    if hashed_password.startswith("$2"):
+        try:
+            return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+        except ValueError:
+            return False
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password: str) -> str:
