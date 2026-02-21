@@ -56,7 +56,11 @@ GYM_CENTERS = ["Ranaghat", "Chakdah", "Madanpur"]
 CenterType = Literal["Ranaghat", "Chakdah", "Madanpur"]
 
 # Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    # Keep bcrypt for backward-compat verification, use pbkdf2_sha256 for new hashes.
+    schemes=["pbkdf2_sha256", "bcrypt"],
+    deprecated="auto",
+)
 
 # MongoDB connection
 mongo_url = os.environ.get("MONGO_URL") or os.environ.get("MONGODB_URI") or "mongodb://localhost:27017"
