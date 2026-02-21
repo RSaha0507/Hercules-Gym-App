@@ -1,11 +1,11 @@
 {
   "expo": {
     "name": "Hercules Gym",
-    "slug": "frontend",
+    "slug": "hercules-gym-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "herculesgym",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
