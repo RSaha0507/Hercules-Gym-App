@@ -183,7 +183,7 @@ export default function MessagesScreen() {
           {user?.role === 'member'
             ? 'You can message admin, trainers, and members from your branch'
             : user?.role === 'trainer'
-            ? 'You can message your assigned members and admin'
+            ? 'You can message all members and trainers in your branch, and all admins'
             : 'You can message all members and trainers'}
         </Text>
       </View>

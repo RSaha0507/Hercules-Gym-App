@@ -97,6 +97,8 @@ export default function NewChatScreen() {
         <Text style={[styles.infoText, { color: theme.textSecondary }]}>
           {user?.role === 'member'
             ? 'You can message admin, trainers, and members from your branch'
+            : user?.role === 'trainer'
+            ? 'You can message all members/trainers in your branch and all admins'
             : 'Select a contact to start a conversation'}
         </Text>
       </View>

@@ -516,6 +516,45 @@ def _is_user_active_and_approved(user_doc: Optional[Dict]) -> bool:
         return False
     return user_doc.get("is_active", True) and user_doc.get("approval_status", "approved") == "approved"
 
+async def get_active_trainer_ids_by_center(center: Optional[str]) -> List[str]:
+    if not center:
+        return []
+    trainers = await db.users.find(
+        {
+            "role": "trainer",
+            "center": center,
+            "is_active": True,
+            "approval_status": "approved",
+        },
+        {"id": 1},
+    ).to_list(2000)
+    return [trainer["id"] for trainer in trainers if trainer.get("id")]
+
+async def sync_member_assignments_for_member(member_user_id: str):
+    member_user = await db.users.find_one({"id": member_user_id, "role": "member"})
+    if not member_user:
+        return
+    center = member_user.get("center")
+    trainer_ids = await get_active_trainer_ids_by_center(center)
+    await db.member_profiles.update_one(
+        {"user_id": member_user_id},
+        {"$set": {"assigned_trainers": trainer_ids}},
+    )
+
+async def sync_member_assignments_for_center(center: Optional[str]):
+    if not center:
+        return
+    trainer_ids = await get_active_trainer_ids_by_center(center)
+    members = await db.users.find({"role": "member", "center": center}, {"id": 1}).to_list(5000)
+    for member in members:
+        member_id = member.get("id")
+        if not member_id:
+            continue
+        await db.member_profiles.update_one(
+            {"user_id": member_id},
+            {"$set": {"assigned_trainers": trainer_ids}},
+        )
+
 async def can_users_chat(sender: Dict, receiver: Dict) -> Tuple[bool, str]:
     if sender.get("id") == receiver.get("id"):
         return False, "Cannot message yourself"
@@ -536,16 +575,11 @@ async def can_users_chat(sender: Dict, receiver: Dict) -> Tuple[bool, str]:
         if receiver_role == "member":
             if not _is_same_center(sender, receiver):
                 return False, "Can only message members from your branch"
-            profile = await db.member_profiles.find_one({"user_id": receiver["id"]})
-            if not profile or sender.get("id") not in profile.get("assigned_trainers", []):
-                return False, "Can only message assigned members"
             return True, ""
         if receiver_role == "trainer":
             return (_is_same_center(sender, receiver), "Can only message trainers from your branch")
         if receiver_role == "admin":
-            if receiver.get("is_primary_admin"):
-                return True, ""
-            return (_is_same_center(sender, receiver), "Can only message admins from your branch")
+            return True, ""
         return False, "Unsupported receiver role"
 
     if sender_role == "admin":
@@ -574,8 +608,6 @@ async def ensure_member_management_access(member_id: str, current_user: UserInDB
     if current_user.role == "trainer":
         if member_user.get("center") != current_user.center:
             raise HTTPException(status_code=403, detail="Can only manage members from your branch")
-        if current_user.id not in profile.get("assigned_trainers", []):
-            raise HTTPException(status_code=403, detail="Not assigned to this member")
     elif current_user.role == "admin":
         if (
             not current_user.is_primary_admin
@@ -808,6 +840,7 @@ async def register(user: UserRegister):
             "progress_photos": []
         }
         await db.member_profiles.insert_one(profile)
+        await sync_member_assignments_for_member(user_id)
     
     # Create approval request if not primary admin
     if approval_status == "pending":
@@ -1000,6 +1033,11 @@ async def approve_request(request_id: str, current_user: UserInDB = Depends(get_
         {"id": request["user_id"]},
         {"$set": {"approval_status": "approved"}}
     )
+
+    if request["user_role"] == "member":
+        await sync_member_assignments_for_member(request["user_id"])
+    elif request["user_role"] == "trainer":
+        await sync_member_assignments_for_center(request.get("center"))
     
     # Notify user
     await send_notification_to_user(
@@ -1072,6 +1110,9 @@ async def reject_request(
 
 @api_router.post("/members", response_model=dict)
 async def create_member(member: MemberProfileCreate, current_user: UserInDB = Depends(require_admin_or_trainer)):
+    if current_user.role == "trainer" and member.center != current_user.center:
+        raise HTTPException(status_code=403, detail="Trainers can only create members in their branch")
+
     # Check if email exists
     existing = await db.users.find_one({"email": member.email})
     if existing:
@@ -1107,7 +1148,7 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
         "gender": member.gender,
         "address": member.address,
         "emergency_contact": member.emergency_contact.dict() if member.emergency_contact else None,
-        "assigned_trainers": member.assigned_trainers or ([current_user.id] if current_user.role == "trainer" else []),
+        "assigned_trainers": [],
         "membership": member.membership.dict() if member.membership else None,
         "body_metrics": [],
         "medical_notes": member.medical_notes,
@@ -1115,6 +1156,7 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
         "progress_photos": []
     }
     await db.member_profiles.insert_one(profile)
+    await sync_member_assignments_for_member(user_id)
     
     # Notify all admins about new member
     await notify_all_admins(
@@ -1138,10 +1180,8 @@ async def get_members(
             query["center"] = center
         members = await db.users.find(query).to_list(1000)
     elif current_user.role == "trainer":
-        # Trainer sees only assigned members at their center
-        profiles = await db.member_profiles.find({"assigned_trainers": current_user.id}).to_list(1000)
-        user_ids = [p["user_id"] for p in profiles]
-        members = await db.users.find({"id": {"$in": user_ids}, "center": current_user.center}).to_list(1000)
+        # Trainer sees all members at their center
+        members = await db.users.find({"role": "member", "center": current_user.center}).to_list(1000)
     else:
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -1177,8 +1217,8 @@ async def get_member(user_id: str, current_user: UserInDB = Depends(get_current_
         raise HTTPException(status_code=403, detail="Access denied")
     
     if current_user.role == "trainer":
-        profile = await db.member_profiles.find_one({"user_id": user_id})
-        if not profile or current_user.id not in profile.get("assigned_trainers", []):
+        member_user = await db.users.find_one({"id": user_id, "role": "member"})
+        if not member_user or member_user.get("center") != current_user.center:
             raise HTTPException(status_code=403, detail="Access denied")
     
     user = await db.users.find_one({"id": user_id})
@@ -1207,6 +1247,11 @@ async def update_member(
     update: MemberProfileUpdate,
     current_user: UserInDB = Depends(get_current_user)
 ):
+    existing_member = await db.users.find_one({"id": user_id, "role": "member"})
+    if not existing_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    old_center = existing_member.get("center")
+
     # Check access
     if current_user.role == "member":
         if current_user.id != user_id:
@@ -1215,8 +1260,8 @@ async def update_member(
         allowed_fields = ["full_name", "phone", "address", "emergency_contact", "goals"]
         update_dict = {k: v for k, v in update.dict(exclude_unset=True).items() if k in allowed_fields}
     elif current_user.role == "trainer":
-        profile = await db.member_profiles.find_one({"user_id": user_id})
-        if not profile or current_user.id not in profile.get("assigned_trainers", []):
+        member_user = await db.users.find_one({"id": user_id, "role": "member"})
+        if not member_user or member_user.get("center") != current_user.center:
             raise HTTPException(status_code=403, detail="Access denied")
         # Trainers can update training-related fields
         allowed_fields = ["goals", "medical_notes", "membership"]
@@ -1244,6 +1289,11 @@ async def update_member(
         if "membership" in update_dict and update_dict["membership"]:
             update_dict["membership"] = update_dict["membership"].dict() if hasattr(update_dict["membership"], 'dict') else update_dict["membership"]
         await db.member_profiles.update_one({"user_id": user_id}, {"$set": update_dict})
+
+    if "center" in user_fields:
+        await sync_member_assignments_for_member(user_id)
+        if old_center and old_center != user_fields["center"]:
+            await sync_member_assignments_for_center(old_center)
     
     return {"message": "Member updated successfully"}
 
@@ -1260,7 +1310,14 @@ async def change_member_center(
     current_user: UserInDB = Depends(require_admin)
 ):
     """Admin only - change member's center"""
+    existing_member = await db.users.find_one({"id": user_id, "role": "member"})
+    if not existing_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    old_center = existing_member.get("center")
     await db.users.update_one({"id": user_id}, {"$set": {"center": new_center}})
+    await sync_member_assignments_for_member(user_id)
+    if old_center and old_center != new_center:
+        await sync_member_assignments_for_center(old_center)
     return {"message": f"Member center changed to {new_center}"}
 
 @api_router.post("/members/{user_id}/metrics")
@@ -1358,6 +1415,7 @@ async def create_trainer(user: UserCreate, current_user: UserInDB = Depends(requ
         "push_token": None
     }
     await db.users.insert_one(user_dict)
+    await sync_member_assignments_for_center(user.center)
     
     return {"user_id": user_id, "message": "Trainer created successfully"}
 
@@ -1409,7 +1467,11 @@ async def change_trainer_center(
     if not trainer:
         raise HTTPException(status_code=404, detail="Trainer not found")
     
+    old_center = trainer.get("center")
     await db.users.update_one({"id": user_id}, {"$set": {"center": new_center}})
+    if old_center:
+        await sync_member_assignments_for_center(old_center)
+    await sync_member_assignments_for_center(new_center)
     return {"message": f"Trainer center changed to {new_center}"}
 
 # ==================== ATTENDANCE ROUTES ====================
@@ -1422,10 +1484,11 @@ async def check_in(attendance: AttendanceCreate, current_user: UserInDB = Depend
             raise HTTPException(status_code=403, detail="Can only check in yourself")
         attendance.method = "self"
     elif current_user.role == "trainer":
-        # Check if trainer is assigned to this member
-        profile = await db.member_profiles.find_one({"user_id": attendance.user_id})
-        if not profile or current_user.id not in profile.get("assigned_trainers", []):
-            raise HTTPException(status_code=403, detail="Not assigned to this member")
+        member_user = await db.users.find_one({"id": attendance.user_id, "role": "member"})
+        if not member_user:
+            raise HTTPException(status_code=404, detail="Member not found")
+        if member_user.get("center") != current_user.center:
+            raise HTTPException(status_code=403, detail="Can only check in members from your branch")
     
     # Get user's center
     user = await db.users.find_one({"id": attendance.user_id})
@@ -1690,11 +1753,8 @@ async def get_message_contacts(current_user: UserInDB = Depends(get_current_user
         ).to_list(2000)
         contacts.extend(users)
     elif current_user.role == "trainer":
-        assigned_profiles = await db.member_profiles.find({"assigned_trainers": current_user.id}).to_list(2000)
-        assigned_member_ids = [p["user_id"] for p in assigned_profiles]
-
         member_query: Dict = {
-            "id": {"$in": assigned_member_ids},
+            "role": "member",
             "center": current_user.center,
             "is_active": True,
             "approval_status": "approved",
@@ -1710,12 +1770,8 @@ async def get_message_contacts(current_user: UserInDB = Depends(get_current_user
             "role": "admin",
             "is_active": True,
             "approval_status": "approved",
-            "$or": [
-                {"center": current_user.center},
-                {"is_primary_admin": True},
-            ],
         }
-        members = await db.users.find(member_query, base_user_fields).to_list(2000) if assigned_member_ids else []
+        members = await db.users.find(member_query, base_user_fields).to_list(2000)
         trainers = await db.users.find(trainer_query, base_user_fields).to_list(2000)
         admins = await db.users.find(admin_query, base_user_fields).to_list(2000)
         contacts.extend(members + trainers + admins)
@@ -2597,6 +2653,14 @@ async def startup_event():
         logger.info("MongoDB indexes ensured")
     except Exception as exc:
         logger.warning(f"Could not ensure one or more MongoDB indexes: {exc}")
+
+    # Keep trainer-member assignment consistent per branch.
+    try:
+        for center in GYM_CENTERS:
+            await sync_member_assignments_for_center(center)
+        logger.info("Trainer-member branch assignments synchronized")
+    except Exception as exc:
+        logger.warning(f"Could not synchronize trainer-member assignments: {exc}")
 
     # Start payment reminder background task
     asyncio.create_task(check_payment_reminders())
