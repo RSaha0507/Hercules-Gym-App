@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
@@ -38,8 +39,11 @@ export default function MembersScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const isFetchingRef = useRef(false);
 
   const loadMembers = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const data = await api.getMembers();
       setMembers(data);
@@ -47,6 +51,7 @@ export default function MembersScreen() {
     } catch (error) {
       console.log('Error loading members:', error);
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
       setRefreshing(false);
     }
@@ -54,6 +59,20 @@ export default function MembersScreen() {
 
   useEffect(() => {
     loadMembers();
+  }, [loadMembers]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadMembers();
+    }, [loadMembers])
+  );
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadMembers();
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, [loadMembers]);
 
   useEffect(() => {

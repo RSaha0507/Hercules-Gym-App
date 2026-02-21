@@ -232,9 +232,9 @@ export default function ProfileScreen() {
           <MenuItem icon="person-outline" label="Edit Profile" onPress={() => router.push('/profile/edit')} />
           {user?.role === 'member' && (
             <>
-              <MenuItem icon="body-outline" label="Body Metrics" onPress={() => router.push('/profile/metrics')} />
-              <MenuItem icon="barbell-outline" label="My Workouts" onPress={() => router.push('/profile/workouts')} />
-              <MenuItem icon="nutrition-outline" label="My Diet Plan" onPress={() => router.push('/profile/diet')} />
+              <MenuItem icon="body-outline" label="Body Metrics" onPress={() => router.push('/profile/metrics' as any)} />
+              <MenuItem icon="barbell-outline" label="My Workouts" onPress={() => router.push('/profile/workouts' as any)} />
+              <MenuItem icon="nutrition-outline" label="My Diet Plan" onPress={() => router.push('/profile/diet' as any)} />
             </>
           )}
         </View>
@@ -260,14 +260,14 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
           <MenuItem icon="notifications-outline" label="Notifications" onPress={() => router.push('/profile/notifications')} />
-          <MenuItem icon="language-outline" label="Language" onPress={() => {}} badge="English" />
+          <MenuItem icon="language-outline" label="Language" onPress={() => router.push('/profile/language' as any)} badge="English" />
         </View>
 
         <View style={styles.menuSection}>
           <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Support</Text>
           <MenuItem icon="help-circle-outline" label="Help & Support" onPress={() => router.push('/profile/help')} />
-          <MenuItem icon="document-text-outline" label="Terms of Service" onPress={() => {}} />
-          <MenuItem icon="shield-checkmark-outline" label="Privacy Policy" onPress={() => {}} />
+          <MenuItem icon="document-text-outline" label="Terms of Service" onPress={() => router.push('/profile/terms' as any)} />
+          <MenuItem icon="shield-checkmark-outline" label="Privacy Policy" onPress={() => router.push('/profile/privacy' as any)} />
         </View>
 
         <View style={styles.menuSection}>

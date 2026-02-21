@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
@@ -39,8 +40,11 @@ export default function ChatScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const isFetchingRef = useRef(false);
 
   const loadMessages = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const [messagesData, conversations] = await Promise.all([
         api.getMessages(id),
@@ -56,6 +60,7 @@ export default function ChatScreen() {
     } catch (error) {
       console.log('Error loading messages:', error);
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
     }
   }, [id]);
@@ -77,6 +82,20 @@ export default function ChatScreen() {
       socketService.offMessage();
     };
   }, [loadMessages, user?.id, id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadMessages();
+    }, [loadMessages])
+  );
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadMessages();
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, [loadMessages]);
 
   const handleSend = async () => {
     if (!newMessage.trim()) return;

@@ -20,7 +20,7 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
 
 export default function EditProfileScreen() {
-  const { user, updateUser } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { theme } = useTheme();
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -37,14 +37,12 @@ export default function EditProfileScreen() {
 
     setIsLoading(true);
     try {
-      const updatedUser = await api.updateProfile({
+      await api.updateProfile({
         full_name: formData.full_name,
         phone: formData.phone,
       });
-      
-      if (updateUser) {
-        updateUser(updatedUser);
-      }
+
+      await refreshUser();
       
       Alert.alert('Success', 'Profile updated successfully', [
         { text: 'OK', onPress: () => router.back() }

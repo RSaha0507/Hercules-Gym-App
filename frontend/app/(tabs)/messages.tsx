@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
@@ -33,14 +34,18 @@ export default function MessagesScreen() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const isFetchingRef = useRef(false);
 
   const loadConversations = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const data = await api.getConversations();
       setConversations(data);
     } catch (error) {
       console.log('Error loading conversations:', error);
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
       setRefreshing(false);
     }
@@ -61,6 +66,20 @@ export default function MessagesScreen() {
       socketService.offMessage();
     };
   }, [loadConversations, user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadConversations();
+    }, [loadConversations])
+  );
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadConversations();
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, [loadConversations]);
 
   const onRefresh = () => {
     setRefreshing(true);

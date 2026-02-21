@@ -166,7 +166,7 @@ export default function HelpSupportScreen() {
         <View style={[styles.appInfo, { backgroundColor: theme.card }]}>
           <Text style={[styles.appName, { color: theme.text }]}>Hercules Gym</Text>
           <Text style={[styles.appVersion, { color: theme.textSecondary }]}>Version 1.0.0</Text>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push('/profile/privacy' as any)}>
             <Text style={[styles.privacyLink, { color: theme.primary }]}>Privacy Policy</Text>
           </TouchableOpacity>
         </View>

@@ -352,7 +352,7 @@ export default function MerchandiseScreen() {
           {user?.role === 'admin' && (
             <TouchableOpacity
               style={[styles.headerButton, { backgroundColor: theme.card }]}
-              onPress={() => router.push('/merchandise/orders')}
+                onPress={() => router.push('/merchandise/orders' as any)}
             >
               <Ionicons name="receipt-outline" size={22} color={theme.primary} />
             </TouchableOpacity>

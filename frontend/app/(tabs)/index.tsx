@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api, GYM_CENTERS } from '../../src/services/api';
@@ -44,24 +45,49 @@ interface DashboardData {
 }
 
 export default function HomeScreen() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { theme } = useTheme();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCenter, setSelectedCenter] = useState<string | null>(null);
+  const isFetchingRef = useRef(false);
+  const userRef = useRef(user);
+  const updateUserRef = useRef(updateUser);
+  const userId = user?.id;
+  const userRole = user?.role;
+  const userApprovalStatus = user?.approval_status;
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
+    updateUserRef.current = updateUser;
+  }, [updateUser]);
 
   const loadData = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       // Load dashboard data based on role
       let dashboardData;
-      if (user?.role === 'admin') {
+      if (userRole === 'admin') {
         dashboardData = await api.getAdminDashboard(selectedCenter || undefined);
-      } else if (user?.role === 'trainer') {
+      } else if (userRole === 'trainer') {
         dashboardData = await api.getTrainerDashboard();
       } else {
         dashboardData = await api.getMemberDashboard();
+
+        // Keep local auth state in sync after approval changes.
+        if (
+          userRef.current &&
+          dashboardData?.approval_status &&
+          userApprovalStatus !== dashboardData.approval_status
+        ) {
+          updateUserRef.current({ ...userRef.current, approval_status: dashboardData.approval_status });
+        }
       }
       setDashboard(dashboardData);
 
@@ -71,17 +97,18 @@ export default function HomeScreen() {
     } catch (error) {
       console.log('Error loading dashboard:', error);
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
       setRefreshing(false);
     }
-  }, [user?.role, selectedCenter]);
+  }, [selectedCenter, userApprovalStatus, userRole]);
 
   useEffect(() => {
     loadData();
     
     // Connect socket
-    if (user?.id) {
-      socketService.connect(user.id);
+    if (userId) {
+      socketService.connect(userId);
       socketService.onAnnouncement((announcement) => {
         setAnnouncements((prev) => [announcement, ...prev.slice(0, 4)]);
       });
@@ -90,7 +117,21 @@ export default function HomeScreen() {
     return () => {
       socketService.offAnnouncement();
     };
-  }, [loadData, user?.id]);
+  }, [loadData, userId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [loadData]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -172,9 +213,9 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.statsGrid}>
-        <StatCard icon="people" label="Total Members" value={dashboard?.total_members || 0} color={theme.primary} />
-        <StatCard icon="checkmark-circle" label="Active" value={dashboard?.active_members || 0} color={theme.success} />
-        <StatCard icon="fitness" label="Trainers" value={dashboard?.total_trainers || 0} color={theme.secondary} />
+        <StatCard icon="people" label="Total Members" value={dashboard?.total_members || 0} color={theme.primary} onPress={() => router.push('/(tabs)/members')} />
+        <StatCard icon="checkmark-circle" label="Active" value={dashboard?.active_members || 0} color={theme.success} onPress={() => router.push('/(tabs)/members')} />
+        <StatCard icon="fitness" label="Trainers" value={dashboard?.total_trainers || 0} color={theme.secondary} onPress={() => router.push('/trainers' as any)} />
         <StatCard icon="calendar-outline" label="Today's Attendance" value={dashboard?.today_attendance || 0} color={theme.warning} />
       </View>
 
@@ -206,7 +247,7 @@ export default function HomeScreen() {
         {(dashboard?.pending_orders || 0) > 0 && (
           <TouchableOpacity
             style={[styles.alertCard, { backgroundColor: theme.primary + '20' }]}
-            onPress={() => router.push('/merchandise/orders')}
+            onPress={() => router.push('/merchandise/orders' as any)}
           >
             <Ionicons name="cart" size={24} color={theme.primary} />
             <Text style={[styles.alertValue, { color: theme.text }]}>{dashboard?.pending_orders}</Text>
@@ -329,7 +370,7 @@ export default function HomeScreen() {
           label="Notifications" 
           value={dashboard?.unread_notifications || 0} 
           color={theme.secondary}
-          onPress={() => router.push('/notifications')}
+          onPress={() => router.push('/notifications' as any)}
         />
       </View>
     </>

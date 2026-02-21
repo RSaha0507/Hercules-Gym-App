@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
@@ -44,15 +45,21 @@ export default function ApprovalsScreen() {
   const [selectedRequest, setSelectedRequest] = useState<ApprovalRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successTitle, setSuccessTitle] = useState('Done!');
   const [successMessage, setSuccessMessage] = useState('');
+  const [isErrorFeedback, setIsErrorFeedback] = useState(false);
+  const isFetchingRef = useRef(false);
 
   const loadRequests = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const data = await api.getPendingApprovals();
       setRequests(data);
     } catch (error) {
       console.log('Error loading approvals:', error);
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
       setRefreshing(false);
     }
@@ -60,6 +67,20 @@ export default function ApprovalsScreen() {
 
   useEffect(() => {
     loadRequests();
+  }, [loadRequests]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadRequests();
+    }, [loadRequests])
+  );
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadRequests();
+    }, 8000);
+
+    return () => clearInterval(interval);
   }, [loadRequests]);
 
   const onRefresh = () => {
@@ -80,18 +101,36 @@ export default function ApprovalsScreen() {
 
   const confirmApprove = async () => {
     if (!selectedRequest) return;
-    
+
+    const request = selectedRequest;
     setShowApproveModal(false);
-    setProcessing(selectedRequest.id);
-    
+    setProcessing(request.id);
+
     try {
-      await api.approveRequest(selectedRequest.id);
-      setRequests((prev) => prev.filter((r) => r.id !== selectedRequest.id));
-      setSuccessMessage(`${selectedRequest.user_name} has been approved! 🎉`);
+      await api.approveRequest(request.id);
+      await loadRequests();
+      setSuccessTitle('Success');
+      setIsErrorFeedback(false);
+      setSuccessMessage(`${request.user_name} has been approved successfully.`);
       setShowSuccessModal(true);
     } catch (error: any) {
       console.error('Approve error:', error);
-      setSuccessMessage(error.response?.data?.detail || 'Failed to approve. Please try again.');
+
+      const detail = error?.response?.data?.detail;
+      const detailText = typeof detail === 'string' ? detail : 'Failed to approve. Please try again.';
+      const isAlreadyProcessed = detailText.toLowerCase().includes('already') || detailText.toLowerCase().includes('not found');
+
+      if (isAlreadyProcessed) {
+        await loadRequests();
+        setSuccessTitle('Synced');
+        setIsErrorFeedback(false);
+        setSuccessMessage('Request was already processed. The list is now up to date.');
+      } else {
+        setSuccessTitle('Action Failed');
+        setIsErrorFeedback(true);
+        setSuccessMessage(detailText);
+      }
+
       setShowSuccessModal(true);
     } finally {
       setProcessing(null);
@@ -101,18 +140,36 @@ export default function ApprovalsScreen() {
 
   const confirmReject = async () => {
     if (!selectedRequest) return;
-    
+
+    const request = selectedRequest;
     setShowRejectModal(false);
-    setProcessing(selectedRequest.id);
-    
+    setProcessing(request.id);
+
     try {
-      await api.rejectRequest(selectedRequest.id, rejectReason || undefined);
-      setRequests((prev) => prev.filter((r) => r.id !== selectedRequest.id));
-      setSuccessMessage('Registration has been rejected.');
+      await api.rejectRequest(request.id, rejectReason || undefined);
+      await loadRequests();
+      setSuccessTitle('Success');
+      setIsErrorFeedback(false);
+      setSuccessMessage(`${request.user_name}'s request has been rejected.`);
       setShowSuccessModal(true);
     } catch (error: any) {
       console.error('Reject error:', error);
-      setSuccessMessage(error.response?.data?.detail || 'Failed to reject. Please try again.');
+
+      const detail = error?.response?.data?.detail;
+      const detailText = typeof detail === 'string' ? detail : 'Failed to reject. Please try again.';
+      const isAlreadyProcessed = detailText.toLowerCase().includes('already') || detailText.toLowerCase().includes('not found');
+
+      if (isAlreadyProcessed) {
+        await loadRequests();
+        setSuccessTitle('Synced');
+        setIsErrorFeedback(false);
+        setSuccessMessage('Request was already processed. The list is now up to date.');
+      } else {
+        setSuccessTitle('Action Failed');
+        setIsErrorFeedback(true);
+        setSuccessMessage(detailText);
+      }
+
       setShowSuccessModal(true);
     } finally {
       setProcessing(null);
@@ -235,7 +292,7 @@ export default function ApprovalsScreen() {
           <View style={styles.timeRow}>
             <Ionicons name="time-outline" size={14} color={theme.textSecondary} />
             <Text style={[styles.timeText, { color: theme.textSecondary }]}>
-              {format(new Date(item.requested_at), 'MMM d, yyyy • h:mm a')}
+              {format(new Date(item.requested_at), 'MMM d, yyyy - h:mm a')}
             </Text>
           </View>
 
@@ -392,15 +449,15 @@ export default function ApprovalsScreen() {
       <Modal visible={showSuccessModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
-            <View style={[styles.modalIconContainer, { backgroundColor: theme.primary + '20' }]}>
-              <Ionicons name="checkmark-done" size={48} color={theme.primary} />
+            <View style={[styles.modalIconContainer, { backgroundColor: (isErrorFeedback ? theme.error : theme.primary) + '20' }]}>
+              <Ionicons name={isErrorFeedback ? 'alert-circle' : 'checkmark-done'} size={48} color={isErrorFeedback ? theme.error : theme.primary} />
             </View>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Done!</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{successTitle}</Text>
             <Text style={[styles.modalSubtitle, { color: theme.textSecondary, textAlign: 'center' }]}>
               {successMessage}
             </Text>
             <TouchableOpacity
-              style={[styles.modalSingleButton, { backgroundColor: theme.primary }]}
+              style={[styles.modalSingleButton, { backgroundColor: isErrorFeedback ? theme.error : theme.primary }]}
               onPress={() => setShowSuccessModal(false)}
             >
               <Text style={styles.modalConfirmText}>OK</Text>

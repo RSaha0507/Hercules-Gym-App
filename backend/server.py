@@ -825,7 +825,7 @@ async def approve_request(request_id: str, current_user: UserInDB = Depends(get_
         raise HTTPException(status_code=404, detail="Request not found")
     
     if request["status"] != "pending":
-        raise HTTPException(status_code=400, detail="Request already processed")
+        return {"message": f"Request already {request['status']}"}
     
     # Check permission
     if request["user_role"] in ["admin", "trainer"]:
@@ -835,15 +835,19 @@ async def approve_request(request_id: str, current_user: UserInDB = Depends(get_
         if current_user.role == "trainer" and current_user.center != request["center"]:
             raise HTTPException(status_code=403, detail="Can only approve members from your center")
     
-    # Update approval request
-    await db.approval_requests.update_one(
-        {"id": request_id},
+    # Update approval request (idempotent/race-safe)
+    update_result = await db.approval_requests.update_one(
+        {"id": request_id, "status": "pending"},
         {"$set": {
             "status": "approved",
             "reviewed_by": current_user.id,
             "reviewed_at": datetime.utcnow()
         }}
     )
+    if update_result.modified_count == 0:
+        latest = await db.approval_requests.find_one({"id": request_id})
+        latest_status = latest.get("status") if latest else "processed"
+        return {"message": f"Request already {latest_status}"}
     
     # Update user status
     await db.users.update_one(
@@ -876,7 +880,7 @@ async def reject_request(
         raise HTTPException(status_code=404, detail="Request not found")
     
     if request["status"] != "pending":
-        raise HTTPException(status_code=400, detail="Request already processed")
+        return {"message": f"Request already {request['status']}"}
     
     # Check permission
     if request["user_role"] in ["admin", "trainer"]:
@@ -886,9 +890,9 @@ async def reject_request(
         if current_user.role == "trainer" and current_user.center != request["center"]:
             raise HTTPException(status_code=403, detail="Can only reject members from your center")
     
-    # Update approval request
-    await db.approval_requests.update_one(
-        {"id": request_id},
+    # Update approval request (idempotent/race-safe)
+    update_result = await db.approval_requests.update_one(
+        {"id": request_id, "status": "pending"},
         {"$set": {
             "status": "rejected",
             "reviewed_by": current_user.id,
@@ -896,6 +900,10 @@ async def reject_request(
             "rejection_reason": reason
         }}
     )
+    if update_result.modified_count == 0:
+        latest = await db.approval_requests.find_one({"id": request_id})
+        latest_status = latest.get("status") if latest else "processed"
+        return {"message": f"Request already {latest_status}"}
     
     # Update user status
     await db.users.update_one(
@@ -991,9 +999,15 @@ async def get_members(
     else:
         raise HTTPException(status_code=403, detail="Access denied")
     
+    member_ids = [member["id"] for member in members]
+    profiles = []
+    if member_ids:
+        profiles = await db.member_profiles.find({"user_id": {"$in": member_ids}}).to_list(1000)
+    profile_by_user_id = {profile["user_id"]: profile for profile in profiles}
+
     result = []
     for member in members:
-        profile = await db.member_profiles.find_one({"user_id": member["id"]})
+        profile = profile_by_user_id.get(member["id"])
         result.append({
             "id": member["id"],
             "email": member["email"],
@@ -1172,10 +1186,20 @@ async def get_trainers(
     
     trainers = await db.users.find(query).to_list(1000)
     
+    trainer_ids = [trainer["id"] for trainer in trainers]
+    assigned_member_count_by_trainer = {}
+    if trainer_ids:
+        assigned_counts = await db.member_profiles.aggregate([
+            {"$match": {"assigned_trainers": {"$in": trainer_ids}}},
+            {"$unwind": "$assigned_trainers"},
+            {"$match": {"assigned_trainers": {"$in": trainer_ids}}},
+            {"$group": {"_id": "$assigned_trainers", "count": {"$sum": 1}}},
+        ]).to_list(1000)
+        assigned_member_count_by_trainer = {row["_id"]: row["count"] for row in assigned_counts}
+
     result = []
     for trainer in trainers:
-        # Count assigned members
-        member_count = await db.member_profiles.count_documents({"assigned_trainers": trainer["id"]})
+        member_count = assigned_member_count_by_trainer.get(trainer["id"], 0)
         result.append({
             "id": trainer["id"],
             "email": trainer["email"],
@@ -2145,6 +2169,20 @@ async def startup_event():
     except Exception as exc:
         logger.error(f"Failed to connect to MongoDB during startup: {exc}")
         raise RuntimeError("MongoDB connection failed at startup.") from exc
+
+    # Create indexes to reduce query latency on frequently used paths.
+    try:
+        await db.users.create_index([("id", 1)], unique=True)
+        await db.users.create_index([("email", 1)], unique=True)
+        await db.users.create_index([("role", 1), ("center", 1)])
+        await db.member_profiles.create_index([("user_id", 1)], unique=True)
+        await db.member_profiles.create_index([("assigned_trainers", 1)])
+        await db.approval_requests.create_index([("status", 1), ("requested_at", -1)])
+        await db.messages.create_index([("sender_id", 1), ("receiver_id", 1), ("created_at", 1)])
+        await db.conversations.create_index([("participant_ids", 1), ("last_message_time", -1)])
+        logger.info("MongoDB indexes ensured")
+    except Exception as exc:
+        logger.warning(f"Could not ensure one or more MongoDB indexes: {exc}")
 
     # Start payment reminder background task
     asyncio.create_task(check_payment_reminders())
