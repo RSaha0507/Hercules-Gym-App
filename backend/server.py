@@ -55,6 +55,7 @@ ACCESS_TOKEN_EXPIRE_DAYS = 30
 # Gym Centers
 GYM_CENTERS = ["Ranaghat", "Chakdah", "Madanpur"]
 CenterType = Literal["Ranaghat", "Chakdah", "Madanpur"]
+INDIA_PHONE_PREFIX = "+91"
 
 # Password hashing
 pwd_context = CryptContext(
@@ -555,6 +556,25 @@ async def sync_member_assignments_for_center(center: Optional[str]):
             {"$set": {"assigned_trainers": trainer_ids}},
         )
 
+async def sync_all_branch_assignments():
+    for center in GYM_CENTERS:
+        await sync_member_assignments_for_center(center)
+
+def normalize_indian_phone(phone: str) -> str:
+    raw = (phone or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+
+    if digits.startswith("91") and len(digits) == 12:
+        digits = digits[2:]
+
+    if len(digits) != 10:
+        raise HTTPException(status_code=400, detail="Phone must be a 10-digit Indian mobile number")
+
+    if digits[0] not in {"6", "7", "8", "9"}:
+        raise HTTPException(status_code=400, detail="Phone must start with 6, 7, 8, or 9")
+
+    return f"{INDIA_PHONE_PREFIX}{digits}"
+
 async def can_users_chat(sender: Dict, receiver: Dict) -> Tuple[bool, str]:
     if sender.get("id") == receiver.get("id"):
         return False, "Cannot message yourself"
@@ -786,7 +806,9 @@ async def check_payment_reminders():
 # ==================== AUTH ROUTES ====================
 
 @api_router.post("/auth/register", response_model=Token)
-async def register(user: UserRegister):
+async def register(user: UserRegister, background_tasks: BackgroundTasks):
+    normalized_phone = normalize_indian_phone(user.phone)
+
     # Check if user exists
     existing = await db.users.find_one({"email": user.email})
     if existing:
@@ -814,7 +836,7 @@ async def register(user: UserRegister):
     user_dict = {
         "id": user_id,
         "email": user.email,
-        "phone": user.phone,
+        "phone": normalized_phone,
         "full_name": user.full_name,
         "role": user.role,
         "center": user.center,
@@ -858,28 +880,31 @@ async def register(user: UserRegister):
             # Notify primary admin
             primary_admin = await db.users.find_one({"is_primary_admin": True})
             if primary_admin:
-                await send_notification_to_user(
+                background_tasks.add_task(
+                    send_notification_to_user,
                     primary_admin["id"],
                     "New Approval Request",
                     f"{user.full_name} has requested to join as {user.role} at {user.center or 'HQ'}",
                     "approval",
-                    {"request_id": approval_request.id, "user_id": user_id}
+                    {"request_id": approval_request.id, "user_id": user_id},
                 )
         elif user.role == "member":
             # Notify trainers at that center
-            await notify_center_trainers(
+            background_tasks.add_task(
+                notify_center_trainers,
                 user.center,
                 "New Member Registration",
                 f"{user.full_name} has requested to join at {user.center}",
                 "approval",
-                {"request_id": approval_request.id, "user_id": user_id}
+                {"request_id": approval_request.id, "user_id": user_id},
             )
             # Also notify all admins
-            await notify_all_admins(
+            background_tasks.add_task(
+                notify_all_admins,
                 "New Member Registration",
                 f"{user.full_name} has requested to join at {user.center}",
                 "approval",
-                {"request_id": approval_request.id, "user_id": user_id}
+                {"request_id": approval_request.id, "user_id": user_id},
             )
     
     # Generate token
@@ -888,7 +913,7 @@ async def register(user: UserRegister):
     user_response = UserResponse(
         id=user_id,
         email=user.email,
-        phone=user.phone,
+        phone=normalized_phone,
         full_name=user.full_name,
         role=user.role,
         center=user.center,
@@ -964,7 +989,7 @@ async def update_profile(
     if full_name:
         update_data["full_name"] = full_name
     if phone:
-        update_data["phone"] = phone
+        update_data["phone"] = normalize_indian_phone(phone)
     if profile_image:
         update_data["profile_image"] = profile_image
     
@@ -1125,7 +1150,7 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
     user_dict = {
         "id": user_id,
         "email": member.email,
-        "phone": member.phone,
+        "phone": normalize_indian_phone(member.phone),
         "full_name": member.full_name,
         "role": "member",
         "center": member.center,
@@ -1275,7 +1300,7 @@ async def update_member(
     if "full_name" in update_dict:
         user_fields["full_name"] = update_dict.pop("full_name")
     if "phone" in update_dict:
-        user_fields["phone"] = update_dict.pop("phone")
+        user_fields["phone"] = normalize_indian_phone(update_dict.pop("phone"))
     if "center" in update_dict:
         user_fields["center"] = update_dict.pop("center")
     
@@ -1402,7 +1427,7 @@ async def create_trainer(user: UserCreate, current_user: UserInDB = Depends(requ
     user_dict = {
         "id": user_id,
         "email": user.email,
-        "phone": user.phone,
+        "phone": normalize_indian_phone(user.phone),
         "full_name": user.full_name,
         "role": "trainer",
         "center": user.center,
@@ -2654,13 +2679,14 @@ async def startup_event():
     except Exception as exc:
         logger.warning(f"Could not ensure one or more MongoDB indexes: {exc}")
 
-    # Keep trainer-member assignment consistent per branch.
-    try:
-        for center in GYM_CENTERS:
-            await sync_member_assignments_for_center(center)
-        logger.info("Trainer-member branch assignments synchronized")
-    except Exception as exc:
-        logger.warning(f"Could not synchronize trainer-member assignments: {exc}")
+    # Keep trainer-member assignment consistent per branch without delaying startup.
+    async def _run_assignment_sync():
+        try:
+            await sync_all_branch_assignments()
+            logger.info("Trainer-member branch assignments synchronized")
+        except Exception as exc:
+            logger.warning(f"Could not synchronize trainer-member assignments: {exc}")
+    asyncio.create_task(_run_assignment_sync())
 
     # Start payment reminder background task
     asyncio.create_task(check_payment_reminders())

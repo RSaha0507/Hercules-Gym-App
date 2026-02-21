@@ -11,6 +11,7 @@ class ApiService {
   constructor() {
     this.client = axios.create({
       baseURL: API_BASE_URL,
+      timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -26,6 +27,11 @@ class ApiService {
 
   setToken(token: string | null) {
     this.token = token;
+  }
+
+  async ping() {
+    const response = await this.client.get('/health', { timeout: 12000 });
+    return response.data;
   }
 
   // Auth

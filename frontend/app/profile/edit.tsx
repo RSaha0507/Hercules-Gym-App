@@ -22,10 +22,11 @@ import { api } from '../../src/services/api';
 export default function EditProfileScreen() {
   const { user, refreshUser } = useAuth();
   const { theme } = useTheme();
+  const toIndianPhoneDigits = (value: string) => value.replace(/\D/g, '').replace(/^91/, '').slice(0, 10);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     full_name: user?.full_name || '',
-    phone: user?.phone || '',
+    phone: toIndianPhoneDigits(user?.phone || ''),
     address: '',
   });
 
@@ -35,11 +36,16 @@ export default function EditProfileScreen() {
       return;
     }
 
+    if (formData.phone.length !== 10) {
+      Alert.alert('Error', 'Phone must be exactly 10 digits');
+      return;
+    }
+
     setIsLoading(true);
     try {
       await api.updateProfile({
         full_name: formData.full_name,
-        phone: formData.phone,
+        phone: `+91${formData.phone}`,
       });
 
       await refreshUser();
@@ -113,14 +119,18 @@ export default function EditProfileScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={[styles.label, { color: theme.text }]}>Phone</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
-                value={formData.phone}
-                onChangeText={(text) => setFormData({ ...formData, phone: text })}
-                placeholder="Enter your phone number"
-                placeholderTextColor={theme.textSecondary}
-                keyboardType="phone-pad"
-              />
+              <View style={[styles.phoneInputWrap, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
+                <Text style={[styles.phonePrefix, { color: theme.textSecondary }]}>+91</Text>
+                <TextInput
+                  style={[styles.phoneInput, { color: theme.text }]}
+                  value={formData.phone}
+                  onChangeText={(text) => setFormData({ ...formData, phone: toIndianPhoneDigits(text) })}
+                  placeholder="10-digit mobile number"
+                  placeholderTextColor={theme.textSecondary}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                />
+              </View>
             </View>
           </View>
 
@@ -232,6 +242,23 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     fontSize: 16,
     borderWidth: 1,
+  },
+  phoneInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+  },
+  phonePrefix: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginRight: 6,
+  },
+  phoneInput: {
+    flex: 1,
+    height: 52,
+    fontSize: 16,
   },
   disabledInput: {
     opacity: 0.7,

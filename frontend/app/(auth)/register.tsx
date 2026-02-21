@@ -32,12 +32,19 @@ export default function RegisterScreen() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const formatIndianPhoneDigits = (text: string) => text.replace(/\D/g, '').slice(0, 10);
 
   const handleRegister = async () => {
     const { full_name, email, phone, password, confirmPassword, role, center } = formData;
+    const phoneDigits = formatIndianPhoneDigits(phone);
 
     if (!full_name || !email || !phone || !password) {
       Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (phoneDigits.length !== 10) {
+      Alert.alert('Error', 'Phone must be exactly 10 digits');
       return;
     }
 
@@ -61,7 +68,7 @@ export default function RegisterScreen() {
       await register({
         full_name,
         email: email.toLowerCase().trim(),
-        phone,
+        phone: `+91${phoneDigits}`,
         password,
         role,
         center: role !== 'admin' ? center : undefined,
@@ -210,13 +217,15 @@ export default function RegisterScreen() {
 
             <View style={[styles.inputContainer, { backgroundColor: theme.inputBg }]}>
               <Ionicons name="call-outline" size={20} color={theme.textSecondary} />
+              <Text style={[styles.phonePrefix, { color: theme.textSecondary }]}>+91</Text>
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder="Phone Number"
+                placeholder="10-digit mobile number"
                 placeholderTextColor={theme.textSecondary}
                 value={formData.phone}
-                onChangeText={(text) => setFormData({ ...formData, phone: text })}
+                onChangeText={(text) => setFormData({ ...formData, phone: formatIndianPhoneDigits(text) })}
                 keyboardType="phone-pad"
+                maxLength={10}
               />
             </View>
 
@@ -374,6 +383,11 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     fontSize: 16,
+  },
+  phonePrefix: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginRight: -4,
   },
   infoBox: {
     flexDirection: 'row',

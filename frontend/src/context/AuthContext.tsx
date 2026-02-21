@@ -106,34 +106,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const registerPushInBackground = () => {
+    registerForPushNotifications().catch((error) => {
+      console.log('Background push registration failed:', error);
+    });
+  };
+
+  const setAuthState = (accessToken: string | null, userData: User | null) => {
+    setToken(accessToken);
+    setUser(userData);
+    api.setToken(accessToken);
+  };
+
+  const persistAuthState = async (accessToken: string, userData: User) => {
+    setAuthState(accessToken, userData);
+    try {
+      await AsyncStorage.multiSet([
+        ['token', accessToken],
+        ['user', JSON.stringify(userData)],
+      ]);
+    } catch (error) {
+      console.log('Failed to persist auth state:', error);
+    }
+  };
+
+  const clearAuthState = async () => {
+    setAuthState(null, null);
+    try {
+      await AsyncStorage.multiRemove(['token', 'user']);
+    } catch (error) {
+      console.log('Failed to clear auth state:', error);
+    }
+  };
+
+  const getApiErrorMessage = (error: any, fallback: string) =>
+    error?.response?.data?.detail || fallback;
+
   const loadStoredAuth = async () => {
     try {
-      const storedToken = await AsyncStorage.getItem('token');
-      const storedUser = await AsyncStorage.getItem('user');
+      const [storedToken, storedUser] = await Promise.all([
+        AsyncStorage.getItem('token'),
+        AsyncStorage.getItem('user'),
+      ]);
       
       if (storedToken && storedUser) {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-        api.setToken(storedToken);
-        
-        // Verify token is still valid
-        try {
-          const response = await api.getMe();
-          setUser(response);
-          await AsyncStorage.setItem('user', JSON.stringify(response));
-          
-          // Register for push notifications
-          await registerForPushNotifications();
-        } catch {
-          // Token invalid, clear storage
-          await logout();
-        }
+        const parsedUser = JSON.parse(storedUser) as User;
+        setAuthState(storedToken, parsedUser);
+        setIsLoading(false);
+
+        // Refresh auth in background so app opens instantly from cached auth.
+        (async () => {
+          try {
+            const response = await api.getMe();
+            setUser(response);
+            await AsyncStorage.setItem('user', JSON.stringify(response));
+            registerPushInBackground();
+          } catch (error) {
+            console.log('Stored session refresh failed:', error);
+            await clearAuthState();
+            router.replace('/(auth)/login');
+          }
+        })();
+        return;
       }
+
+      // Warm backend while user is on auth screen.
+      api.ping().catch(() => null);
     } catch (error) {
       console.log('Error loading auth:', error);
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   };
 
   const login = async (email: string, password: string) => {
@@ -141,19 +183,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await api.login(email, password);
       const { access_token, user: userData } = response;
       
-      setToken(access_token);
-      setUser(userData);
-      api.setToken(access_token);
-      
-      await AsyncStorage.setItem('token', access_token);
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
-      
-      // Register for push notifications
-      await registerForPushNotifications();
-      
+      await persistAuthState(access_token, userData);
       router.replace('/(tabs)');
+      registerPushInBackground();
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'Login failed');
+      throw new Error(getApiErrorMessage(error, 'Login failed'));
     }
   };
 
@@ -162,31 +196,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await api.register(data);
       const { access_token, user: userData } = response;
       
-      setToken(access_token);
-      setUser(userData);
-      api.setToken(access_token);
-      
-      await AsyncStorage.setItem('token', access_token);
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
-      
-      // Register for push notifications
-      await registerForPushNotifications();
-      
+      await persistAuthState(access_token, userData);
       router.replace('/(tabs)');
+      registerPushInBackground();
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'Registration failed');
+      throw new Error(getApiErrorMessage(error, 'Registration failed'));
     }
   };
 
   const logout = async () => {
     try {
-      setToken(null);
-      setUser(null);
-      api.setToken(null);
-      
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('user');
-      
+      await clearAuthState();
       router.replace('/(auth)/login');
     } catch (error) {
       console.log('Error logging out:', error);

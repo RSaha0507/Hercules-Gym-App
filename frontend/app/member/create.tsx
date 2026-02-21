@@ -22,6 +22,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 export default function CreateMemberScreen() {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const toIndianPhoneDigits = (value: string) => value.replace(/\D/g, '').replace(/^91/, '').slice(0, 10);
   const [isLoading, setIsLoading] = useState(false);
   const [showStartDate, setShowStartDate] = useState(false);
   const [showEndDate, setShowEndDate] = useState(false);
@@ -54,12 +55,22 @@ export default function CreateMemberScreen() {
       return;
     }
 
+    if (formData.phone.length !== 10) {
+      Alert.alert('Error', 'Member phone must be exactly 10 digits');
+      return;
+    }
+
+    if (formData.emergency_phone && formData.emergency_phone.length !== 10) {
+      Alert.alert('Error', 'Emergency contact phone must be exactly 10 digits');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const data: any = {
         full_name: formData.full_name,
         email: formData.email.toLowerCase().trim(),
-        phone: formData.phone,
+        phone: `+91${formData.phone}`,
         password: formData.password,
         center: formData.center,
         gender: formData.gender || null,
@@ -71,7 +82,7 @@ export default function CreateMemberScreen() {
       if (formData.emergency_name && formData.emergency_phone) {
         data.emergency_contact = {
           name: formData.emergency_name,
-          phone: formData.emergency_phone,
+          phone: `+91${formData.emergency_phone}`,
           relationship: formData.emergency_relationship || 'Other',
         };
       }
@@ -161,9 +172,10 @@ export default function CreateMemberScreen() {
             <InputField
               label="Phone"
               value={formData.phone}
-              onChangeText={(text: string) => setFormData({ ...formData, phone: text })}
-              placeholder="Enter phone number"
+              onChangeText={(text: string) => setFormData({ ...formData, phone: toIndianPhoneDigits(text) })}
+              placeholder="10-digit mobile number"
               keyboardType="phone-pad"
+              maxLength={10}
               required
             />
             <InputField
@@ -287,9 +299,10 @@ export default function CreateMemberScreen() {
             <InputField
               label="Contact Phone"
               value={formData.emergency_phone}
-              onChangeText={(text: string) => setFormData({ ...formData, emergency_phone: text })}
-              placeholder="Enter phone"
+              onChangeText={(text: string) => setFormData({ ...formData, emergency_phone: toIndianPhoneDigits(text) })}
+              placeholder="10-digit mobile number"
               keyboardType="phone-pad"
+              maxLength={10}
             />
             <InputField
               label="Relationship"
