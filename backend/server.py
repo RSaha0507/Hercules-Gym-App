@@ -551,6 +551,9 @@ async def can_users_chat(sender: Dict, receiver: Dict) -> Tuple[bool, str]:
     if sender_role == "admin":
         if sender.get("is_primary_admin"):
             return True, ""
+        if not sender.get("center"):
+            # Branchless admins are treated as global admins.
+            return True, ""
         if receiver_role == "admin" and receiver.get("is_primary_admin"):
             return True, ""
         if _is_same_center(sender, receiver):
@@ -574,7 +577,11 @@ async def ensure_member_management_access(member_id: str, current_user: UserInDB
         if current_user.id not in profile.get("assigned_trainers", []):
             raise HTTPException(status_code=403, detail="Not assigned to this member")
     elif current_user.role == "admin":
-        if not current_user.is_primary_admin and member_user.get("center") != current_user.center:
+        if (
+            not current_user.is_primary_admin
+            and current_user.center
+            and member_user.get("center") != current_user.center
+        ):
             raise HTTPException(status_code=403, detail="Can only manage members from your branch")
     elif current_user.role == "member":
         if current_user.id != member_id:
@@ -1714,6 +1721,12 @@ async def get_message_contacts(current_user: UserInDB = Depends(get_current_user
         contacts.extend(members + trainers + admins)
     elif current_user.role == "admin":
         if current_user.is_primary_admin:
+            query = {
+                "id": {"$ne": current_user.id},
+                "is_active": True,
+                "approval_status": "approved",
+            }
+        elif not current_user.center:
             query = {
                 "id": {"$ne": current_user.id},
                 "is_active": True,
