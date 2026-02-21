@@ -232,6 +232,7 @@ export default function ProfileScreen() {
           <MenuItem icon="person-outline" label="Edit Profile" onPress={() => router.push('/profile/edit')} />
           {user?.role === 'member' && (
             <>
+              <MenuItem icon="qr-code-outline" label="QR Check-In" onPress={() => router.push('/profile/checkin-qr' as any)} />
               <MenuItem icon="body-outline" label="Body Metrics" onPress={() => router.push('/profile/metrics' as any)} />
               <MenuItem icon="barbell-outline" label="My Workouts" onPress={() => router.push('/profile/workouts' as any)} />
               <MenuItem icon="nutrition-outline" label="My Diet Plan" onPress={() => router.push('/profile/diet' as any)} />

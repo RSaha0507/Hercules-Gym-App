@@ -119,6 +119,16 @@ class ApiService {
     return response.data;
   }
 
+  async updateBodyMetrics(userId: string, metricIndex: number, data: any) {
+    const response = await this.client.put(`/members/${userId}/metrics/${metricIndex}`, data);
+    return response.data;
+  }
+
+  async deleteBodyMetrics(userId: string, metricIndex: number) {
+    const response = await this.client.delete(`/members/${userId}/metrics/${metricIndex}`);
+    return response.data;
+  }
+
   // Trainers
   async getTrainers(center?: string) {
     const response = await this.client.get('/trainers', { params: { center } });
@@ -202,6 +212,23 @@ class ApiService {
 
   async getMessages(otherUserId: string) {
     const response = await this.client.get(`/messages/${otherUserId}`);
+    return response.data;
+  }
+
+  async getMessageContacts() {
+    const response = await this.client.get('/messages/contacts');
+    return response.data;
+  }
+
+  async deleteSelectedMessages(messageIds: string[]) {
+    const response = await this.client.post('/messages/delete-selected', {
+      message_ids: messageIds,
+    });
+    return response.data;
+  }
+
+  async deleteConversation(otherUserId: string) {
+    const response = await this.client.delete(`/messages/conversations/${otherUserId}`);
     return response.data;
   }
 
@@ -289,6 +316,16 @@ class ApiService {
     return response.data;
   }
 
+  async updateWorkout(workoutId: string, data: any) {
+    const response = await this.client.put(`/workouts/${workoutId}`, data);
+    return response.data;
+  }
+
+  async deleteWorkout(workoutId: string) {
+    const response = await this.client.delete(`/workouts/${workoutId}`);
+    return response.data;
+  }
+
   async completeExercise(workoutId: string, exerciseIndex: number) {
     const response = await this.client.put(`/workouts/${workoutId}/complete`, null, {
       params: { exercise_index: exerciseIndex },
@@ -304,6 +341,16 @@ class ApiService {
 
   async getDiets(memberId: string) {
     const response = await this.client.get(`/diets/${memberId}`);
+    return response.data;
+  }
+
+  async updateDiet(dietId: string, data: any) {
+    const response = await this.client.put(`/diets/${dietId}`, data);
+    return response.data;
+  }
+
+  async deleteDiet(dietId: string) {
+    const response = await this.client.delete(`/diets/${dietId}`);
     return response.data;
   }
 

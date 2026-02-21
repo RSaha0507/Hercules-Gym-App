@@ -16,64 +16,50 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../../src/context/ThemeContext';
 import { api } from '../../../src/services/api';
 
-interface WorkoutExercise {
-  name: string;
-  sets: number;
-  reps: number;
-  weight?: number;
-  notes?: string;
+interface Meal {
+  meal_type: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+  description: string;
 }
 
-interface WorkoutPlan {
+interface DietPlan {
   id: string;
   name: string;
-  day_of_week?: string;
   notes?: string;
-  exercises: WorkoutExercise[];
+  meals: Meal[];
   created_at: string;
 }
 
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const VALID_MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'];
 
-function toExerciseLines(exercises: WorkoutExercise[] = []): string {
-  return exercises
-    .map((exercise) => {
-      const segments = [exercise.name, String(exercise.sets), String(exercise.reps)];
-      if (exercise.weight !== undefined && exercise.weight !== null) {
-        segments.push(String(exercise.weight));
-      }
-      return segments.join(',');
-    })
-    .join('\n');
+function toMealLines(meals: Meal[] = []): string {
+  return meals.map((meal) => `${meal.meal_type}: ${meal.description}`).join('\n');
 }
 
-export default function MemberWorkoutScreen() {
+export default function MemberDietScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { theme } = useTheme();
-  const [plans, setPlans] = useState<WorkoutPlan[]>([]);
+  const [plans, setPlans] = useState<DietPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [editingDietId, setEditingDietId] = useState<string | null>(null);
 
-  const [planName, setPlanName] = useState('');
-  const [dayOfWeek, setDayOfWeek] = useState('Monday');
+  const [name, setName] = useState('');
   const [notes, setNotes] = useState('');
-  const [exerciseLines, setExerciseLines] = useState('');
+  const [mealLines, setMealLines] = useState('');
 
   const resetForm = () => {
-    setPlanName('');
-    setDayOfWeek('Monday');
+    setName('');
     setNotes('');
-    setExerciseLines('');
-    setEditingPlanId(null);
+    setMealLines('');
+    setEditingDietId(null);
   };
 
   const loadPlans = useCallback(async () => {
     try {
-      const response = await api.getWorkouts(id);
+      const response = await api.getDiets(id);
       setPlans(response || []);
     } catch (error) {
-      console.log('Error loading workout plans:', error);
+      console.log('Error loading diet plans:', error);
     } finally {
       setLoading(false);
     }
@@ -89,84 +75,85 @@ export default function MemberWorkoutScreen() {
     }, [loadPlans]),
   );
 
-  const parseExercises = (): WorkoutExercise[] => {
-    return exerciseLines
+  const parseMeals = (): Meal[] => {
+    return mealLines
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => {
-        const [nameRaw, setsRaw, repsRaw, weightRaw] = line.split(',').map((part) => part.trim());
+        const [typeRaw, ...descParts] = line.split(':');
+        const mealType = typeRaw?.trim().toLowerCase();
+        const description = descParts.join(':').trim();
+        if (!VALID_MEAL_TYPES.includes(mealType) || !description) {
+          return null;
+        }
         return {
-          name: nameRaw || '',
-          sets: Number(setsRaw || 0),
-          reps: Number(repsRaw || 0),
-          weight: weightRaw ? Number(weightRaw) : undefined,
+          meal_type: mealType as Meal['meal_type'],
+          description,
         };
       })
-      .filter((exercise) => exercise.name && exercise.sets > 0 && exercise.reps > 0);
+      .filter((meal): meal is Meal => !!meal);
   };
 
-  const handleSavePlan = async () => {
-    const exercises = parseExercises();
-    if (!planName.trim()) {
+  const handleSaveDiet = async () => {
+    const meals = parseMeals();
+    if (!name.trim()) {
       Alert.alert('Validation', 'Plan name is required.');
       return;
     }
-    if (!exercises.length) {
-      Alert.alert('Validation', 'Add at least one valid exercise line.');
+    if (!meals.length) {
+      Alert.alert('Validation', 'Add at least one valid meal line.');
       return;
     }
 
     setSaving(true);
     try {
       const payload = {
-        name: planName.trim(),
         member_id: id,
-        day_of_week: dayOfWeek,
+        name: name.trim(),
         notes: notes.trim() || undefined,
-        exercises,
+        meals,
       };
 
-      if (editingPlanId) {
-        await api.updateWorkout(editingPlanId, payload);
-        Alert.alert('Success', 'Workout plan updated successfully.');
+      if (editingDietId) {
+        await api.updateDiet(editingDietId, payload);
+        Alert.alert('Success', 'Diet plan updated successfully.');
       } else {
-        await api.createWorkout(payload);
-        Alert.alert('Success', 'Workout plan assigned successfully.');
+        await api.createDiet(payload);
+        Alert.alert('Success', 'Diet plan assigned successfully.');
       }
 
       resetForm();
       await loadPlans();
     } catch (error: any) {
-      Alert.alert('Failed', error.response?.data?.detail || 'Failed to save workout plan');
+      Alert.alert('Failed', error.response?.data?.detail || 'Failed to save diet plan');
     } finally {
       setSaving(false);
     }
   };
 
-  const startEditPlan = (plan: WorkoutPlan) => {
-    setEditingPlanId(plan.id);
-    setPlanName(plan.name || '');
-    setDayOfWeek(plan.day_of_week || 'Monday');
+  const startEditPlan = (plan: DietPlan) => {
+    setEditingDietId(plan.id);
+    setName(plan.name || '');
     setNotes(plan.notes || '');
-    setExerciseLines(toExerciseLines(plan.exercises || []));
+    setMealLines(toMealLines(plan.meals || []));
   };
 
-  const handleDeletePlan = (planId: string) => {
-    Alert.alert('Delete workout', 'Delete this workout plan permanently?', [
+  const handleDeletePlan = (dietId: string) => {
+    Alert.alert('Delete diet plan', 'Delete this diet plan permanently?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
           try {
-            await api.deleteWorkout(planId);
-            if (editingPlanId === planId) {
+            await api.deleteDiet(dietId);
+            if (editingDietId === dietId) {
               resetForm();
             }
             await loadPlans();
           } catch (error: any) {
-            Alert.alert('Failed', error.response?.data?.detail || 'Failed to delete workout plan');
+            Alert.alert('Failed', error.response?.data?.detail || 'Failed to delete diet plan');
           }
         },
       },
@@ -179,42 +166,22 @@ export default function MemberWorkoutScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.text }]}>Member Workouts</Text>
+        <Text style={[styles.title, { color: theme.text }]}>Member Diet</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={[styles.formCard, { backgroundColor: theme.card }]}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            {editingPlanId ? 'Edit Workout Plan' : 'Assign New Workout Plan'}
+            {editingDietId ? 'Edit Diet Plan' : 'Assign Diet Plan'}
           </Text>
-
           <TextInput
             style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]}
-            placeholder="Plan name (e.g., Strength Block A)"
+            placeholder="Plan name (e.g., Lean Bulk)"
             placeholderTextColor={theme.textSecondary}
-            value={planName}
-            onChangeText={setPlanName}
+            value={name}
+            onChangeText={setName}
           />
-
-          <Text style={[styles.label, { color: theme.textSecondary }]}>Day of week</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayChips}>
-            {DAYS.map((day) => {
-              const active = day === dayOfWeek;
-              return (
-                <TouchableOpacity
-                  key={day}
-                  style={[
-                    styles.dayChip,
-                    { backgroundColor: active ? theme.primary : theme.inputBg, borderColor: theme.border },
-                  ]}
-                  onPress={() => setDayOfWeek(day)}
-                >
-                  <Text style={[styles.dayChipText, { color: active ? '#FFF' : theme.text }]}>{day.slice(0, 3)}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
 
           <TextInput
             style={[
@@ -222,10 +189,10 @@ export default function MemberWorkoutScreen() {
               styles.multiline,
               { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border },
             ]}
-            placeholder={'Exercises (one per line):\nBench Press,4,10,60\nIncline Press,3,12,20'}
+            placeholder={'Meals (one per line):\nbreakfast: oats + banana\nlunch: rice + chicken\ndinner: fish + vegetables'}
             placeholderTextColor={theme.textSecondary}
-            value={exerciseLines}
-            onChangeText={setExerciseLines}
+            value={mealLines}
+            onChangeText={setMealLines}
             multiline
           />
 
@@ -245,16 +212,12 @@ export default function MemberWorkoutScreen() {
           <View style={styles.formActions}>
             <TouchableOpacity
               style={[styles.assignButton, { backgroundColor: theme.primary }]}
-              onPress={handleSavePlan}
+              onPress={handleSaveDiet}
               disabled={saving}
             >
-              {saving ? (
-                <ActivityIndicator color="#FFF" />
-              ) : (
-                <Text style={styles.assignButtonText}>{editingPlanId ? 'Save Workout' : 'Assign Workout'}</Text>
-              )}
+              {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.assignButtonText}>{editingDietId ? 'Save Diet' : 'Assign Diet'}</Text>}
             </TouchableOpacity>
-            {editingPlanId ? (
+            {editingDietId ? (
               <TouchableOpacity
                 style={[styles.cancelButton, { borderColor: theme.border }]}
                 onPress={resetForm}
@@ -266,25 +229,21 @@ export default function MemberWorkoutScreen() {
         </View>
 
         <View style={styles.planSection}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Assigned Plans</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Assigned Diet Plans</Text>
           {loading ? (
             <View style={styles.loaderWrap}>
               <ActivityIndicator color={theme.primary} />
             </View>
           ) : plans.length === 0 ? (
             <View style={[styles.emptyCard, { backgroundColor: theme.card }]}>
-              <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No workout plans assigned yet.</Text>
+              <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No diet plans assigned yet.</Text>
             </View>
           ) : (
             plans.map((plan) => (
               <View key={plan.id} style={[styles.planCard, { backgroundColor: theme.card }]}>
                 <View style={styles.planHeader}>
                   <Text style={[styles.planName, { color: theme.text }]}>{plan.name}</Text>
-                  <View style={[styles.dayBadge, { backgroundColor: theme.primary + '20' }]}>
-                    <Text style={[styles.dayBadgeText, { color: theme.primary }]}>{plan.day_of_week || 'No day'}</Text>
-                  </View>
                 </View>
-
                 <View style={styles.itemActions}>
                   <TouchableOpacity
                     style={[styles.iconButton, { backgroundColor: theme.primary + '20' }]}
@@ -301,16 +260,14 @@ export default function MemberWorkoutScreen() {
                     <Text style={[styles.iconButtonText, { color: theme.error }]}>Delete</Text>
                   </TouchableOpacity>
                 </View>
-
+                {(plan.meals || []).map((meal, index) => (
+                  <Text key={`${plan.id}-${index}`} style={[styles.mealText, { color: theme.textSecondary }]}>
+                    {meal.meal_type}: {meal.description}
+                  </Text>
+                ))}
                 {plan.notes ? (
                   <Text style={[styles.planNotes, { color: theme.textSecondary }]}>{plan.notes}</Text>
                 ) : null}
-                {(plan.exercises || []).map((exercise, index) => (
-                  <Text key={`${plan.id}-${index}`} style={[styles.exerciseText, { color: theme.textSecondary }]}>
-                    {index + 1}. {exercise.name} | {exercise.sets} x {exercise.reps}
-                    {exercise.weight ? ` | ${exercise.weight}kg` : ''}
-                  </Text>
-                ))}
               </View>
             ))
           )}
@@ -343,25 +300,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '700',
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  dayChips: {
-    gap: 8,
-    paddingVertical: 2,
-  },
-  dayChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 18,
-    borderWidth: 1,
-  },
-  dayChipText: {
-    fontSize: 12,
     fontWeight: '700',
   },
   input: {
@@ -431,15 +369,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     flex: 1,
   },
-  dayBadge: {
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  dayBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
   itemActions: {
     flexDirection: 'row',
     gap: 8,
@@ -456,11 +385,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  planNotes: {
-    fontSize: 13,
-  },
-  exerciseText: {
+  mealText: {
     fontSize: 13,
     lineHeight: 18,
+    textTransform: 'capitalize',
+  },
+  planNotes: {
+    fontSize: 13,
   },
 });

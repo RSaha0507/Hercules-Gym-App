@@ -38,6 +38,7 @@ interface DashboardData {
   days_remaining?: number;
   attendance_this_month?: number;
   has_today_workout?: boolean;
+  today_workout_count?: number;
   member_id?: string;
   payment_due?: boolean;
   unread_notifications?: number;
@@ -357,7 +358,13 @@ export default function HomeScreen() {
 
       <View style={styles.statsGrid}>
         <StatCard icon="calendar" label="This Month" value={dashboard?.attendance_this_month || 0} color={theme.primary} />
-        <StatCard icon="barbell" label="Today's Workout" value={dashboard?.has_today_workout ? 'Yes' : 'No'} color={theme.success} />
+        <StatCard
+          icon="barbell"
+          label="Today's Workout"
+          value={dashboard?.today_workout_count || 0}
+          color={theme.success}
+          onPress={() => router.push('/profile/workouts?day=today' as any)}
+        />
         <StatCard 
           icon="chatbubbles" 
           label="Messages" 
@@ -370,7 +377,7 @@ export default function HomeScreen() {
           label="Notifications" 
           value={dashboard?.unread_notifications || 0} 
           color={theme.secondary}
-          onPress={() => router.push('/notifications' as any)}
+          onPress={() => router.push('/profile/notifications' as any)}
         />
       </View>
     </>

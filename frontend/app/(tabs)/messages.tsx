@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -98,6 +99,27 @@ export default function MessagesScreen() {
     <TouchableOpacity
       style={[styles.conversationCard, { backgroundColor: theme.card }]}
       onPress={() => router.push(`/chat/${item.user_id}`)}
+      onLongPress={() => {
+        Alert.alert(
+          'Delete chat',
+          `Delete all messages with ${item.user_name}?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await api.deleteConversation(item.user_id);
+                  setConversations((prev) => prev.filter((c) => c.user_id !== item.user_id));
+                } catch (error: any) {
+                  Alert.alert('Failed', error.response?.data?.detail || 'Failed to delete conversation');
+                }
+              },
+            },
+          ]
+        );
+      }}
     >
       <View style={[styles.avatar, { backgroundColor: theme.primary + '20' }]}>
         <Text style={[styles.avatarText, { color: theme.primary }]}>
@@ -159,7 +181,7 @@ export default function MessagesScreen() {
         <Ionicons name="information-circle" size={20} color={theme.primary} />
         <Text style={[styles.infoText, { color: theme.textSecondary }]}>
           {user?.role === 'member'
-            ? 'You can message your assigned trainers and gym admin'
+            ? 'You can message admin, trainers, and members from your branch'
             : user?.role === 'trainer'
             ? 'You can message your assigned members and admin'
             : 'You can message all members and trainers'}

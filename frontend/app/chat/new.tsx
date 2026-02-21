@@ -22,36 +22,14 @@ export default function NewChatScreen() {
 
   const loadContacts = useCallback(async () => {
     try {
-      let data: any[] = [];
-
-      if (user?.role === 'admin') {
-        // Admin can message everyone
-        const [members, trainers] = await Promise.all([
-          api.getMembers(),
-          api.getTrainers(),
-        ]);
-        data = [
-          ...trainers.map((t: any) => ({ ...t, role: 'trainer' })),
-          ...members.map((m: any) => ({ ...m, role: 'member' })),
-        ];
-      } else if (user?.role === 'trainer') {
-        // Trainer can message assigned members and admin
-        const members = await api.getMembers();
-        data = members.map((m: any) => ({ ...m, role: 'member' }));
-        // Add admin placeholder - in real app you'd fetch admin users
-      } else if (user?.role === 'member') {
-        // Member can message assigned trainers and admin
-        const trainers = await api.getTrainers();
-        data = trainers.map((t: any) => ({ ...t, role: 'trainer' }));
-      }
-
-      setContacts(data);
+      const data = await api.getMessageContacts();
+      setContacts(data || []);
     } catch (error) {
       console.log('Error loading contacts:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [user?.role]);
+  }, []);
 
   useEffect(() => {
     loadContacts();
@@ -117,7 +95,9 @@ export default function NewChatScreen() {
       <View style={[styles.infoBanner, { backgroundColor: theme.card }]}>
         <Ionicons name="information-circle" size={20} color={theme.primary} />
         <Text style={[styles.infoText, { color: theme.textSecondary }]}>
-          Select a contact to start a conversation
+          {user?.role === 'member'
+            ? 'You can message admin, trainers, and members from your branch'
+            : 'Select a contact to start a conversation'}
         </Text>
       </View>
 

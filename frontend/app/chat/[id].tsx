@@ -9,8 +9,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -34,25 +35,26 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [otherUser, setOtherUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const isFetchingRef = useRef(false);
+
+  const isSelectionMode = selectedIds.length > 0;
 
   const loadMessages = useCallback(async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
-      const [messagesData, conversations] = await Promise.all([
-        api.getMessages(id),
-        api.getConversations(),
-      ]);
+      const [messagesData, conversations] = await Promise.all([api.getMessages(id), api.getConversations()]);
       setMessages(messagesData);
-      
-      // Find other user info from conversations
+
       const conv = conversations.find((c: any) => c.user_id === id);
       if (conv) {
         setOtherUser(conv);
@@ -68,11 +70,10 @@ export default function ChatScreen() {
   useEffect(() => {
     loadMessages();
 
-    // Listen for new messages
     if (user?.id) {
       socketService.connect(user.id);
       socketService.onMessage((message: Message) => {
-        if (message.sender_id === id) {
+        if (message.sender_id === id || message.receiver_id === id) {
           setMessages((prev) => [...prev, message]);
         }
       });
@@ -86,16 +87,66 @@ export default function ChatScreen() {
   useFocusEffect(
     useCallback(() => {
       loadMessages();
-    }, [loadMessages])
+    }, [loadMessages]),
   );
 
   useEffect(() => {
     const interval = setInterval(() => {
       loadMessages();
     }, 6000);
-
     return () => clearInterval(interval);
   }, [loadMessages]);
+
+  const toggleSelectedMessage = (messageId: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(messageId) ? prev.filter((idValue) => idValue !== messageId) : [...prev, messageId],
+    );
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!selectedIds.length) return;
+    Alert.alert('Delete messages', `Delete ${selectedIds.length} selected message(s)?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setDeleting(true);
+            await api.deleteSelectedMessages(selectedIds);
+            setMessages((prev) => prev.filter((item) => !selectedIds.includes(item.id)));
+            setSelectedIds([]);
+          } catch (error: any) {
+            Alert.alert('Failed', error.response?.data?.detail || 'Unable to delete selected messages');
+          } finally {
+            setDeleting(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleDeleteEntireChat = async () => {
+    Alert.alert('Delete full chat', 'This will permanently remove the entire conversation.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setDeleting(true);
+            await api.deleteConversation(id);
+            setMessages([]);
+            router.back();
+          } catch (error: any) {
+            Alert.alert('Failed', error.response?.data?.detail || 'Unable to delete full chat');
+          } finally {
+            setDeleting(false);
+          }
+        },
+      },
+    ]);
+  };
 
   const handleSend = async () => {
     if (!newMessage.trim()) return;
@@ -105,12 +156,12 @@ export default function ChatScreen() {
       const message = await api.sendMessage(id, newMessage.trim());
       setMessages((prev) => [...prev, message]);
       setNewMessage('');
-      
+
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     } catch (error: any) {
-      console.log('Error sending message:', error);
+      Alert.alert('Send failed', error.response?.data?.detail || 'Unable to send message');
     } finally {
       setSending(false);
     }
@@ -118,35 +169,38 @@ export default function ChatScreen() {
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isMe = item.sender_id === user?.id;
-    
+    const isSelected = selectedIds.includes(item.id);
+
     return (
-      <View style={[
-        styles.messageBubble,
-        isMe ? styles.myMessage : styles.theirMessage,
-        { backgroundColor: isMe ? theme.primary : theme.card }
-      ]}>
-        <Text style={[
-          styles.messageText,
-          { color: isMe ? '#FFF' : theme.text }
-        ]}>
-          {item.content}
-        </Text>
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onLongPress={() => toggleSelectedMessage(item.id)}
+        onPress={() => {
+          if (isSelectionMode) {
+            toggleSelectedMessage(item.id);
+          }
+        }}
+        style={[
+          styles.messageBubble,
+          isMe ? styles.myMessage : styles.theirMessage,
+          { backgroundColor: isMe ? theme.primary : theme.card },
+          isSelected && { borderWidth: 2, borderColor: theme.warning },
+        ]}
+      >
+        <Text style={[styles.messageText, { color: isMe ? '#FFF' : theme.text }]}>{item.content}</Text>
         <View style={styles.messageFooter}>
-          <Text style={[
-            styles.messageTime,
-            { color: isMe ? 'rgba(255,255,255,0.7)' : theme.textSecondary }
-          ]}>
+          <Text style={[styles.messageTime, { color: isMe ? 'rgba(255,255,255,0.7)' : theme.textSecondary }]}>
             {format(new Date(item.created_at), 'h:mm a')}
           </Text>
           {isMe && (
-            <Ionicons 
-              name={item.read ? 'checkmark-done' : 'checkmark'} 
-              size={14} 
-              color={item.read ? '#4CAF50' : 'rgba(255,255,255,0.7)'} 
+            <Ionicons
+              name={item.read ? 'checkmark-done' : 'checkmark'}
+              size={14}
+              color={item.read ? '#4CAF50' : 'rgba(255,255,255,0.7)'}
             />
           )}
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -160,32 +214,57 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
-      {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
+        <TouchableOpacity
+          onPress={() => {
+            if (isSelectionMode) {
+              setSelectedIds([]);
+              return;
+            }
+            router.back();
+          }}
+          style={styles.backButton}
+        >
+          <Ionicons name={isSelectionMode ? 'close' : 'arrow-back'} size={24} color={theme.text} />
         </TouchableOpacity>
-        <View style={[styles.headerAvatar, { backgroundColor: theme.primary + '20' }]}>
-          <Text style={[styles.headerAvatarText, { color: theme.primary }]}>
-            {(otherUser?.user_name || 'U').charAt(0).toUpperCase()}
-          </Text>
-        </View>
-        <View style={styles.headerInfo}>
-          <Text style={[styles.headerName, { color: theme.text }]}>
-            {otherUser?.user_name || 'User'}
-          </Text>
-          <Text style={[styles.headerRole, { color: theme.textSecondary }]}>
-            {otherUser?.user_role}
-          </Text>
-        </View>
+
+        {isSelectionMode ? (
+          <View style={styles.headerInfo}>
+            <Text style={[styles.headerName, { color: theme.text }]}>{selectedIds.length} selected</Text>
+            <Text style={[styles.headerRole, { color: theme.textSecondary }]}>Choose action</Text>
+          </View>
+        ) : (
+          <>
+            <View style={[styles.headerAvatar, { backgroundColor: theme.primary + '20' }]}>
+              <Text style={[styles.headerAvatarText, { color: theme.primary }]}>
+                {(otherUser?.user_name || 'U').charAt(0).toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.headerInfo}>
+              <Text style={[styles.headerName, { color: theme.text }]}>{otherUser?.user_name || 'User'}</Text>
+              <Text style={[styles.headerRole, { color: theme.textSecondary }]}>{otherUser?.user_role}</Text>
+            </View>
+          </>
+        )}
+
+        <TouchableOpacity
+          onPress={isSelectionMode ? handleDeleteSelected : handleDeleteEntireChat}
+          style={styles.headerAction}
+          disabled={deleting}
+        >
+          {deleting ? (
+            <ActivityIndicator size="small" color={theme.error} />
+          ) : (
+            <Ionicons name="trash-outline" size={22} color={theme.error} />
+          )}
+        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView
         style={styles.chatBody}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {/* Messages List */}
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -204,8 +283,16 @@ export default function ChatScreen() {
           }
         />
 
-        {/* Input Area */}
-        <View style={[styles.inputContainer, { backgroundColor: theme.surface, borderTopColor: theme.border }]}>
+        <View
+          style={[
+            styles.inputContainer,
+            {
+              backgroundColor: theme.surface,
+              borderTopColor: theme.border,
+              paddingBottom: Math.max(insets.bottom, 8),
+            },
+          ]}
+        >
           <TextInput
             style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text }]}
             placeholder="Type a message..."
@@ -220,11 +307,7 @@ export default function ChatScreen() {
             onPress={handleSend}
             disabled={sending || !newMessage.trim()}
           >
-            {sending ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <Ionicons name="send" size={20} color="#FFF" />
-            )}
+            {sending ? <ActivityIndicator size="small" color="#FFF" /> : <Ionicons name="send" size={20} color="#FFF" />}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -233,12 +316,8 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  chatBody: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  chatBody: { flex: 1 },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -251,9 +330,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
   },
-  backButton: {
-    marginRight: 12,
-  },
+  backButton: { marginRight: 12 },
   headerAvatar: {
     width: 40,
     height: 40,
@@ -276,6 +353,9 @@ const styles = StyleSheet.create({
   headerRole: {
     fontSize: 12,
     textTransform: 'capitalize',
+  },
+  headerAction: {
+    padding: 4,
   },
   messagesList: {
     padding: 16,
@@ -306,9 +386,7 @@ const styles = StyleSheet.create({
     gap: 4,
     marginTop: 4,
   },
-  messageTime: {
-    fontSize: 11,
-  },
+  messageTime: { fontSize: 11 },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -324,8 +402,8 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: 12,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
     borderTopWidth: 1,
     gap: 12,
   },
@@ -344,5 +422,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 2,
   },
 });

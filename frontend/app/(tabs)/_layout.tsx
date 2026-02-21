@@ -63,6 +63,7 @@ export default function TabLayout() {
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
+        tabBarHideOnKeyboard: true,
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: '500',

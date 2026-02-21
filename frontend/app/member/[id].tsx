@@ -209,13 +209,29 @@ export default function MemberDetailScreen() {
             <Text style={styles.actionButtonText}>Message</Text>
           </TouchableOpacity>
           {(user?.role === 'admin' || user?.role === 'trainer') && (
-            <TouchableOpacity 
-              style={[styles.actionButton, { backgroundColor: theme.secondary }]}
-              onPress={() => router.push(`/member/${id}/workout`)}
-            >
-              <Ionicons name="barbell-outline" size={20} color="#FFF" />
-              <Text style={styles.actionButtonText}>Workouts</Text>
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity 
+                style={[styles.actionButton, { backgroundColor: theme.secondary }]}
+                onPress={() => router.push(`/member/${id}/workout`)}
+              >
+                <Ionicons name="barbell-outline" size={20} color="#FFF" />
+                <Text style={styles.actionButtonText}>Workouts</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.actionButton, { backgroundColor: theme.warning }]}
+                onPress={() => router.push(`/member/${id}/diet`)}
+              >
+                <Ionicons name="nutrition-outline" size={20} color="#FFF" />
+                <Text style={styles.actionButtonText}>Diet</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.actionButton, { backgroundColor: theme.success }]}
+                onPress={() => router.push(`/member/${id}/metrics`)}
+              >
+                <Ionicons name="analytics-outline" size={20} color="#FFF" />
+                <Text style={styles.actionButtonText}>Metrics</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
       </ScrollView>
@@ -329,12 +345,13 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: 20,
     paddingVertical: 24,
     gap: 12,
   },
   actionButton: {
-    flex: 1,
+    minWidth: '47%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

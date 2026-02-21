@@ -7,7 +7,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Dict, Tuple
 import uuid
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
@@ -163,6 +163,17 @@ class BodyMetrics(BaseModel):
     biceps: Optional[float] = None
     thighs: Optional[float] = None
 
+class BodyMetricsUpdate(BaseModel):
+    date: Optional[datetime] = None
+    weight: Optional[float] = None
+    height: Optional[float] = None
+    body_fat: Optional[float] = None
+    chest: Optional[float] = None
+    waist: Optional[float] = None
+    hips: Optional[float] = None
+    biceps: Optional[float] = None
+    thighs: Optional[float] = None
+
 class MembershipPlan(BaseModel):
     plan_name: str
     start_date: datetime
@@ -257,6 +268,9 @@ class MessageCreate(BaseModel):
     receiver_id: str
     content: str
     message_type: Literal["text", "image", "pdf"] = "text"
+
+class MessageDeleteRequest(BaseModel):
+    message_ids: List[str]
 
 # Notification Models
 class Notification(BaseModel):
@@ -387,6 +401,12 @@ class WorkoutPlanCreate(BaseModel):
     day_of_week: Optional[str] = None
     notes: Optional[str] = None
 
+class WorkoutPlanUpdate(BaseModel):
+    name: Optional[str] = None
+    exercises: Optional[List[Exercise]] = None
+    day_of_week: Optional[str] = None
+    notes: Optional[str] = None
+
 # Diet Models
 class Meal(BaseModel):
     meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
@@ -410,6 +430,12 @@ class DietPlanCreate(BaseModel):
     name: str
     member_id: str
     meals: List[Meal] = []
+    pdf_content: Optional[str] = None
+    notes: Optional[str] = None
+
+class DietPlanUpdate(BaseModel):
+    name: Optional[str] = None
+    meals: Optional[List[Meal]] = None
     pdf_content: Optional[str] = None
     notes: Optional[str] = None
 
@@ -481,6 +507,119 @@ def sanitize_mongo_doc(doc):
     if doc and "_id" in doc:
         del doc["_id"]
     return doc
+
+def _is_same_center(user_a: Dict, user_b: Dict) -> bool:
+    return bool(user_a.get("center")) and user_a.get("center") == user_b.get("center")
+
+def _is_user_active_and_approved(user_doc: Optional[Dict]) -> bool:
+    if not user_doc:
+        return False
+    return user_doc.get("is_active", True) and user_doc.get("approval_status", "approved") == "approved"
+
+async def can_users_chat(sender: Dict, receiver: Dict) -> Tuple[bool, str]:
+    if sender.get("id") == receiver.get("id"):
+        return False, "Cannot message yourself"
+    if not _is_user_active_and_approved(sender) or not _is_user_active_and_approved(receiver):
+        return False, "Chat unavailable for inactive/unapproved users"
+
+    sender_role = sender.get("role")
+    receiver_role = receiver.get("role")
+
+    if sender_role == "member":
+        if not _is_same_center(sender, receiver):
+            return False, "Members can only message users from the same branch"
+        if receiver_role in {"admin", "trainer", "member"}:
+            return True, ""
+        return False, "Unsupported receiver role"
+
+    if sender_role == "trainer":
+        if receiver_role == "member":
+            if not _is_same_center(sender, receiver):
+                return False, "Can only message members from your branch"
+            profile = await db.member_profiles.find_one({"user_id": receiver["id"]})
+            if not profile or sender.get("id") not in profile.get("assigned_trainers", []):
+                return False, "Can only message assigned members"
+            return True, ""
+        if receiver_role == "trainer":
+            return (_is_same_center(sender, receiver), "Can only message trainers from your branch")
+        if receiver_role == "admin":
+            if receiver.get("is_primary_admin"):
+                return True, ""
+            return (_is_same_center(sender, receiver), "Can only message admins from your branch")
+        return False, "Unsupported receiver role"
+
+    if sender_role == "admin":
+        if sender.get("is_primary_admin"):
+            return True, ""
+        if receiver_role == "admin" and receiver.get("is_primary_admin"):
+            return True, ""
+        if _is_same_center(sender, receiver):
+            return True, ""
+        return False, "Can only message users from your branch"
+
+    return False, "Unsupported sender role"
+
+async def ensure_member_management_access(member_id: str, current_user: UserInDB):
+    member_user = await db.users.find_one({"id": member_id, "role": "member"})
+    if not member_user:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    profile = await db.member_profiles.find_one({"user_id": member_id})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Member profile not found")
+
+    if current_user.role == "trainer":
+        if member_user.get("center") != current_user.center:
+            raise HTTPException(status_code=403, detail="Can only manage members from your branch")
+        if current_user.id not in profile.get("assigned_trainers", []):
+            raise HTTPException(status_code=403, detail="Not assigned to this member")
+    elif current_user.role == "admin":
+        if not current_user.is_primary_admin and member_user.get("center") != current_user.center:
+            raise HTTPException(status_code=403, detail="Can only manage members from your branch")
+    elif current_user.role == "member":
+        if current_user.id != member_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    else:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return member_user, profile
+
+async def rebuild_conversation_state(user_a_id: str, user_b_id: str):
+    participants = sorted([user_a_id, user_b_id])
+    latest_messages = await db.messages.find(
+        {
+            "$or": [
+                {"sender_id": user_a_id, "receiver_id": user_b_id},
+                {"sender_id": user_b_id, "receiver_id": user_a_id},
+            ]
+        }
+    ).sort("created_at", -1).to_list(1)
+
+    if not latest_messages:
+        await db.conversations.delete_one({"participant_ids": participants})
+        return
+
+    latest = latest_messages[0]
+    unread_for_a = await db.messages.count_documents(
+        {"sender_id": user_b_id, "receiver_id": user_a_id, "read": False}
+    )
+    unread_for_b = await db.messages.count_documents(
+        {"sender_id": user_a_id, "receiver_id": user_b_id, "read": False}
+    )
+
+    await db.conversations.update_one(
+        {"participant_ids": participants},
+        {
+            "$set": {
+                "participant_ids": participants,
+                "last_message": latest.get("content", "")[:50],
+                "last_message_time": latest.get("created_at"),
+                f"unread_count.{user_a_id}": unread_for_a,
+                f"unread_count.{user_b_id}": unread_for_b,
+            }
+        },
+        upsert=True,
+    )
 
 # ==================== PUSH NOTIFICATION FUNCTIONS ====================
 
@@ -1121,23 +1260,63 @@ async def change_member_center(
 async def add_body_metrics(
     user_id: str,
     metrics: BodyMetrics,
-    current_user: UserInDB = Depends(get_current_user)
+    current_user: UserInDB = Depends(require_admin_or_trainer)
 ):
-    # Check access
-    if current_user.role == "member" and current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    if current_user.role == "trainer":
-        profile = await db.member_profiles.find_one({"user_id": user_id})
-        if not profile or current_user.id not in profile.get("assigned_trainers", []):
-            raise HTTPException(status_code=403, detail="Access denied")
-    
+    await ensure_member_management_access(user_id, current_user)
+
     await db.member_profiles.update_one(
         {"user_id": user_id},
         {"$push": {"body_metrics": metrics.dict()}}
     )
     
     return {"message": "Metrics added successfully"}
+
+@api_router.put("/members/{user_id}/metrics/{metric_index}")
+async def update_body_metrics(
+    user_id: str,
+    metric_index: int,
+    metrics: BodyMetricsUpdate,
+    current_user: UserInDB = Depends(require_admin_or_trainer)
+):
+    _, profile = await ensure_member_management_access(user_id, current_user)
+
+    metric_updates = metrics.model_dump(exclude_unset=True)
+    if not metric_updates:
+        return {"message": "No metric changes provided"}
+
+    metric_list = profile.get("body_metrics", [])
+    if metric_index < 0 or metric_index >= len(metric_list):
+        raise HTTPException(status_code=404, detail="Metric entry not found")
+
+    updated_metric = {**metric_list[metric_index], **metric_updates}
+    metric_list[metric_index] = updated_metric
+
+    await db.member_profiles.update_one(
+        {"user_id": user_id},
+        {"$set": {"body_metrics": metric_list}}
+    )
+
+    return {"message": "Metrics updated successfully", "metric": updated_metric}
+
+@api_router.delete("/members/{user_id}/metrics/{metric_index}")
+async def delete_body_metrics(
+    user_id: str,
+    metric_index: int,
+    current_user: UserInDB = Depends(require_admin_or_trainer)
+):
+    _, profile = await ensure_member_management_access(user_id, current_user)
+
+    metric_list = profile.get("body_metrics", [])
+    if metric_index < 0 or metric_index >= len(metric_list):
+        raise HTTPException(status_code=404, detail="Metric entry not found")
+
+    removed_metric = metric_list.pop(metric_index)
+    await db.member_profiles.update_one(
+        {"user_id": user_id},
+        {"$set": {"body_metrics": metric_list}}
+    )
+
+    return {"message": "Metrics deleted successfully", "metric": removed_metric}
 
 # ==================== TRAINER MANAGEMENT ROUTES ====================
 
@@ -1437,28 +1616,15 @@ async def get_unread_notification_count(current_user: UserInDB = Depends(get_cur
 
 @api_router.post("/messages")
 async def send_message(message: MessageCreate, current_user: UserInDB = Depends(get_current_user)):
-    # Validate chat permissions
     receiver = await db.users.find_one({"id": message.receiver_id})
     if not receiver:
         raise HTTPException(status_code=404, detail="Receiver not found")
-    
-    # Check allowed communication pairs
-    if current_user.role == "member":
-        # Members can only message trainers (assigned) or admin
-        if receiver["role"] == "member":
-            raise HTTPException(status_code=403, detail="Members cannot message other members")
-        if receiver["role"] == "trainer":
-            profile = await db.member_profiles.find_one({"user_id": current_user.id})
-            if not profile or message.receiver_id not in profile.get("assigned_trainers", []):
-                raise HTTPException(status_code=403, detail="Can only message assigned trainers")
-    
-    elif current_user.role == "trainer":
-        # Trainers can message assigned members or admin
-        if receiver["role"] == "member":
-            profile = await db.member_profiles.find_one({"user_id": receiver["id"]})
-            if not profile or current_user.id not in profile.get("assigned_trainers", []):
-                raise HTTPException(status_code=403, detail="Can only message assigned members")
-    
+
+    sender_dict = current_user.model_dump()
+    allowed, reason = await can_users_chat(sender_dict, receiver)
+    if not allowed:
+        raise HTTPException(status_code=403, detail=reason or "Chat not allowed")
+
     msg = Message(
         sender_id=current_user.id,
         receiver_id=message.receiver_id,
@@ -1488,8 +1654,170 @@ async def send_message(message: MessageCreate, current_user: UserInDB = Depends(
     
     return msg.dict()
 
+@api_router.get("/messages/contacts")
+async def get_message_contacts(current_user: UserInDB = Depends(get_current_user)):
+    base_user_fields = {
+        "id": 1,
+        "full_name": 1,
+        "email": 1,
+        "role": 1,
+        "center": 1,
+        "profile_image": 1,
+        "is_primary_admin": 1,
+        "is_active": 1,
+        "approval_status": 1,
+    }
+
+    contacts: List[Dict] = []
+
+    if current_user.role == "member":
+        users = await db.users.find(
+            {
+                "id": {"$ne": current_user.id},
+                "center": current_user.center,
+                "is_active": True,
+                "approval_status": "approved",
+                "role": {"$in": ["admin", "trainer", "member"]},
+            },
+            base_user_fields,
+        ).to_list(2000)
+        contacts.extend(users)
+    elif current_user.role == "trainer":
+        assigned_profiles = await db.member_profiles.find({"assigned_trainers": current_user.id}).to_list(2000)
+        assigned_member_ids = [p["user_id"] for p in assigned_profiles]
+
+        member_query: Dict = {
+            "id": {"$in": assigned_member_ids},
+            "center": current_user.center,
+            "is_active": True,
+            "approval_status": "approved",
+        }
+        trainer_query: Dict = {
+            "role": "trainer",
+            "id": {"$ne": current_user.id},
+            "center": current_user.center,
+            "is_active": True,
+            "approval_status": "approved",
+        }
+        admin_query: Dict = {
+            "role": "admin",
+            "is_active": True,
+            "approval_status": "approved",
+            "$or": [
+                {"center": current_user.center},
+                {"is_primary_admin": True},
+            ],
+        }
+        members = await db.users.find(member_query, base_user_fields).to_list(2000) if assigned_member_ids else []
+        trainers = await db.users.find(trainer_query, base_user_fields).to_list(2000)
+        admins = await db.users.find(admin_query, base_user_fields).to_list(2000)
+        contacts.extend(members + trainers + admins)
+    elif current_user.role == "admin":
+        if current_user.is_primary_admin:
+            query = {
+                "id": {"$ne": current_user.id},
+                "is_active": True,
+                "approval_status": "approved",
+            }
+        else:
+            query = {
+                "id": {"$ne": current_user.id},
+                "is_active": True,
+                "approval_status": "approved",
+                "$or": [
+                    {"center": current_user.center},
+                    {"role": "admin", "is_primary_admin": True},
+                ],
+            }
+        contacts = await db.users.find(query, base_user_fields).to_list(5000)
+
+    # Dedupe and sort for stable UI rendering.
+    seen = set()
+    deduped = []
+    for contact in contacts:
+        contact_id = contact.get("id")
+        if not contact_id or contact_id in seen:
+            continue
+        seen.add(contact_id)
+        deduped.append(contact)
+
+    role_order = {"admin": 0, "trainer": 1, "member": 2}
+    deduped.sort(key=lambda c: (role_order.get(c.get("role", "member"), 99), c.get("full_name", "").lower()))
+
+    return [
+        {
+            "id": c["id"],
+            "full_name": c.get("full_name"),
+            "email": c.get("email"),
+            "role": c.get("role"),
+            "center": c.get("center"),
+            "profile_image": c.get("profile_image"),
+            "is_primary_admin": c.get("is_primary_admin", False),
+        }
+        for c in deduped
+    ]
+
+@api_router.post("/messages/delete-selected")
+async def delete_selected_messages(
+    payload: MessageDeleteRequest,
+    current_user: UserInDB = Depends(get_current_user),
+):
+    if not payload.message_ids:
+        return {"message": "No messages selected", "deleted_count": 0}
+
+    selected_messages = await db.messages.find(
+        {
+            "id": {"$in": payload.message_ids},
+            "$or": [
+                {"sender_id": current_user.id},
+                {"receiver_id": current_user.id},
+            ],
+        }
+    ).to_list(2000)
+
+    if not selected_messages:
+        return {"message": "No deletable messages found", "deleted_count": 0}
+
+    message_ids = [m["id"] for m in selected_messages]
+    participant_pairs = {
+        tuple(sorted([m["sender_id"], m["receiver_id"]])) for m in selected_messages
+    }
+
+    delete_result = await db.messages.delete_many({"id": {"$in": message_ids}})
+    for user_a_id, user_b_id in participant_pairs:
+        await rebuild_conversation_state(user_a_id, user_b_id)
+
+    return {"message": "Selected messages deleted", "deleted_count": delete_result.deleted_count}
+
+@api_router.delete("/messages/conversations/{other_user_id}")
+async def delete_conversation(other_user_id: str, current_user: UserInDB = Depends(get_current_user)):
+    if other_user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Invalid conversation")
+
+    participants = sorted([current_user.id, other_user_id])
+    deleted_messages = await db.messages.delete_many(
+        {
+            "$or": [
+                {"sender_id": current_user.id, "receiver_id": other_user_id},
+                {"sender_id": other_user_id, "receiver_id": current_user.id},
+            ]
+        }
+    )
+    await db.conversations.delete_one({"participant_ids": participants})
+
+    return {"message": "Conversation deleted", "deleted_count": deleted_messages.deleted_count}
+
 @api_router.get("/messages/{other_user_id}")
 async def get_messages(other_user_id: str, current_user: UserInDB = Depends(get_current_user)):
+    other_user = await db.users.find_one({"id": other_user_id})
+    if not other_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    sender_dict = current_user.model_dump()
+    allowed, reason = await can_users_chat(sender_dict, other_user)
+    if not allowed:
+        raise HTTPException(status_code=403, detail=reason or "Chat not allowed")
+
     messages = await db.messages.find({
         "$or": [
             {"sender_id": current_user.id, "receiver_id": other_user_id},
@@ -1519,10 +1847,14 @@ async def get_conversations(current_user: UserInDB = Depends(get_current_user)):
     }).sort("last_message_time", -1).to_list(100)
     
     result = []
+    sender_dict = current_user.model_dump()
     for conv in conversations:
         other_id = [p for p in conv["participant_ids"] if p != current_user.id][0]
         other_user = await db.users.find_one({"id": other_id})
-        if other_user:
+        if not other_user:
+            continue
+        allowed, _ = await can_users_chat(sender_dict, other_user)
+        if allowed:
             result.append({
                 "user_id": other_id,
                 "user_name": other_user["full_name"],
@@ -1826,18 +2158,16 @@ async def create_workout(
     workout: WorkoutPlanCreate,
     current_user: UserInDB = Depends(require_admin_or_trainer)
 ):
-    # Check trainer is assigned to member
-    if current_user.role == "trainer":
-        profile = await db.member_profiles.find_one({"user_id": workout.member_id})
-        if not profile or current_user.id not in profile.get("assigned_trainers", []):
-            raise HTTPException(status_code=403, detail="Not assigned to this member")
+    await ensure_member_management_access(workout.member_id, current_user)
+
+    normalized_day = workout.day_of_week.strip().title() if workout.day_of_week else None
     
     plan = WorkoutPlan(
         name=workout.name,
         member_id=workout.member_id,
         trainer_id=current_user.id,
         exercises=[e.dict() for e in workout.exercises],
-        day_of_week=workout.day_of_week,
+        day_of_week=normalized_day,
         notes=workout.notes
     )
     
@@ -1850,13 +2180,51 @@ async def get_workouts(member_id: str, current_user: UserInDB = Depends(get_curr
     if current_user.role == "member" and current_user.id != member_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    if current_user.role == "trainer":
-        profile = await db.member_profiles.find_one({"user_id": member_id})
-        if not profile or current_user.id not in profile.get("assigned_trainers", []):
-            raise HTTPException(status_code=403, detail="Not assigned to this member")
+    if current_user.role in {"trainer", "admin"}:
+        await ensure_member_management_access(member_id, current_user)
     
-    workouts = await db.workouts.find({"member_id": member_id}).to_list(100)
+    workouts = await db.workouts.find({"member_id": member_id}).sort("created_at", -1).to_list(300)
     return [sanitize_mongo_doc(w) for w in workouts]
+
+@api_router.put("/workouts/{workout_id}")
+async def update_workout(
+    workout_id: str,
+    workout_update: WorkoutPlanUpdate,
+    current_user: UserInDB = Depends(require_admin_or_trainer)
+):
+    workout = await db.workouts.find_one({"id": workout_id})
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    await ensure_member_management_access(workout["member_id"], current_user)
+
+    update_data = workout_update.model_dump(exclude_unset=True)
+    if "day_of_week" in update_data and update_data["day_of_week"]:
+        update_data["day_of_week"] = update_data["day_of_week"].strip().title()
+    if "exercises" in update_data and update_data["exercises"] is not None:
+        update_data["exercises"] = [
+            e.model_dump() if hasattr(e, "model_dump") else (e.dict() if hasattr(e, "dict") else e)
+            for e in update_data["exercises"]
+        ]
+
+    if update_data:
+        await db.workouts.update_one({"id": workout_id}, {"$set": update_data})
+
+    updated_workout = await db.workouts.find_one({"id": workout_id})
+    return sanitize_mongo_doc(updated_workout)
+
+@api_router.delete("/workouts/{workout_id}")
+async def delete_workout(
+    workout_id: str,
+    current_user: UserInDB = Depends(require_admin_or_trainer)
+):
+    workout = await db.workouts.find_one({"id": workout_id})
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    await ensure_member_management_access(workout["member_id"], current_user)
+    await db.workouts.delete_one({"id": workout_id})
+    return {"message": "Workout deleted successfully"}
 
 @api_router.put("/workouts/{workout_id}/complete")
 async def complete_exercise(
@@ -1888,11 +2256,7 @@ async def create_diet(
     diet: DietPlanCreate,
     current_user: UserInDB = Depends(require_admin_or_trainer)
 ):
-    # Check trainer is assigned to member
-    if current_user.role == "trainer":
-        profile = await db.member_profiles.find_one({"user_id": diet.member_id})
-        if not profile or current_user.id not in profile.get("assigned_trainers", []):
-            raise HTTPException(status_code=403, detail="Not assigned to this member")
+    await ensure_member_management_access(diet.member_id, current_user)
     
     plan = DietPlan(
         name=diet.name,
@@ -1912,13 +2276,49 @@ async def get_diets(member_id: str, current_user: UserInDB = Depends(get_current
     if current_user.role == "member" and current_user.id != member_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    if current_user.role == "trainer":
-        profile = await db.member_profiles.find_one({"user_id": member_id})
-        if not profile or current_user.id not in profile.get("assigned_trainers", []):
-            raise HTTPException(status_code=403, detail="Not assigned to this member")
+    if current_user.role in {"trainer", "admin"}:
+        await ensure_member_management_access(member_id, current_user)
     
-    diets = await db.diets.find({"member_id": member_id}).to_list(100)
+    diets = await db.diets.find({"member_id": member_id}).sort("created_at", -1).to_list(300)
     return [sanitize_mongo_doc(d) for d in diets]
+
+@api_router.put("/diets/{diet_id}")
+async def update_diet(
+    diet_id: str,
+    diet_update: DietPlanUpdate,
+    current_user: UserInDB = Depends(require_admin_or_trainer)
+):
+    diet = await db.diets.find_one({"id": diet_id})
+    if not diet:
+        raise HTTPException(status_code=404, detail="Diet plan not found")
+
+    await ensure_member_management_access(diet["member_id"], current_user)
+
+    update_data = diet_update.model_dump(exclude_unset=True)
+    if "meals" in update_data and update_data["meals"] is not None:
+        update_data["meals"] = [
+            m.model_dump() if hasattr(m, "model_dump") else (m.dict() if hasattr(m, "dict") else m)
+            for m in update_data["meals"]
+        ]
+
+    if update_data:
+        await db.diets.update_one({"id": diet_id}, {"$set": update_data})
+
+    updated_diet = await db.diets.find_one({"id": diet_id})
+    return sanitize_mongo_doc(updated_diet)
+
+@api_router.delete("/diets/{diet_id}")
+async def delete_diet(
+    diet_id: str,
+    current_user: UserInDB = Depends(require_admin_or_trainer)
+):
+    diet = await db.diets.find_one({"id": diet_id})
+    if not diet:
+        raise HTTPException(status_code=404, detail="Diet plan not found")
+
+    await ensure_member_management_access(diet["member_id"], current_user)
+    await db.diets.delete_one({"id": diet_id})
+    return {"message": "Diet plan deleted successfully"}
 
 # ==================== DASHBOARD ROUTES ====================
 
@@ -2048,10 +2448,10 @@ async def member_dashboard(current_user: UserInDB = Depends(get_current_user)):
     
     # Today's workout
     today_day = datetime.utcnow().strftime("%A")
-    today_workout = await db.workouts.find_one({
+    today_workouts = await db.workouts.find({
         "member_id": current_user.id,
-        "day_of_week": today_day
-    })
+        "day_of_week": {"$regex": f"^{today_day}$", "$options": "i"}
+    }).to_list(100)
     
     # Unread messages
     unread_messages = await db.messages.count_documents({
@@ -2070,7 +2470,8 @@ async def member_dashboard(current_user: UserInDB = Depends(get_current_user)):
         "days_remaining": max(0, days_remaining),
         "payment_due": payment_due,
         "attendance_this_month": attendance_count,
-        "has_today_workout": today_workout is not None,
+        "has_today_workout": len(today_workouts) > 0,
+        "today_workout_count": len(today_workouts),
         "unread_messages": unread_messages,
         "unread_notifications": unread_notifications,
         "member_id": profile["member_id"] if profile else None,
