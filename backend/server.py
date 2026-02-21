@@ -707,7 +707,6 @@ async def send_push_notification(push_token: str, title: str, body: str, data: d
 
 async def send_notification_to_user(user_id: str, title: str, body: str, notification_type: str = "general", data: dict = {}):
     """Create notification record and send push notification"""
-    # Save notification to database
     notification = Notification(
         user_id=user_id,
         title=title,
@@ -715,15 +714,24 @@ async def send_notification_to_user(user_id: str, title: str, body: str, notific
         notification_type=notification_type,
         data=data
     )
-    await db.notifications.insert_one(notification.dict())
-    
-    # Get user's push token
-    user = await db.users.find_one({"id": user_id})
-    if user and user.get("push_token"):
-        await send_push_notification(user["push_token"], title, body, data)
-    
-    # Emit socket event
-    await sio.emit(f"notification_{user_id}", notification.dict())
+
+    try:
+        await db.notifications.insert_one(notification.dict())
+    except Exception as exc:
+        logger.error(f"Failed to persist notification for user {user_id}: {exc}")
+        return
+
+    try:
+        user = await db.users.find_one({"id": user_id})
+        if user and user.get("push_token"):
+            await send_push_notification(user["push_token"], title, body, data)
+    except Exception as exc:
+        logger.error(f"Failed to send push notification for user {user_id}: {exc}")
+
+    try:
+        await sio.emit(f"notification_{user_id}", notification.dict())
+    except Exception as exc:
+        logger.error(f"Failed to emit socket notification for user {user_id}: {exc}")
 
 async def notify_all_admins(title: str, body: str, notification_type: str = "general", data: dict = {}):
     """Send notification to all admins"""
