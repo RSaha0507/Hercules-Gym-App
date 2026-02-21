@@ -4,10 +4,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { View, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const getTabBarIcon = (name: string, focused: boolean) => {
     let iconName: keyof typeof Ionicons.glyphMap = 'home';
@@ -55,8 +57,8 @@ export default function TabLayout() {
           backgroundColor: theme.surface,
           borderTopColor: theme.border,
           borderTopWidth: 1,
-          height: 65,
-          paddingBottom: 8,
+          height: 60 + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 8),
           paddingTop: 8,
         },
         tabBarActiveTintColor: theme.primary,
