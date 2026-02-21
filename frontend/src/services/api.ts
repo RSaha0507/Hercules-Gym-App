@@ -35,13 +35,20 @@ class ApiService {
   }
 
   // Auth
-  async login(email: string, password: string) {
-    const response = await this.client.post('/auth/login', { email, password });
+  async login(identifier: string, password: string) {
+    const trimmed = identifier.trim();
+    const payload: Record<string, string> = { identifier: trimmed, password };
+    if (trimmed.includes('@')) {
+      payload.email = trimmed.toLowerCase();
+    } else {
+      payload.phone = trimmed;
+    }
+    const response = await this.client.post('/auth/login', payload);
     return response.data;
   }
 
   async register(data: {
-    email: string;
+    email?: string;
     password: string;
     full_name: string;
     phone: string;
@@ -212,7 +219,7 @@ class ApiService {
       receiver_id: receiverId,
       content,
       message_type: messageType,
-    });
+    }, { timeout: 30000 });
     return response.data;
   }
 
@@ -252,6 +259,17 @@ class ApiService {
     target_users?: string[];
   }) {
     const response = await this.client.post('/announcements', data);
+    return response.data;
+  }
+
+  async updateAnnouncement(id: string, data: {
+    title?: string;
+    content?: string;
+    target?: string;
+    target_center?: string;
+    target_users?: string[];
+  }) {
+    const response = await this.client.put(`/announcements/${id}`, data);
     return response.data;
   }
 

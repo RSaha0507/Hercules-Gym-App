@@ -112,7 +112,7 @@ class UserCreate(UserBase):
     password: str
 
 class UserRegister(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None
     phone: str
     full_name: str
     password: str
@@ -120,7 +120,9 @@ class UserRegister(BaseModel):
     center: Optional[CenterType] = None
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    identifier: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
     password: str
 
 class UserResponse(UserBase):
@@ -302,6 +304,13 @@ class AnnouncementCreate(BaseModel):
     target: Literal["all", "members", "trainers", "selected", "center"] = "all"
     target_center: Optional[CenterType] = None
     target_users: List[str] = []
+
+class AnnouncementUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    target: Optional[Literal["all", "members", "trainers", "selected", "center"]] = None
+    target_center: Optional[CenterType] = None
+    target_users: Optional[List[str]] = None
 
 # Merchandise Models
 class MerchandiseItem(BaseModel):
@@ -575,6 +584,19 @@ def normalize_indian_phone(phone: str) -> str:
 
     return f"{INDIA_PHONE_PREFIX}{digits}"
 
+async def generate_member_registration_email(normalized_phone: str) -> str:
+    digits = "".join(ch for ch in normalized_phone if ch.isdigit())[-10:]
+    base_email = f"m{digits}@member.hercules.local"
+    existing = await db.users.find_one({"email": base_email})
+    if not existing:
+        return base_email
+
+    while True:
+        candidate = f"m{digits}.{uuid.uuid4().hex[:6]}@member.hercules.local"
+        existing_candidate = await db.users.find_one({"email": candidate})
+        if not existing_candidate:
+            return candidate
+
 async def can_users_chat(sender: Dict, receiver: Dict) -> Tuple[bool, str]:
     if sender.get("id") == receiver.get("id"):
         return False, "Cannot message yourself"
@@ -816,11 +838,22 @@ async def check_payment_reminders():
 @api_router.post("/auth/register", response_model=Token)
 async def register(user: UserRegister, background_tasks: BackgroundTasks):
     normalized_phone = normalize_indian_phone(user.phone)
+    resolved_email = user.email.lower().strip() if user.email else None
+
+    if user.role == "member":
+        if not resolved_email:
+            resolved_email = await generate_member_registration_email(normalized_phone)
+    elif not resolved_email:
+        raise HTTPException(status_code=400, detail="Email is required for admin and trainer registration")
 
     # Check if user exists
-    existing = await db.users.find_one({"email": user.email})
+    existing = await db.users.find_one({"email": resolved_email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+
+    existing_phone = await db.users.find_one({"phone": normalized_phone})
+    if existing_phone:
+        raise HTTPException(status_code=400, detail="Phone already registered")
     
     # Check if this is the first admin (becomes primary admin)
     is_first_admin = False
@@ -843,7 +876,7 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
     
     user_dict = {
         "id": user_id,
-        "email": user.email,
+        "email": resolved_email,
         "phone": normalized_phone,
         "full_name": user.full_name,
         "role": user.role,
@@ -877,7 +910,7 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
         approval_request = ApprovalRequest(
             user_id=user_id,
             user_name=user.full_name,
-            user_email=user.email,
+            user_email=resolved_email,
             user_role=user.role,
             center=user.center
         )
@@ -920,7 +953,7 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
     
     user_response = UserResponse(
         id=user_id,
-        email=user.email,
+        email=resolved_email,
         phone=normalized_phone,
         full_name=user.full_name,
         role=user.role,
@@ -935,7 +968,20 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
 
 @api_router.post("/auth/login", response_model=Token)
 async def login(credentials: UserLogin):
-    user = await db.users.find_one({"email": credentials.email})
+    raw_identifier = (credentials.identifier or credentials.email or credentials.phone or "").strip()
+    if not raw_identifier:
+        raise HTTPException(status_code=400, detail="Email or phone is required")
+
+    query = {}
+    if "@" in raw_identifier:
+        query["email"] = raw_identifier.lower()
+    else:
+        try:
+            query["phone"] = normalize_indian_phone(raw_identifier)
+        except HTTPException:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    user = await db.users.find_one(query)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
@@ -1150,6 +1196,11 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
     existing = await db.users.find_one({"email": member.email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+
+    normalized_phone = normalize_indian_phone(member.phone)
+    existing_phone = await db.users.find_one({"phone": normalized_phone})
+    if existing_phone:
+        raise HTTPException(status_code=400, detail="Phone already registered")
     
     # Create user account
     user_id = str(uuid.uuid4())
@@ -1158,7 +1209,7 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
     user_dict = {
         "id": user_id,
         "email": member.email,
-        "phone": normalize_indian_phone(member.phone),
+        "phone": normalized_phone,
         "full_name": member.full_name,
         "role": "member",
         "center": member.center,
@@ -1428,6 +1479,11 @@ async def create_trainer(user: UserCreate, current_user: UserInDB = Depends(requ
     existing = await db.users.find_one({"email": user.email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+
+    normalized_phone = normalize_indian_phone(user.phone)
+    existing_phone = await db.users.find_one({"phone": normalized_phone})
+    if existing_phone:
+        raise HTTPException(status_code=400, detail="Phone already registered")
     
     user_id = str(uuid.uuid4())
     hashed_password = get_password_hash(user.password)
@@ -1435,7 +1491,7 @@ async def create_trainer(user: UserCreate, current_user: UserInDB = Depends(requ
     user_dict = {
         "id": user_id,
         "email": user.email,
-        "phone": normalize_indian_phone(user.phone),
+        "phone": normalized_phone,
         "full_name": user.full_name,
         "role": "trainer",
         "center": user.center,
@@ -1736,24 +1792,29 @@ async def send_message(message: MessageCreate, current_user: UserInDB = Depends(
     )
     
     await db.messages.insert_one(msg.dict())
-    
-    # Update conversation
-    participants = sorted([current_user.id, message.receiver_id])
-    await db.conversations.update_one(
-        {"participant_ids": participants},
-        {
-            "$set": {
-                "participant_ids": participants,
-                "last_message": message.content[:50],
-                "last_message_time": msg.created_at
+
+    # Keep message delivery robust: persistence success should not fail due conversation/socket side-effects.
+    try:
+        participants = sorted([current_user.id, message.receiver_id])
+        await db.conversations.update_one(
+            {"participant_ids": participants},
+            {
+                "$set": {
+                    "participant_ids": participants,
+                    "last_message": message.content[:50],
+                    "last_message_time": msg.created_at
+                },
+                "$inc": {f"unread_count.{message.receiver_id}": 1}
             },
-            "$inc": {f"unread_count.{message.receiver_id}": 1}
-        },
-        upsert=True
-    )
-    
-    # Emit socket event
-    await sio.emit(f"message_{message.receiver_id}", msg.dict())
+            upsert=True
+        )
+    except Exception as exc:
+        logger.error(f"Conversation update failed for message {msg.id}: {exc}")
+
+    try:
+        await sio.emit(f"message_{message.receiver_id}", msg.dict())
+    except Exception as exc:
+        logger.error(f"Socket emit failed for message {msg.id}: {exc}")
     
     return msg.dict()
 
@@ -1986,26 +2047,37 @@ async def create_announcement(
     )
     
     await db.announcements.insert_one(ann.dict())
-    
-    # Emit to relevant users
-    if announcement.target == "all":
-        await sio.emit("announcement", ann.dict())
-    elif announcement.target == "members":
-        members = await db.users.find({"role": "member"}).to_list(1000)
-        for member in members:
-            await sio.emit(f"announcement_{member['id']}", ann.dict())
-    elif announcement.target == "trainers":
-        trainers = await db.users.find({"role": "trainer"}).to_list(1000)
-        for trainer in trainers:
-            await sio.emit(f"announcement_{trainer['id']}", ann.dict())
-    elif announcement.target == "center" and announcement.target_center:
-        users = await db.users.find({"center": announcement.target_center}).to_list(1000)
-        for user in users:
-            await sio.emit(f"announcement_{user['id']}", ann.dict())
-    else:
-        for user_id in announcement.target_users:
-            await sio.emit(f"announcement_{user_id}", ann.dict())
-    
+
+    ann_payload = ann.dict()
+    try:
+        if announcement.target == "all":
+            await sio.emit("announcement", ann_payload)
+        elif announcement.target == "members":
+            members = await db.users.find({"role": "member", "is_active": True}).to_list(2000)
+            await asyncio.gather(
+                *[sio.emit(f"announcement_{member['id']}", ann_payload) for member in members],
+                return_exceptions=True,
+            )
+        elif announcement.target == "trainers":
+            trainers = await db.users.find({"role": "trainer", "is_active": True}).to_list(2000)
+            await asyncio.gather(
+                *[sio.emit(f"announcement_{trainer['id']}", ann_payload) for trainer in trainers],
+                return_exceptions=True,
+            )
+        elif announcement.target == "center" and announcement.target_center:
+            users = await db.users.find({"center": announcement.target_center, "is_active": True}).to_list(5000)
+            await asyncio.gather(
+                *[sio.emit(f"announcement_{user['id']}", ann_payload) for user in users],
+                return_exceptions=True,
+            )
+        else:
+            await asyncio.gather(
+                *[sio.emit(f"announcement_{user_id}", ann_payload) for user_id in announcement.target_users],
+                return_exceptions=True,
+            )
+    except Exception as exc:
+        logger.error(f"Announcement emit failed for {ann.id}: {exc}")
+
     return ann.dict()
 
 @api_router.get("/announcements")
@@ -2031,15 +2103,46 @@ async def get_announcements(current_user: UserInDB = Depends(get_current_user)):
     
     return announcements
 
+@api_router.put("/announcements/{announcement_id}")
+async def update_announcement(
+    announcement_id: str,
+    update: AnnouncementUpdate,
+    current_user: UserInDB = Depends(require_admin)
+):
+    existing = await db.announcements.find_one({"id": announcement_id, "is_active": True})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+    update_data = {k: v for k, v in update.model_dump(exclude_unset=True).items()}
+    if not update_data:
+        return sanitize_mongo_doc(existing)
+
+    update_data["updated_at"] = datetime.utcnow()
+    await db.announcements.update_one({"id": announcement_id}, {"$set": update_data})
+
+    updated = await db.announcements.find_one({"id": announcement_id})
+    if not updated:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+    payload = sanitize_mongo_doc(updated)
+    try:
+        await sio.emit("announcement_updated", payload)
+    except Exception as exc:
+        logger.error(f"Announcement update emit failed for {announcement_id}: {exc}")
+
+    return payload
+
 @api_router.delete("/announcements/{announcement_id}")
 async def delete_announcement(
     announcement_id: str,
     current_user: UserInDB = Depends(require_admin)
 ):
-    await db.announcements.update_one(
+    result = await db.announcements.update_one(
         {"id": announcement_id},
         {"$set": {"is_active": False}}
     )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Announcement not found")
     return {"message": "Announcement deleted"}
 
 # ==================== MERCHANDISE ROUTES ====================

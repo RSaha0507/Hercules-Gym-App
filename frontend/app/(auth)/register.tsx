@@ -37,8 +37,9 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     const { full_name, email, phone, password, confirmPassword, role, center } = formData;
     const phoneDigits = formatIndianPhoneDigits(phone);
+    const requiresEmail = role !== 'member';
 
-    if (!full_name || !email || !phone || !password) {
+    if (!full_name || !phone || !password || (requiresEmail && !email)) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
@@ -67,7 +68,7 @@ export default function RegisterScreen() {
     try {
       await register({
         full_name,
-        email: email.toLowerCase().trim(),
+        email: requiresEmail ? email.toLowerCase().trim() : undefined,
         phone: `+91${phoneDigits}`,
         password,
         role,
@@ -202,18 +203,20 @@ export default function RegisterScreen() {
               />
             </View>
 
-            <View style={[styles.inputContainer, { backgroundColor: theme.inputBg }]}>
-              <Ionicons name="mail-outline" size={20} color={theme.textSecondary} />
-              <TextInput
-                style={[styles.input, { color: theme.text }]}
-                placeholder="Email"
-                placeholderTextColor={theme.textSecondary}
-                value={formData.email}
-                onChangeText={(text) => setFormData({ ...formData, email: text })}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
+            {formData.role !== 'member' && (
+              <View style={[styles.inputContainer, { backgroundColor: theme.inputBg }]}>
+                <Ionicons name="mail-outline" size={20} color={theme.textSecondary} />
+                <TextInput
+                  style={[styles.input, { color: theme.text }]}
+                  placeholder="Email"
+                  placeholderTextColor={theme.textSecondary}
+                  value={formData.email}
+                  onChangeText={(text) => setFormData({ ...formData, email: text })}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+            )}
 
             <View style={[styles.inputContainer, { backgroundColor: theme.inputBg }]}>
               <Ionicons name="call-outline" size={20} color={theme.textSecondary} />
@@ -266,7 +269,7 @@ export default function RegisterScreen() {
               <Text style={[styles.infoText, { color: theme.text }]}>
                 {formData.role === 'admin' || formData.role === 'trainer'
                   ? 'Your registration requires approval from the primary admin.'
-                  : 'Your registration requires approval from a trainer at your selected center.'}
+                  : 'Your registration requires trainer approval. Login with your phone number and password.'}
               </Text>
             </View>
 

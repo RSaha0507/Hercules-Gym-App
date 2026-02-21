@@ -14,6 +14,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
+import { toSystemDate } from '../../src/utils/time';
 import { format } from 'date-fns';
 
 export default function MemberDetailScreen() {
@@ -146,12 +147,12 @@ export default function MemberDetailScreen() {
             <InfoRow 
               icon="calendar-outline" 
               label="Start Date" 
-              value={format(new Date(profile.membership.start_date), 'MMM d, yyyy')} 
+              value={format(toSystemDate(profile.membership.start_date), 'MMM d, yyyy')} 
             />
             <InfoRow 
               icon="calendar" 
               label="End Date" 
-              value={format(new Date(profile.membership.end_date), 'MMM d, yyyy')} 
+              value={format(toSystemDate(profile.membership.end_date), 'MMM d, yyyy')} 
             />
             <InfoRow 
               icon="cash-outline" 

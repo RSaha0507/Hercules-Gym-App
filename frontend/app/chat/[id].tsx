@@ -19,6 +19,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
 import { socketService } from '../../src/services/socket';
+import { toSystemDate } from '../../src/utils/time';
 import { format } from 'date-fns';
 
 interface Message {
@@ -29,6 +30,7 @@ interface Message {
   message_type: 'text' | 'image' | 'pdf';
   created_at: string;
   read: boolean;
+  local_status?: 'sending' | 'failed';
 }
 
 export default function ChatScreen() {
@@ -74,7 +76,23 @@ export default function ChatScreen() {
       socketService.connect(user.id);
       socketService.onMessage((message: Message) => {
         if (message.sender_id === id || message.receiver_id === id) {
-          setMessages((prev) => [...prev, message]);
+          setMessages((prev) => {
+            if (prev.some((item) => item.id === message.id)) {
+              return prev;
+            }
+            return [
+              ...prev.filter(
+                (item) =>
+                  !(
+                    item.local_status === 'sending' &&
+                    item.sender_id === message.sender_id &&
+                    item.receiver_id === message.receiver_id &&
+                    item.content === message.content
+                  ),
+              ),
+              message,
+            ];
+          });
         }
       });
     }
@@ -149,19 +167,60 @@ export default function ChatScreen() {
   };
 
   const handleSend = async () => {
-    if (!newMessage.trim()) return;
+    const content = newMessage.trim();
+    if (!content || !user?.id || !id) return;
 
+    const optimisticId = `local-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const optimisticMessage: Message = {
+      id: optimisticId,
+      sender_id: user.id,
+      receiver_id: id,
+      content,
+      message_type: 'text',
+      created_at: new Date().toISOString(),
+      read: false,
+      local_status: 'sending',
+    };
+
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setNewMessage('');
     setSending(true);
     try {
-      const message = await api.sendMessage(id, newMessage.trim());
-      setMessages((prev) => [...prev, message]);
-      setNewMessage('');
+      const message = await api.sendMessage(id, content);
+      setMessages((prev) => {
+        const replaced = prev.map((item) => (item.id === optimisticId ? message : item));
+        if (replaced.some((item) => item.id === message.id)) {
+          return replaced.filter(
+            (item, index, arr) => arr.findIndex((x) => x.id === item.id) === index,
+          );
+        }
+        return [...replaced, message];
+      });
 
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     } catch (error: any) {
-      Alert.alert('Send failed', error.response?.data?.detail || 'Unable to send message');
+      try {
+        const latest = await api.getMessages(id);
+        const wasDelivered = latest.some(
+          (item: Message) =>
+            item.sender_id === user.id &&
+            item.receiver_id === id &&
+            item.content === content,
+        );
+        setMessages(latest);
+        if (!wasDelivered) {
+          Alert.alert('Send failed', error.response?.data?.detail || 'Unable to send message');
+        }
+      } catch {
+        setMessages((prev) =>
+          prev.map((item) =>
+            item.id === optimisticId ? { ...item, local_status: 'failed' } : item,
+          ),
+        );
+        Alert.alert('Send failed', error.response?.data?.detail || 'Unable to send message');
+      }
     } finally {
       setSending(false);
     }
@@ -190,8 +249,14 @@ export default function ChatScreen() {
         <Text style={[styles.messageText, { color: isMe ? '#FFF' : theme.text }]}>{item.content}</Text>
         <View style={styles.messageFooter}>
           <Text style={[styles.messageTime, { color: isMe ? 'rgba(255,255,255,0.7)' : theme.textSecondary }]}>
-            {format(new Date(item.created_at), 'h:mm a')}
+            {format(toSystemDate(item.created_at), 'h:mm a')}
           </Text>
+          {item.local_status === 'sending' && (
+            <Ionicons name="time-outline" size={13} color={isMe ? 'rgba(255,255,255,0.7)' : theme.textSecondary} />
+          )}
+          {item.local_status === 'failed' && (
+            <Ionicons name="alert-circle-outline" size={13} color={theme.error} />
+          )}
           {isMe && (
             <Ionicons
               name={item.read ? 'checkmark-done' : 'checkmark'}
@@ -262,8 +327,8 @@ export default function ChatScreen() {
 
       <KeyboardAvoidingView
         style={styles.chatBody}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : insets.top + 12}
       >
         <FlatList
           ref={flatListRef}
@@ -272,6 +337,7 @@ export default function ChatScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messagesList}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>

@@ -17,6 +17,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
 import { socketService } from '../../src/services/socket';
+import { toSystemDate } from '../../src/utils/time';
 import { formatDistanceToNow } from 'date-fns';
 
 interface Conversation {
@@ -147,7 +148,7 @@ export default function MessagesScreen() {
         )}
         {item.last_message_time && (
           <Text style={[styles.messageTime, { color: theme.textSecondary }]}>
-            {formatDistanceToNow(new Date(item.last_message_time), { addSuffix: true })}
+            {formatDistanceToNow(toSystemDate(item.last_message_time), { addSuffix: true })}
           </Text>
         )}
       </View>

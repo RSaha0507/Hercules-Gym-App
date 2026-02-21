@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
+import { toSystemDate } from '../../src/utils/time';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
@@ -158,14 +159,14 @@ export default function ProfileScreen() {
               <View style={styles.membershipDate}>
                 <Text style={[styles.membershipDateLabel, { color: theme.textSecondary }]}>Start</Text>
                 <Text style={[styles.membershipDateValue, { color: theme.text }]}>
-                  {new Date(memberProfile.membership.start_date).toLocaleDateString()}
+                  {toSystemDate(memberProfile.membership.start_date).toLocaleDateString()}
                 </Text>
               </View>
               <View style={[styles.membershipDivider, { backgroundColor: theme.border }]} />
               <View style={styles.membershipDate}>
                 <Text style={[styles.membershipDateLabel, { color: theme.textSecondary }]}>Expires</Text>
                 <Text style={[styles.membershipDateValue, { color: theme.text }]}>
-                  {new Date(memberProfile.membership.end_date).toLocaleDateString()}
+                  {toSystemDate(memberProfile.membership.end_date).toLocaleDateString()}
                 </Text>
               </View>
             </View>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -13,17 +13,25 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
 
 export default function CreateAnnouncementScreen() {
   const { theme } = useTheme();
+  const params = useLocalSearchParams<{
+    id?: string;
+    title?: string;
+    content?: string;
+    target?: 'all' | 'members' | 'trainers' | 'selected';
+  }>();
+  const announcementId = useMemo(() => (params.id ? String(params.id) : ''), [params.id]);
+  const isEditMode = !!announcementId;
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
-    title: '',
-    content: '',
-    target: 'all' as 'all' | 'members' | 'trainers' | 'selected',
+    title: params.title ? String(params.title) : '',
+    content: params.content ? String(params.content) : '',
+    target: (params.target ? String(params.target) : 'all') as 'all' | 'members' | 'trainers' | 'selected',
   });
 
   const handleSubmit = async () => {
@@ -34,11 +42,35 @@ export default function CreateAnnouncementScreen() {
 
     setIsLoading(true);
     try {
-      await api.createAnnouncement(formData);
-      Alert.alert('Success', 'Announcement created successfully');
+      if (isEditMode) {
+        await api.updateAnnouncement(announcementId, formData);
+        Alert.alert('Success', 'Announcement updated successfully');
+      } else {
+        await api.createAnnouncement(formData);
+        Alert.alert('Success', 'Announcement created successfully');
+      }
       router.back();
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to create announcement');
+      try {
+        const allAnnouncements = await api.getAnnouncements();
+        const found = allAnnouncements.some(
+          (item: any) =>
+            item.title === formData.title &&
+            item.content === formData.content &&
+            item.target === formData.target,
+        );
+        if (found) {
+          Alert.alert('Success', isEditMode ? 'Announcement updated successfully' : 'Announcement created successfully');
+          router.back();
+          return;
+        }
+      } catch {
+        // no-op, surface original error below.
+      }
+      Alert.alert(
+        'Error',
+        error.response?.data?.detail || (isEditMode ? 'Failed to update announcement' : 'Failed to create announcement'),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -78,7 +110,7 @@ export default function CreateAnnouncementScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.text }]}>New Announcement</Text>
+        <Text style={[styles.title, { color: theme.text }]}>{isEditMode ? 'Edit Announcement' : 'New Announcement'}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -157,7 +189,7 @@ export default function CreateAnnouncementScreen() {
             ) : (
               <>
                 <Ionicons name="send" size={20} color="#FFF" />
-                <Text style={styles.submitButtonText}>Send Announcement</Text>
+                <Text style={styles.submitButtonText}>{isEditMode ? 'Save Changes' : 'Send Announcement'}</Text>
               </>
             )}
           </TouchableOpacity>

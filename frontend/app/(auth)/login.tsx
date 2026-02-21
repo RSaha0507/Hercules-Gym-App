@@ -22,7 +22,7 @@ import { api } from '../../src/services/api';
 export default function LoginScreen() {
   const { login } = useAuth();
   const { theme, isDark, toggleTheme } = useTheme();
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -32,14 +32,14 @@ export default function LoginScreen() {
   }, []);
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    if (!identifier || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
     setIsLoading(true);
     try {
-      await login(email.toLowerCase().trim(), password);
+      await login(identifier.trim(), password);
     } catch (error: any) {
       Alert.alert('Login Failed', error.message);
     } finally {
@@ -83,11 +83,11 @@ export default function LoginScreen() {
               <Ionicons name="mail-outline" size={20} color={theme.textSecondary} />
               <TextInput
                 style={[styles.input, { color: theme.text, backgroundColor: theme.inputBg }]}
-                placeholder="Email"
+                placeholder="Email or +91 phone"
                 placeholderTextColor={theme.textSecondary}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
+                value={identifier}
+                onChangeText={setIdentifier}
+                keyboardType="default"
                 autoCapitalize="none"
               />
             </View>

@@ -18,6 +18,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
+import { toSystemDate } from '../../src/utils/time';
 import { format } from 'date-fns';
 
 interface ApprovalRequest {
@@ -298,7 +299,7 @@ export default function ApprovalsScreen() {
           <View style={styles.timeRow}>
             <Ionicons name="time-outline" size={14} color={theme.textSecondary} />
             <Text style={[styles.timeText, { color: theme.textSecondary }]}>
-              {format(new Date(item.requested_at), 'MMM d, yyyy - h:mm a')}
+              {format(toSystemDate(item.requested_at), 'MMM d, yyyy - h:mm a')}
             </Text>
           </View>
 

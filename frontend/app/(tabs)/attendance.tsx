@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
+import { toSystemDate } from '../../src/utils/time';
 import { format } from 'date-fns';
 
 interface AttendanceRecord {
@@ -114,8 +115,8 @@ export default function AttendanceScreen() {
           {item.user_name || 'Unknown'}
         </Text>
         <Text style={[styles.attendanceTime, { color: theme.textSecondary }]}>
-          In: {format(new Date(item.check_in_time), 'hh:mm a')}
-          {item.check_out_time && ` • Out: ${format(new Date(item.check_out_time), 'hh:mm a')}`}
+          In: {format(toSystemDate(item.check_in_time), 'hh:mm a')}
+          {item.check_out_time && ` • Out: ${format(toSystemDate(item.check_out_time), 'hh:mm a')}`}
         </Text>
       </View>
       <View style={[styles.methodBadge, { backgroundColor: getMethodColor(item.method) + '20' }]}>
@@ -130,16 +131,16 @@ export default function AttendanceScreen() {
     <View style={[styles.historyCard, { backgroundColor: theme.card }]}>
       <View style={styles.historyDate}>
         <Text style={[styles.historyDay, { color: theme.text }]}>
-          {format(new Date(item.check_in_time), 'dd')}
+          {format(toSystemDate(item.check_in_time), 'dd')}
         </Text>
         <Text style={[styles.historyMonth, { color: theme.textSecondary }]}>
-          {format(new Date(item.check_in_time), 'MMM')}
+          {format(toSystemDate(item.check_in_time), 'MMM')}
         </Text>
       </View>
       <View style={styles.historyInfo}>
         <Text style={[styles.historyTime, { color: theme.text }]}>
-          {format(new Date(item.check_in_time), 'hh:mm a')} - 
-          {item.check_out_time ? format(new Date(item.check_out_time), ' hh:mm a') : ' Present'}
+          {format(toSystemDate(item.check_in_time), 'hh:mm a')} - 
+          {item.check_out_time ? format(toSystemDate(item.check_out_time), ' hh:mm a') : ' Present'}
         </Text>
         <Text style={[styles.historyDuration, { color: theme.textSecondary }]}>
           {item.check_out_time ? 
@@ -159,7 +160,7 @@ export default function AttendanceScreen() {
   };
 
   const calculateDuration = (start: string, end: string) => {
-    const diff = new Date(end).getTime() - new Date(start).getTime();
+    const diff = toSystemDate(end).getTime() - toSystemDate(start).getTime();
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     return `${hours}h ${minutes}m`;

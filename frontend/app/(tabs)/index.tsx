@@ -8,6 +8,7 @@ import {
   RefreshControl,
   ActivityIndicator,
   Image,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +18,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api, GYM_CENTERS } from '../../src/services/api';
 import { socketService } from '../../src/services/socket';
+import { toSystemDate } from '../../src/utils/time';
 
 interface DashboardData {
   // Admin
@@ -137,6 +139,36 @@ export default function HomeScreen() {
   const onRefresh = () => {
     setRefreshing(true);
     loadData();
+  };
+
+  const handleDeleteAnnouncement = (announcementId: string) => {
+    Alert.alert('Delete Announcement', 'This announcement will be removed for all users.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.deleteAnnouncement(announcementId);
+            setAnnouncements((prev) => prev.filter((item) => item.id !== announcementId));
+          } catch (error: any) {
+            Alert.alert('Error', error.response?.data?.detail || 'Failed to delete announcement');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleEditAnnouncement = (announcement: any) => {
+    router.push({
+      pathname: '/announcements/create',
+      params: {
+        id: announcement.id,
+        title: announcement.title,
+        content: announcement.content,
+        target: announcement.target || 'all',
+      },
+    } as any);
   };
 
   const StatCard = ({ icon, label, value, color, onPress }: { icon: string; label: string; value: string | number; color: string; onPress?: () => void }) => (
@@ -492,12 +524,25 @@ export default function HomeScreen() {
                 <View style={styles.announcementHeader}>
                   <Ionicons name="megaphone" size={20} color={theme.primary} />
                   <Text style={[styles.announcementTitle, { color: theme.text }]}>{announcement.title}</Text>
+                  {user?.role === 'admin' && (
+                    <View style={styles.announcementActions}>
+                      <TouchableOpacity onPress={() => handleEditAnnouncement(announcement)} style={styles.announcementActionButton}>
+                        <Ionicons name="create-outline" size={18} color={theme.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleDeleteAnnouncement(announcement.id)}
+                        style={styles.announcementActionButton}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={theme.error} />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
                 <Text style={[styles.announcementContent, { color: theme.textSecondary }]} numberOfLines={2}>
                   {announcement.content}
                 </Text>
                 <Text style={[styles.announcementDate, { color: theme.textSecondary }]}>
-                  {new Date(announcement.created_at).toLocaleDateString()}
+                  {toSystemDate(announcement.created_at).toLocaleDateString()}
                 </Text>
               </View>
             ))
@@ -828,6 +873,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginBottom: 8,
+  },
+  announcementActions: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  announcementActionButton: {
+    padding: 2,
   },
   announcementTitle: {
     fontSize: 17,
