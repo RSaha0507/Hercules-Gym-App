@@ -48,7 +48,7 @@ class ApiService {
   }
 
   async register(data: {
-    email?: string;
+    email: string;
     password: string;
     full_name: string;
     phone: string;

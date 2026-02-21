@@ -33,7 +33,7 @@ interface AuthContextType {
 }
 
 interface RegisterData {
-  email?: string;
+  email: string;
   password: string;
   full_name: string;
   phone: string;

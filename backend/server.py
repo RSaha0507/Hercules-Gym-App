@@ -112,7 +112,7 @@ class UserCreate(UserBase):
     password: str
 
 class UserRegister(BaseModel):
-    email: Optional[EmailStr] = None
+    email: EmailStr
     phone: str
     full_name: str
     password: str
@@ -584,19 +584,6 @@ def normalize_indian_phone(phone: str) -> str:
 
     return f"{INDIA_PHONE_PREFIX}{digits}"
 
-async def generate_member_registration_email(normalized_phone: str) -> str:
-    digits = "".join(ch for ch in normalized_phone if ch.isdigit())[-10:]
-    base_email = f"m{digits}@herculesgym.app"
-    existing = await db.users.find_one({"email": base_email})
-    if not existing:
-        return base_email
-
-    while True:
-        candidate = f"m{digits}.{uuid.uuid4().hex[:6]}@herculesgym.app"
-        existing_candidate = await db.users.find_one({"email": candidate})
-        if not existing_candidate:
-            return candidate
-
 async def can_users_chat(sender: Dict, receiver: Dict) -> Tuple[bool, str]:
     if sender.get("id") == receiver.get("id"):
         return False, "Cannot message yourself"
@@ -838,13 +825,7 @@ async def check_payment_reminders():
 @api_router.post("/auth/register", response_model=Token)
 async def register(user: UserRegister, background_tasks: BackgroundTasks):
     normalized_phone = normalize_indian_phone(user.phone)
-    resolved_email = user.email.lower().strip() if user.email else None
-
-    if user.role == "member":
-        if not resolved_email:
-            resolved_email = await generate_member_registration_email(normalized_phone)
-    elif not resolved_email:
-        raise HTTPException(status_code=400, detail="Email is required for admin and trainer registration")
+    resolved_email = str(user.email).lower().strip()
 
     # Check if user exists
     existing = await db.users.find_one({"email": resolved_email})
