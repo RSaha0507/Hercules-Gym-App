@@ -33,6 +33,7 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const formatIndianPhoneDigits = (text: string) => text.replace(/\D/g, '').slice(0, 10);
+  const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim());
 
   const handleRegister = async () => {
     const { full_name, email, phone, password, confirmPassword, role, center } = formData;
@@ -40,6 +41,11 @@ export default function RegisterScreen() {
 
     if (!full_name || !email || !phone || !password) {
       Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      Alert.alert('Invalid Email', 'Please enter a valid email address to continue.');
       return;
     }
 

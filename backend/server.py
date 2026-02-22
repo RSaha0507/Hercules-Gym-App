@@ -17,6 +17,7 @@ import socketio
 from bson import ObjectId
 import httpx
 import asyncio
+from email_validator import validate_email, EmailNotValidError
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -463,6 +464,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
+def normalize_and_validate_email(email: str) -> str:
+    candidate = (email or "").strip().lower()
+    if not candidate:
+        raise HTTPException(status_code=400, detail="Email is required")
+    try:
+        validated = validate_email(candidate, check_deliverability=False)
+    except EmailNotValidError:
+        raise HTTPException(status_code=400, detail="Invalid email format")
+    return validated.normalized
+
+def is_email_valid(email: str) -> bool:
+    try:
+        validate_email((email or "").strip(), check_deliverability=False)
+        return True
+    except EmailNotValidError:
+        return False
+
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode = data.copy()
     if expires_delta:
@@ -491,6 +509,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     user = await db.users.find_one({"id": user_id})
     if user is None:
         raise credentials_exception
+    if not is_email_valid(user.get("email", "")):
+        raise HTTPException(status_code=401, detail="Invalid account email. Please contact support.")
     return UserInDB(**user)
 
 async def require_admin(current_user: UserInDB = Depends(get_current_user)) -> UserInDB:
@@ -825,7 +845,7 @@ async def check_payment_reminders():
 @api_router.post("/auth/register", response_model=Token)
 async def register(user: UserRegister, background_tasks: BackgroundTasks):
     normalized_phone = normalize_indian_phone(user.phone)
-    resolved_email = str(user.email).lower().strip()
+    resolved_email = normalize_and_validate_email(str(user.email))
 
     # Check if user exists
     existing = await db.users.find_one({"email": resolved_email})
@@ -965,6 +985,9 @@ async def login(credentials: UserLogin):
     user = await db.users.find_one(query)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not is_email_valid(user.get("email", "")):
+        raise HTTPException(status_code=401, detail="Invalid account email. Please contact support.")
     
     if not verify_password(credentials.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -1174,7 +1197,8 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
         raise HTTPException(status_code=403, detail="Trainers can only create members in their branch")
 
     # Check if email exists
-    existing = await db.users.find_one({"email": member.email})
+    normalized_email = normalize_and_validate_email(str(member.email))
+    existing = await db.users.find_one({"email": normalized_email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -1189,7 +1213,7 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
     
     user_dict = {
         "id": user_id,
-        "email": member.email,
+        "email": normalized_email,
         "phone": normalized_phone,
         "full_name": member.full_name,
         "role": "member",
@@ -1457,7 +1481,8 @@ async def create_trainer(user: UserCreate, current_user: UserInDB = Depends(requ
     if not user.center:
         raise HTTPException(status_code=400, detail="Center is required for trainers")
     
-    existing = await db.users.find_one({"email": user.email})
+    normalized_email = normalize_and_validate_email(str(user.email))
+    existing = await db.users.find_one({"email": normalized_email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -1471,7 +1496,7 @@ async def create_trainer(user: UserCreate, current_user: UserInDB = Depends(requ
     
     user_dict = {
         "id": user_id,
-        "email": user.email,
+        "email": normalized_email,
         "phone": normalized_phone,
         "full_name": user.full_name,
         "role": "trainer",
