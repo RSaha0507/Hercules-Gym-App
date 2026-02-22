@@ -16,11 +16,13 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { GYM_CENTERS, CenterType } from '../../src/services/api';
 
 export default function RegisterScreen() {
   const { register } = useAuth();
   const { theme, isDark, toggleTheme } = useTheme();
+  const { t } = useLanguage();
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -40,32 +42,32 @@ export default function RegisterScreen() {
     const phoneDigits = formatIndianPhoneDigits(phone);
 
     if (!full_name || !email || !phone || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert(t('Error'), t('Please fill in all fields'));
       return;
     }
 
     if (!isValidEmail(email)) {
-      Alert.alert('Invalid Email', 'Please enter a valid email address to continue.');
+      Alert.alert(t('Invalid Email'), t('Please enter a valid email address to continue.'));
       return;
     }
 
     if (phoneDigits.length !== 10) {
-      Alert.alert('Error', 'Phone must be exactly 10 digits');
+      Alert.alert(t('Error'), t('Phone must be exactly 10 digits'));
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+      Alert.alert(t('Error'), t('Passwords do not match'));
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      Alert.alert(t('Error'), t('Password must be at least 6 characters'));
       return;
     }
 
     if ((role === 'trainer' || role === 'member') && !center) {
-      Alert.alert('Error', 'Please select a gym center');
+      Alert.alert(t('Error'), t('Please select a gym center'));
       return;
     }
 
@@ -83,15 +85,15 @@ export default function RegisterScreen() {
       // Show approval message
       if (role !== 'admin' || (role === 'admin' && true)) {
         Alert.alert(
-          'Registration Submitted',
+          t('Registration Submitted'),
           role === 'admin' || role === 'trainer'
-            ? 'Your registration is pending approval from the primary admin.'
-            : 'Your registration is pending approval from a trainer at your center.',
-          [{ text: 'OK' }]
+            ? t('Your registration is pending approval from the primary admin.')
+            : t('Your registration is pending approval from a trainer at your center.'),
+          [{ text: 'OK' }],
         );
       }
     } catch (error: any) {
-      Alert.alert('Registration Failed', error.message);
+      Alert.alert(t('Registration Failed'), error.message);
     } finally {
       setIsLoading(false);
     }
@@ -172,23 +174,23 @@ export default function RegisterScreen() {
           </View>
 
           <View style={styles.titleContainer}>
-            <Text style={[styles.title, { color: theme.text }]}>Create Account</Text>
+            <Text style={[styles.title, { color: theme.text }]}>{t('Create Account')}</Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              Join Hercules Gym today
+              {t('Join Hercules Gym today')}
             </Text>
           </View>
 
           <View style={styles.form}>
-            <Text style={[styles.label, { color: theme.text }]}>I am a:</Text>
+            <Text style={[styles.label, { color: theme.text }]}>{t('I am a:')}</Text>
             <View style={styles.roleContainer}>
-              <RoleButton role="member" label="Member" icon="person" />
-              <RoleButton role="trainer" label="Trainer" icon="fitness" />
-              <RoleButton role="admin" label="Admin" icon="shield" />
+              <RoleButton role="member" label={t('Member')} icon="person" />
+              <RoleButton role="trainer" label={t('Trainer')} icon="fitness" />
+              <RoleButton role="admin" label={t('Admin')} icon="shield" />
             </View>
 
             {formData.role !== 'admin' && (
               <>
-                <Text style={[styles.label, { color: theme.text }]}>Select Gym Center:</Text>
+                <Text style={[styles.label, { color: theme.text }]}>{t('Select Gym Center:')}</Text>
                 <View style={styles.centerContainer}>
                   {GYM_CENTERS.map((center) => (
                     <CenterButton key={center} center={center} />
@@ -201,7 +203,7 @@ export default function RegisterScreen() {
               <Ionicons name="person-outline" size={20} color={theme.textSecondary} />
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder="Full Name"
+                placeholder={t('Full Name')}
                 placeholderTextColor={theme.textSecondary}
                 value={formData.full_name}
                 onChangeText={(text) => setFormData({ ...formData, full_name: text })}
@@ -212,7 +214,7 @@ export default function RegisterScreen() {
               <Ionicons name="mail-outline" size={20} color={theme.textSecondary} />
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder="Email"
+                placeholder={t('Email')}
                 placeholderTextColor={theme.textSecondary}
                 value={formData.email}
                 onChangeText={(text) => setFormData({ ...formData, email: text })}
@@ -226,7 +228,7 @@ export default function RegisterScreen() {
               <Text style={[styles.phonePrefix, { color: theme.textSecondary }]}>+91</Text>
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder="10-digit mobile number"
+                placeholder={t('10-digit mobile number')}
                 placeholderTextColor={theme.textSecondary}
                 value={formData.phone}
                 onChangeText={(text) => setFormData({ ...formData, phone: formatIndianPhoneDigits(text) })}
@@ -239,7 +241,7 @@ export default function RegisterScreen() {
               <Ionicons name="lock-closed-outline" size={20} color={theme.textSecondary} />
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder="Password"
+                placeholder={t('Password')}
                 placeholderTextColor={theme.textSecondary}
                 value={formData.password}
                 onChangeText={(text) => setFormData({ ...formData, password: text })}
@@ -258,7 +260,7 @@ export default function RegisterScreen() {
               <Ionicons name="lock-closed-outline" size={20} color={theme.textSecondary} />
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder="Confirm Password"
+                placeholder={t('Confirm Password')}
                 placeholderTextColor={theme.textSecondary}
                 value={formData.confirmPassword}
                 onChangeText={(text) => setFormData({ ...formData, confirmPassword: text })}
@@ -271,8 +273,8 @@ export default function RegisterScreen() {
               <Ionicons name="information-circle" size={20} color={theme.warning} />
               <Text style={[styles.infoText, { color: theme.text }]}>
                 {formData.role === 'admin' || formData.role === 'trainer'
-                  ? 'Your registration requires approval from the primary admin.'
-                  : 'Your registration requires approval from a trainer at your selected center.'}
+                  ? t('Your registration is pending approval from the primary admin.')
+                  : t('Your registration is pending approval from a trainer at your center.')}
               </Text>
             </View>
 
@@ -284,16 +286,16 @@ export default function RegisterScreen() {
               {isLoading ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
-                <Text style={styles.registerButtonText}>Create Account</Text>
+                <Text style={styles.registerButtonText}>{t('Create Account')}</Text>
               )}
             </TouchableOpacity>
 
             <View style={styles.loginContainer}>
               <Text style={[styles.loginText, { color: theme.textSecondary }]}>
-                Already have an account?
+                {t('Already have an account?')}
               </Text>
               <TouchableOpacity onPress={() => router.back()}>
-                <Text style={[styles.loginLink, { color: theme.primary }]}> Login</Text>
+                <Text style={[styles.loginLink, { color: theme.primary }]}> {t('Login')}</Text>
               </TouchableOpacity>
             </View>
           </View>

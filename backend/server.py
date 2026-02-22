@@ -1,13 +1,14 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Query, BackgroundTasks
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Query, BackgroundTasks, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal, Dict, Tuple
+from typing import List, Optional, Literal, Dict, Tuple, Callable, Awaitable, TypeVar
 import uuid
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
@@ -18,6 +19,7 @@ from bson import ObjectId
 import httpx
 import asyncio
 from email_validator import validate_email, EmailNotValidError
+from pymongo.errors import AutoReconnect, ConnectionFailure, NetworkTimeout, ServerSelectionTimeoutError, PyMongoError
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -42,6 +44,35 @@ def read_int_env(name: str, default: int) -> int:
         return int(value)
     except ValueError:
         return default
+
+
+async def run_with_mongo_retry(
+    operation: Callable[[], Awaitable[T]],
+    *,
+    context: str,
+    attempts: int = 3,
+    base_delay_seconds: float = 0.35,
+) -> T:
+    last_error: Optional[Exception] = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return await operation()
+        except RETRYABLE_MONGO_EXCEPTIONS as exc:
+            last_error = exc
+            logger.warning(
+                "Transient MongoDB error during %s (attempt %s/%s): %s",
+                context,
+                attempt,
+                attempts,
+                exc,
+            )
+            if attempt == attempts:
+                break
+            await asyncio.sleep(base_delay_seconds * attempt)
+    raise HTTPException(
+        status_code=503,
+        detail="Service is warming up. Please retry in a few seconds.",
+    ) from last_error
 
 
 # JWT Settings
@@ -75,6 +106,9 @@ client = AsyncIOMotorClient(
 )
 db = client[db_name]
 
+RETRYABLE_MONGO_EXCEPTIONS = (AutoReconnect, ConnectionFailure, NetworkTimeout, ServerSelectionTimeoutError)
+T = TypeVar("T")
+
 # Security
 security = HTTPBearer()
 
@@ -95,6 +129,15 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+@app.exception_handler(PyMongoError)
+async def handle_mongo_errors(_: Request, exc: PyMongoError):
+    logger.error(f"MongoDB operation failed: {exc}")
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Service is temporarily unavailable. Please retry in a few seconds."},
+    )
 
 # ==================== MODELS ====================
 
@@ -542,7 +585,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except JWTError:
         raise credentials_exception
     
-    user = await db.users.find_one({"id": user_id})
+    user = await run_with_mongo_retry(
+        lambda: db.users.find_one({"id": user_id}),
+        context="auth.get_current_user.find_user",
+    )
     if user is None:
         raise credentials_exception
 
@@ -890,18 +936,27 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
     )
 
     # Check if user exists
-    existing = await db.users.find_one({"email": resolved_email})
+    existing = await run_with_mongo_retry(
+        lambda: db.users.find_one({"email": resolved_email}),
+        context="auth.register.find_email",
+    )
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    existing_phone = await db.users.find_one({"phone": normalized_phone})
+    existing_phone = await run_with_mongo_retry(
+        lambda: db.users.find_one({"phone": normalized_phone}),
+        context="auth.register.find_phone",
+    )
     if existing_phone:
         raise HTTPException(status_code=400, detail="Phone already registered")
     
     # Check if this is the first admin (becomes primary admin)
     is_first_admin = False
     if user.role == "admin":
-        admin_count = await db.users.count_documents({"role": "admin"})
+        admin_count = await run_with_mongo_retry(
+            lambda: db.users.count_documents({"role": "admin"}),
+            context="auth.register.count_admins",
+        )
         is_first_admin = admin_count == 0
     
     # Determine approval status
@@ -933,7 +988,10 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
         "push_token": None
     }
     
-    await db.users.insert_one(user_dict)
+    await run_with_mongo_retry(
+        lambda: db.users.insert_one(user_dict),
+        context="auth.register.insert_user",
+    )
     
     # Create member profile if role is member
     if user.role == "member":
@@ -945,7 +1003,10 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
             "body_metrics": [],
             "progress_photos": []
         }
-        await db.member_profiles.insert_one(profile)
+        await run_with_mongo_retry(
+            lambda: db.member_profiles.insert_one(profile),
+            context="auth.register.insert_member_profile",
+        )
         await sync_member_assignments_for_member(user_id)
     
     # Create approval request if not primary admin
@@ -957,12 +1018,18 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
             user_role=user.role,
             center=user.center
         )
-        await db.approval_requests.insert_one(approval_request.dict())
+        await run_with_mongo_retry(
+            lambda: db.approval_requests.insert_one(approval_request.dict()),
+            context="auth.register.insert_approval_request",
+        )
         
         # Send notification
         if user.role in ["admin", "trainer"]:
             # Notify primary admin
-            primary_admin = await db.users.find_one({"is_primary_admin": True})
+            primary_admin = await run_with_mongo_retry(
+                lambda: db.users.find_one({"is_primary_admin": True}),
+                context="auth.register.find_primary_admin",
+            )
             if primary_admin:
                 background_tasks.add_task(
                     send_notification_to_user,
@@ -1024,7 +1091,10 @@ async def login(credentials: UserLogin):
         except HTTPException:
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    user = await db.users.find_one(query)
+    user = await run_with_mongo_retry(
+        lambda: db.users.find_one(query),
+        context="auth.login.find_user",
+    )
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.get("email"):
@@ -2825,7 +2895,7 @@ async def startup_event():
         logger.info(f"Connected to MongoDB database '{db_name}'")
     except Exception as exc:
         logger.error(f"Failed to connect to MongoDB during startup: {exc}")
-        raise RuntimeError("MongoDB connection failed at startup.") from exc
+        logger.warning("Continuing startup in degraded mode; database operations will retry on demand.")
 
     # Create indexes to reduce query latency on frequently used paths.
     try:
@@ -2849,6 +2919,17 @@ async def startup_event():
         except Exception as exc:
             logger.warning(f"Could not synchronize trainer-member assignments: {exc}")
     asyncio.create_task(_run_assignment_sync())
+
+    async def _periodic_db_ping():
+        interval_seconds = max(60, read_int_env("DB_KEEPALIVE_INTERVAL_SECONDS", 300))
+        while True:
+            try:
+                await db.command("ping")
+            except Exception as exc:
+                logger.warning(f"Background DB keepalive ping failed: {exc}")
+            await asyncio.sleep(interval_seconds)
+
+    asyncio.create_task(_periodic_db_ping())
 
     # Start payment reminder background task
     asyncio.create_task(check_payment_reminders())

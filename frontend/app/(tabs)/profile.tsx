@@ -14,15 +14,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
 import { toSystemDate } from '../../src/utils/time';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const { theme, isDark, toggleTheme } = useTheme();
+  const { t, languageLabel } = useLanguage();
   const [memberProfile, setMemberProfile] = useState<any>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const localizeRole = (role?: string) => {
+    if (role === 'admin') return t('Admin');
+    if (role === 'trainer') return t('Trainer');
+    if (role === 'member') return t('Member');
+    return role || '';
+  };
 
   const loadProfile = useCallback(async () => {
     if (user?.role === 'member' && user?.id) {
@@ -82,7 +91,7 @@ export default function ProfileScreen() {
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: theme.text }]}>Profile</Text>
+          <Text style={[styles.title, { color: theme.text }]}>{t('Profile')}</Text>
           <TouchableOpacity 
             style={[styles.settingsButton, { backgroundColor: theme.card }]}
             onPress={toggleTheme}
@@ -108,15 +117,15 @@ export default function ProfileScreen() {
           <Text style={[styles.userEmail, { color: theme.textSecondary }]}>{user?.email}</Text>
           <View style={[styles.roleBadge, { backgroundColor: theme.primary + '18' }]}>
             <Text style={[styles.roleText, { color: theme.primary }]}>
-              {user?.role?.charAt(0).toUpperCase()}{user?.role?.slice(1)}
-              {user?.is_primary_admin && ' (Primary)'}
+              {localizeRole(user?.role)}
+              {user?.is_primary_admin && ` (${t('Primary Admin')})`}
             </Text>
           </View>
 
           {user?.center && (
             <View style={[styles.centerRow, { borderTopColor: theme.border }]}>
               <Ionicons name="location" size={16} color={theme.primary} />
-              <Text style={[styles.centerText, { color: theme.text }]}>{user.center} Center</Text>
+              <Text style={[styles.centerText, { color: theme.text }]}>{`${user.center} ${t('Center')}`}</Text>
             </View>
           )}
 
@@ -148,7 +157,7 @@ export default function ProfileScreen() {
                   styles.membershipStatusText, 
                   { color: memberProfile.membership.is_active ? theme.success : theme.error }
                 ]}>
-                  {memberProfile.membership.is_active ? 'Active' : 'Expired'}
+                  {memberProfile.membership.is_active ? t('Active') : t('Expired')}
                 </Text>
               </View>
               <Text style={[styles.membershipPlan, { color: theme.text }]}>
@@ -157,14 +166,14 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.membershipDates}>
               <View style={styles.membershipDate}>
-                <Text style={[styles.membershipDateLabel, { color: theme.textSecondary }]}>Start</Text>
+                <Text style={[styles.membershipDateLabel, { color: theme.textSecondary }]}>{t('Start')}</Text>
                 <Text style={[styles.membershipDateValue, { color: theme.text }]}>
                   {toSystemDate(memberProfile.membership.start_date).toLocaleDateString()}
                 </Text>
               </View>
               <View style={[styles.membershipDivider, { backgroundColor: theme.border }]} />
               <View style={styles.membershipDate}>
-                <Text style={[styles.membershipDateLabel, { color: theme.textSecondary }]}>Expires</Text>
+                <Text style={[styles.membershipDateLabel, { color: theme.textSecondary }]}>{t('Expires')}</Text>
                 <Text style={[styles.membershipDateValue, { color: theme.text }]}>
                   {toSystemDate(memberProfile.membership.end_date).toLocaleDateString()}
                 </Text>
@@ -181,41 +190,41 @@ export default function ProfileScreen() {
               <Text style={[styles.statValue, { color: theme.text }]}>
                 {memberProfile?.attendance_count || 0}
               </Text>
-              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Visits</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>{t('Visits')}</Text>
             </View>
             <View style={[styles.statCard, { backgroundColor: theme.card }]}>
               <Ionicons name="flame" size={24} color="#F59E0B" />
               <Text style={[styles.statValue, { color: theme.text }]}>
                 {memberProfile?.streak || 0}
               </Text>
-              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Day Streak</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>{t('Day Streak')}</Text>
             </View>
             <View style={[styles.statCard, { backgroundColor: theme.card }]}>
               <Ionicons name="trophy" size={24} color="#10B981" />
               <Text style={[styles.statValue, { color: theme.text }]}>
                 {memberProfile?.goals_achieved || 0}
               </Text>
-              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Goals</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>{t('Goals')}</Text>
             </View>
           </View>
         )}
 
         {/* Menu Items */}
         <View style={styles.menuSection}>
-          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Account</Text>
-          <MenuItem icon="person-outline" label="Edit Profile" onPress={() => router.push('/profile/edit')} />
+          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{t('Account')}</Text>
+          <MenuItem icon="person-outline" label={t('Edit Profile')} onPress={() => router.push('/profile/edit')} />
           {user?.role === 'member' && (
             <>
-              <MenuItem icon="qr-code-outline" label="QR Check-In" onPress={() => router.push('/profile/checkin-qr' as any)} />
-              <MenuItem icon="body-outline" label="Body Metrics" onPress={() => router.push('/profile/metrics' as any)} />
-              <MenuItem icon="barbell-outline" label="My Workouts" onPress={() => router.push('/profile/workouts' as any)} />
-              <MenuItem icon="nutrition-outline" label="My Diet Plan" onPress={() => router.push('/profile/diet' as any)} />
+              <MenuItem icon="qr-code-outline" label={t('QR Check-In')} onPress={() => router.push('/profile/checkin-qr' as any)} />
+              <MenuItem icon="body-outline" label={t('Body Metrics')} onPress={() => router.push('/profile/metrics' as any)} />
+              <MenuItem icon="barbell-outline" label={t('My Workouts')} onPress={() => router.push('/profile/workouts' as any)} />
+              <MenuItem icon="nutrition-outline" label={t('My Diet Plan')} onPress={() => router.push('/profile/diet' as any)} />
             </>
           )}
         </View>
 
         <View style={styles.menuSection}>
-          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Preferences</Text>
+          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{t('Preferences')}</Text>
           <TouchableOpacity 
             style={[styles.menuItem, { backgroundColor: theme.card }]} 
             onPress={toggleTheme}
@@ -225,7 +234,7 @@ export default function ProfileScreen() {
               <Ionicons name={isDark ? 'sunny' : 'moon'} size={22} color={theme.primary} />
             </View>
             <Text style={[styles.menuLabel, { color: theme.text }]}>
-              {isDark ? 'Light Mode' : 'Dark Mode'}
+              {isDark ? t('Light Mode') : t('Dark Mode')}
             </Text>
             <View style={[styles.toggle, { backgroundColor: isDark ? theme.primary : theme.inputBg }]}>
               <View style={[
@@ -234,15 +243,15 @@ export default function ProfileScreen() {
               ]} />
             </View>
           </TouchableOpacity>
-          <MenuItem icon="notifications-outline" label="Notifications" onPress={() => router.push('/profile/notifications')} />
-          <MenuItem icon="language-outline" label="Language" onPress={() => router.push('/profile/language' as any)} badge="English" />
+          <MenuItem icon="notifications-outline" label={t('Notifications')} onPress={() => router.push('/profile/notifications')} />
+          <MenuItem icon="language-outline" label={t('Language')} onPress={() => router.push('/profile/language' as any)} badge={languageLabel} />
         </View>
 
         <View style={styles.menuSection}>
-          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>Support</Text>
-          <MenuItem icon="help-circle-outline" label="Help & Support" onPress={() => router.push('/profile/help')} />
-          <MenuItem icon="document-text-outline" label="Terms of Service" onPress={() => router.push('/profile/terms' as any)} />
-          <MenuItem icon="shield-checkmark-outline" label="Privacy Policy" onPress={() => router.push('/profile/privacy' as any)} />
+          <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{t('Support')}</Text>
+          <MenuItem icon="help-circle-outline" label={t('Help & Support')} onPress={() => router.push('/profile/help')} />
+          <MenuItem icon="document-text-outline" label={t('Terms of Service')} onPress={() => router.push('/profile/terms' as any)} />
+          <MenuItem icon="shield-checkmark-outline" label={t('Privacy Policy')} onPress={() => router.push('/profile/privacy' as any)} />
         </View>
 
         <View style={styles.menuSection}>
@@ -252,7 +261,7 @@ export default function ProfileScreen() {
             activeOpacity={0.7}
           >
             <Ionicons name="log-out-outline" size={22} color={theme.error} />
-            <Text style={[styles.logoutText, { color: theme.error }]}>Logout</Text>
+            <Text style={[styles.logoutText, { color: theme.error }]}>{t('Logout')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -261,9 +270,9 @@ export default function ProfileScreen() {
           <Text style={[styles.version, { color: theme.textSecondary }]}>Hercules Gym v1.0.0</Text>
           <Text style={[styles.copyright, { color: theme.textSecondary }]}>Copyright (c) 2026 Hercules Fitness</Text>
           <View style={[styles.creditCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.creditTitle, { color: theme.text }]}>Built by Rounak Saha</Text>
+            <Text style={[styles.creditTitle, { color: theme.text }]}>{t('Built by Rounak Saha')}</Text>
             <Text style={[styles.creditBody, { color: theme.textSecondary }]}>
-              Contributions: product architecture, frontend and backend engineering, deployment, and quality improvements.
+              {t('Contributions: product architecture, frontend and backend engineering, deployment, and quality improvements.')}
             </Text>
           </View>
         </View>
@@ -276,9 +285,9 @@ export default function ProfileScreen() {
             <View style={[styles.modalIconContainer, { backgroundColor: theme.error + '15' }]}>
               <Ionicons name="log-out-outline" size={48} color={theme.error} />
             </View>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Logout</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('Logout')}</Text>
             <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>
-              Are you sure you want to logout from your account?
+              {t('Are you sure you want to logout from your account?')}
             </Text>
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -286,7 +295,7 @@ export default function ProfileScreen() {
                 onPress={() => setShowLogoutModal(false)}
                 disabled={isLoggingOut}
               >
-                <Text style={[styles.modalCancelText, { color: theme.text }]}>Cancel</Text>
+                <Text style={[styles.modalCancelText, { color: theme.text }]}>{t('Cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalConfirmButton, { backgroundColor: theme.error }]}
@@ -296,7 +305,7 @@ export default function ProfileScreen() {
                 {isLoggingOut ? (
                   <ActivityIndicator color="#FFF" size="small" />
                 ) : (
-                  <Text style={styles.modalConfirmText}>Logout</Text>
+                  <Text style={styles.modalConfirmText}>{t('Logout')}</Text>
                 )}
               </TouchableOpacity>
             </View>

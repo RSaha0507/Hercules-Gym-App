@@ -17,6 +17,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
 import { socketService } from '../../src/services/socket';
 import { toSystemDate } from '../../src/utils/time';
@@ -37,6 +38,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -123,10 +125,10 @@ export default function ChatScreen() {
 
   const handleDeleteSelected = async () => {
     if (!selectedIds.length) return;
-    Alert.alert('Delete messages', `Delete ${selectedIds.length} selected message(s)?`, [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('Delete messages'), t('Delete {count} selected message(s)?', { count: selectedIds.length }), [
+      { text: t('Cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('Delete'),
         style: 'destructive',
         onPress: async () => {
           try {
@@ -135,7 +137,7 @@ export default function ChatScreen() {
             setMessages((prev) => prev.filter((item) => !selectedIds.includes(item.id)));
             setSelectedIds([]);
           } catch (error: any) {
-            Alert.alert('Failed', error.response?.data?.detail || 'Unable to delete selected messages');
+            Alert.alert(t('Failed'), error.response?.data?.detail || t('Unable to delete selected messages'));
           } finally {
             setDeleting(false);
           }
@@ -145,10 +147,10 @@ export default function ChatScreen() {
   };
 
   const handleDeleteEntireChat = async () => {
-    Alert.alert('Delete full chat', 'This will permanently remove the entire conversation.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('Delete full chat'), t('This will permanently remove the entire conversation.'), [
+      { text: t('Cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('Delete'),
         style: 'destructive',
         onPress: async () => {
           try {
@@ -157,7 +159,7 @@ export default function ChatScreen() {
             setMessages([]);
             router.back();
           } catch (error: any) {
-            Alert.alert('Failed', error.response?.data?.detail || 'Unable to delete full chat');
+            Alert.alert(t('Failed'), error.response?.data?.detail || t('Unable to delete full chat'));
           } finally {
             setDeleting(false);
           }
@@ -211,7 +213,7 @@ export default function ChatScreen() {
         );
         setMessages(latest);
         if (!wasDelivered) {
-          Alert.alert('Send failed', error.response?.data?.detail || 'Unable to send message');
+          Alert.alert(t('Send failed'), error.response?.data?.detail || t('Unable to send message'));
         }
       } catch {
         setMessages((prev) =>
@@ -219,7 +221,7 @@ export default function ChatScreen() {
             item.id === optimisticId ? { ...item, local_status: 'failed' } : item,
           ),
         );
-        Alert.alert('Send failed', error.response?.data?.detail || 'Unable to send message');
+        Alert.alert(t('Send failed'), error.response?.data?.detail || t('Unable to send message'));
       }
     } finally {
       setSending(false);
@@ -295,8 +297,10 @@ export default function ChatScreen() {
 
         {isSelectionMode ? (
           <View style={styles.headerInfo}>
-            <Text style={[styles.headerName, { color: theme.text }]}>{selectedIds.length} selected</Text>
-            <Text style={[styles.headerRole, { color: theme.textSecondary }]}>Choose action</Text>
+            <Text style={[styles.headerName, { color: theme.text }]}>
+              {t('{count} selected', { count: selectedIds.length })}
+            </Text>
+            <Text style={[styles.headerRole, { color: theme.textSecondary }]}>{t('Choose action')}</Text>
           </View>
         ) : (
           <>
@@ -306,7 +310,7 @@ export default function ChatScreen() {
               </Text>
             </View>
             <View style={styles.headerInfo}>
-              <Text style={[styles.headerName, { color: theme.text }]}>{otherUser?.user_name || 'User'}</Text>
+              <Text style={[styles.headerName, { color: theme.text }]}>{otherUser?.user_name || t('User')}</Text>
               <Text style={[styles.headerRole, { color: theme.textSecondary }]}>{otherUser?.user_role}</Text>
             </View>
           </>
@@ -343,7 +347,7 @@ export default function ChatScreen() {
             <View style={styles.emptyContainer}>
               <Ionicons name="chatbubble-outline" size={60} color={theme.textSecondary} />
               <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-                No messages yet. Start the conversation!
+                {t('No messages yet. Start the conversation!')}
               </Text>
             </View>
           }
@@ -361,7 +365,7 @@ export default function ChatScreen() {
         >
           <TextInput
             style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text }]}
-            placeholder="Type a message..."
+            placeholder={t('Type a message...')}
             placeholderTextColor={theme.textSecondary}
             value={newMessage}
             onChangeText={setNewMessage}

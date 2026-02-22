@@ -16,6 +16,7 @@ import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { api, GYM_CENTERS } from '../../src/services/api';
 import { socketService } from '../../src/services/socket';
 import { toSystemDate } from '../../src/utils/time';
@@ -50,6 +51,7 @@ interface DashboardData {
 export default function HomeScreen() {
   const { user, updateUser } = useAuth();
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -61,6 +63,13 @@ export default function HomeScreen() {
   const userId = user?.id;
   const userRole = user?.role;
   const userApprovalStatus = user?.approval_status;
+
+  const localizeRole = (role?: string) => {
+    if (role === 'admin') return t('Admin');
+    if (role === 'trainer') return t('Trainer');
+    if (role === 'member') return t('Member');
+    return role || '';
+  };
 
   useEffect(() => {
     userRef.current = user;
@@ -142,17 +151,17 @@ export default function HomeScreen() {
   };
 
   const handleDeleteAnnouncement = (announcementId: string) => {
-    Alert.alert('Delete Announcement', 'This announcement will be removed for all users.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('Delete Announcement'), t('This announcement will be removed for all users.'), [
+      { text: t('Cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('Delete'),
         style: 'destructive',
         onPress: async () => {
           try {
             await api.deleteAnnouncement(announcementId);
             setAnnouncements((prev) => prev.filter((item) => item.id !== announcementId));
           } catch (error: any) {
-            Alert.alert('Error', error.response?.data?.detail || 'Failed to delete announcement');
+            Alert.alert(t('Error'), error.response?.data?.detail || t('Failed to delete announcement'));
           }
         },
       },
@@ -197,9 +206,9 @@ export default function HomeScreen() {
           />
           <View style={[styles.pendingCard, { backgroundColor: theme.warning + '20' }]}>
             <Ionicons name="time" size={48} color={theme.warning} />
-            <Text style={[styles.pendingTitle, { color: theme.text }]}>Approval Pending</Text>
+            <Text style={[styles.pendingTitle, { color: theme.text }]}>{t('Approval Pending')}</Text>
             <Text style={[styles.pendingText, { color: theme.textSecondary }]}>
-              Your registration is awaiting approval. You will be notified once it is approved.
+              {t('Your registration is awaiting approval. You will be notified once it is approved.')}
             </Text>
           </View>
           <TouchableOpacity
@@ -207,7 +216,7 @@ export default function HomeScreen() {
             onPress={loadData}
           >
             <Ionicons name="refresh" size={20} color="#FFF" />
-            <Text style={styles.refreshText}>Check Status</Text>
+            <Text style={styles.refreshText}>{t('Check Status')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -226,7 +235,7 @@ export default function HomeScreen() {
           onPress={() => setSelectedCenter(null)}
         >
           <Text style={[styles.centerChipText, { color: !selectedCenter ? '#FFF' : theme.text }]}>
-            All Centers
+            {t('All Centers')}
           </Text>
         </TouchableOpacity>
         {GYM_CENTERS.map((center) => (
@@ -246,10 +255,10 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.statsGrid}>
-        <StatCard icon="people" label="Total Members" value={dashboard?.total_members || 0} color={theme.primary} onPress={() => router.push('/(tabs)/members')} />
-        <StatCard icon="checkmark-circle" label="Active" value={dashboard?.active_members || 0} color={theme.success} onPress={() => router.push('/(tabs)/members')} />
-        <StatCard icon="fitness" label="Trainers" value={dashboard?.total_trainers || 0} color={theme.secondary} onPress={() => router.push('/trainers' as any)} />
-        <StatCard icon="calendar-outline" label="Today's Attendance" value={dashboard?.today_attendance || 0} color={theme.warning} />
+        <StatCard icon="people" label={t('Total Members')} value={dashboard?.total_members || 0} color={theme.primary} onPress={() => router.push('/(tabs)/members')} />
+        <StatCard icon="checkmark-circle" label={t('Active')} value={dashboard?.active_members || 0} color={theme.success} onPress={() => router.push('/(tabs)/members')} />
+        <StatCard icon="fitness" label={t('Trainers')} value={dashboard?.total_trainers || 0} color={theme.secondary} onPress={() => router.push('/trainers' as any)} />
+        <StatCard icon="calendar-outline" label={t("Today's Attendance")} value={dashboard?.today_attendance || 0} color={theme.warning} />
       </View>
 
       {/* Revenue Card - Admin Only */}
@@ -260,7 +269,7 @@ export default function HomeScreen() {
             <Text style={[styles.revenueValue, { color: theme.text }]}>
               ₹{(dashboard?.monthly_revenue || 0).toLocaleString()}
             </Text>
-            <Text style={[styles.revenueLabel, { color: theme.textSecondary }]}>This Month Revenue</Text>
+            <Text style={[styles.revenueLabel, { color: theme.textSecondary }]}>{t('This Month Revenue')}</Text>
           </View>
         </View>
       </View>
@@ -274,7 +283,7 @@ export default function HomeScreen() {
           >
             <Ionicons name="person-add" size={24} color={theme.warning} />
             <Text style={[styles.alertValue, { color: theme.text }]}>{dashboard?.pending_approvals}</Text>
-            <Text style={[styles.alertLabel, { color: theme.textSecondary }]}>Pending Approvals</Text>
+            <Text style={[styles.alertLabel, { color: theme.textSecondary }]}>{t('Pending Approvals')}</Text>
           </TouchableOpacity>
         )}
         {(dashboard?.pending_orders || 0) > 0 && (
@@ -284,7 +293,7 @@ export default function HomeScreen() {
           >
             <Ionicons name="cart" size={24} color={theme.primary} />
             <Text style={[styles.alertValue, { color: theme.text }]}>{dashboard?.pending_orders}</Text>
-            <Text style={[styles.alertLabel, { color: theme.textSecondary }]}>Pending Orders</Text>
+            <Text style={[styles.alertLabel, { color: theme.textSecondary }]}>{t('Pending Orders')}</Text>
           </TouchableOpacity>
         )}
         {(dashboard?.expiring_memberships || 0) > 0 && (
@@ -294,7 +303,7 @@ export default function HomeScreen() {
           >
             <Ionicons name="alert-circle" size={24} color={theme.error} />
             <Text style={[styles.alertValue, { color: theme.text }]}>{dashboard?.expiring_memberships}</Text>
-            <Text style={[styles.alertLabel, { color: theme.textSecondary }]}>Expiring Soon</Text>
+            <Text style={[styles.alertLabel, { color: theme.textSecondary }]}>{t('Expiring Soon')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -307,27 +316,27 @@ export default function HomeScreen() {
       <View style={[styles.centerBadgeContainer, { backgroundColor: theme.card }]}>
         <Ionicons name="location" size={20} color={theme.primary} />
         <Text style={[styles.centerBadgeText, { color: theme.text }]}>
-          {dashboard?.center || user?.center || 'Your Center'}
+          {dashboard?.center || user?.center || t('Your Center')}
         </Text>
       </View>
 
       <View style={styles.statsGrid}>
         <StatCard 
           icon="people" 
-          label="Assigned Members" 
+          label={t('Assigned Members')} 
           value={dashboard?.assigned_members || 0} 
           color={theme.primary}
           onPress={() => router.push('/(tabs)/members')}
         />
         <StatCard 
           icon="calendar-outline" 
-          label="Today's Attendance" 
+          label={t("Today's Attendance")} 
           value={dashboard?.today_attendance || 0} 
           color={theme.success} 
         />
         <StatCard 
           icon="chatbubbles" 
-          label="Unread Messages" 
+          label={t('Unread Messages')} 
           value={dashboard?.unread_messages || 0} 
           color={theme.warning}
           onPress={() => router.push('/(tabs)/messages')}
@@ -335,7 +344,7 @@ export default function HomeScreen() {
         {(dashboard?.pending_approvals || 0) > 0 && (
           <StatCard 
             icon="person-add" 
-            label="Pending Approvals" 
+            label={t('Pending Approvals')} 
             value={dashboard?.pending_approvals || 0} 
             color={theme.error}
             onPress={() => router.push('/(tabs)/approvals')}
@@ -351,7 +360,7 @@ export default function HomeScreen() {
       <View style={[styles.centerBadgeContainer, { backgroundColor: theme.card }]}>
         <Ionicons name="location" size={20} color={theme.primary} />
         <Text style={[styles.centerBadgeText, { color: theme.text }]}>
-          {dashboard?.center || user?.center || 'Your Center'}
+          {dashboard?.center || user?.center || t('Your Center')}
         </Text>
       </View>
 
@@ -363,9 +372,9 @@ export default function HomeScreen() {
         >
           <Ionicons name="alert-circle" size={24} color={theme.error} />
           <View style={styles.paymentAlertInfo}>
-            <Text style={[styles.paymentAlertTitle, { color: theme.error }]}>Payment Due!</Text>
+            <Text style={[styles.paymentAlertTitle, { color: theme.error }]}>{t('Payment Due!')}</Text>
             <Text style={[styles.paymentAlertText, { color: theme.textSecondary }]}>
-              Your subscription payment is due. Please contact the gym.
+              {t('Your subscription payment is due. Please contact the gym.')}
             </Text>
           </View>
         </TouchableOpacity>
@@ -377,36 +386,38 @@ export default function HomeScreen() {
             <Ionicons name={dashboard?.membership_valid ? 'checkmark' : 'close'} size={16} color="#FFF" />
           </View>
           <Text style={[styles.membershipTitle, { color: theme.text }]}>
-            {dashboard?.membership_valid ? 'Active Membership' : 'Membership Expired'}
+            {dashboard?.membership_valid ? t('Active Membership') : t('Membership Expired')}
           </Text>
         </View>
         {dashboard?.membership_valid && (
           <Text style={[styles.membershipDays, { color: theme.text }]}>
-            {dashboard?.days_remaining} days remaining
+            {t('{days} days remaining', { days: dashboard?.days_remaining || 0 })}
           </Text>
         )}
-        <Text style={[styles.memberId, { color: theme.textSecondary }]}>Member ID: {dashboard?.member_id || 'N/A'}</Text>
+        <Text style={[styles.memberId, { color: theme.textSecondary }]}>
+          {t('Member ID: {id}', { id: dashboard?.member_id || 'N/A' })}
+        </Text>
       </View>
 
       <View style={styles.statsGrid}>
-        <StatCard icon="calendar" label="This Month" value={dashboard?.attendance_this_month || 0} color={theme.primary} />
+        <StatCard icon="calendar" label={t('This Month')} value={dashboard?.attendance_this_month || 0} color={theme.primary} />
         <StatCard
           icon="barbell"
-          label="Today's Workout"
+          label={t("Today's Workout")}
           value={dashboard?.today_workout_count || 0}
           color={theme.success}
           onPress={() => router.push('/profile/workouts?day=today' as any)}
         />
         <StatCard 
           icon="chatbubbles" 
-          label="Messages" 
+          label={t('Messages')} 
           value={dashboard?.unread_messages || 0} 
           color={theme.warning}
           onPress={() => router.push('/(tabs)/messages')}
         />
         <StatCard 
           icon="notifications" 
-          label="Notifications" 
+          label={t('Notifications')} 
           value={dashboard?.unread_notifications || 0} 
           color={theme.secondary}
           onPress={() => router.push('/profile/notifications' as any)}
@@ -433,17 +444,17 @@ export default function HomeScreen() {
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={[styles.greeting, { color: theme.textSecondary }]}>Welcome back,</Text>
+            <Text style={[styles.greeting, { color: theme.textSecondary }]}>{t('Welcome back,')}</Text>
             <Text style={[styles.userName, { color: theme.text }]}>{user?.full_name}</Text>
             <View style={styles.badgeRow}>
               <View style={[styles.roleBadge, { backgroundColor: theme.primary + '20' }]}>
                 <Text style={[styles.roleText, { color: theme.primary }]}>
-                  {user?.role?.charAt(0).toUpperCase()}{user?.role?.slice(1)}
+                  {localizeRole(user?.role)}
                 </Text>
               </View>
               {user?.is_primary_admin && (
                 <View style={[styles.roleBadge, { backgroundColor: theme.warning + '20' }]}>
-                  <Text style={[styles.roleText, { color: theme.warning }]}>Primary Admin</Text>
+                  <Text style={[styles.roleText, { color: theme.warning }]}>{t('Primary Admin')}</Text>
                 </View>
               )}
             </View>
@@ -464,7 +475,7 @@ export default function HomeScreen() {
 
         {/* Quick Actions */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Quick Actions</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('Quick Actions')}</Text>
           <View style={styles.quickActions}>
             {user?.role === 'member' && (
               <TouchableOpacity
@@ -472,7 +483,7 @@ export default function HomeScreen() {
                 onPress={() => router.push('/(tabs)/attendance')}
               >
                 <Ionicons name="qr-code" size={24} color="#FFF" />
-                <Text style={styles.quickActionText}>Check In</Text>
+                <Text style={styles.quickActionText}>{t('Check In')}</Text>
               </TouchableOpacity>
             )}
             {(user?.role === 'admin' || user?.role === 'trainer') && (
@@ -481,7 +492,7 @@ export default function HomeScreen() {
                 onPress={() => router.push('/(tabs)/members')}
               >
                 <Ionicons name="person-add" size={24} color="#FFF" />
-                <Text style={styles.quickActionText}>Members</Text>
+                <Text style={styles.quickActionText}>{t('Members')}</Text>
               </TouchableOpacity>
             )}
             {user?.role !== 'admin' && (
@@ -490,7 +501,7 @@ export default function HomeScreen() {
                 onPress={() => router.push('/(tabs)/merchandise')}
               >
                 <Ionicons name="shirt" size={24} color="#FFF" />
-                <Text style={styles.quickActionText}>Shop</Text>
+                <Text style={styles.quickActionText}>{t('Shop')}</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity
@@ -498,7 +509,7 @@ export default function HomeScreen() {
               onPress={() => router.push('/(tabs)/messages')}
             >
               <Ionicons name="chatbubbles" size={24} color="#FFF" />
-              <Text style={styles.quickActionText}>Messages</Text>
+              <Text style={styles.quickActionText}>{t('Messages')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -506,7 +517,7 @@ export default function HomeScreen() {
         {/* Announcements */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Announcements</Text>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>{t('Announcements')}</Text>
             {user?.role === 'admin' && (
               <TouchableOpacity onPress={() => router.push('/announcements/create')}>
                 <Ionicons name="add-circle" size={24} color={theme.primary} />
@@ -516,7 +527,7 @@ export default function HomeScreen() {
           {announcements.length === 0 ? (
             <View style={[styles.emptyCard, { backgroundColor: theme.card }]}>
               <Ionicons name="megaphone-outline" size={40} color={theme.textSecondary} />
-              <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No announcements yet</Text>
+              <Text style={[styles.emptyText, { color: theme.textSecondary }]}>{t('No announcements yet')}</Text>
             </View>
           ) : (
             announcements.map((announcement, index) => (

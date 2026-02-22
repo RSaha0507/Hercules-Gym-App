@@ -3,12 +3,14 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const insets = useSafeAreaInsets();
 
   const getTabBarIcon = (name: string, focused: boolean) => {
@@ -83,14 +85,14 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: t('Home'),
           tabBarIcon: ({ focused }) => getTabBarIcon('index', focused),
         }}
       />
       <Tabs.Screen
         name="members"
         options={{
-          title: 'Members',
+          title: t('Members'),
           tabBarIcon: ({ focused }) => getTabBarIcon('members', focused),
           href: showMembersTab ? '/(tabs)/members' : null,
         }}
@@ -98,7 +100,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="approvals"
         options={{
-          title: 'Approvals',
+          title: t('Approvals'),
           tabBarIcon: ({ focused }) => getTabBarIcon('approvals', focused),
           href: showApprovalsTab ? '/(tabs)/approvals' : null,
         }}
@@ -106,14 +108,14 @@ export default function TabLayout() {
       <Tabs.Screen
         name="attendance"
         options={{
-          title: 'Attendance',
+          title: t('Attendance'),
           tabBarIcon: ({ focused }) => getTabBarIcon('attendance', focused),
         }}
       />
       <Tabs.Screen
         name="merchandise"
         options={{
-          title: 'Shop',
+          title: t('Shop'),
           tabBarIcon: ({ focused }) => getTabBarIcon('merchandise', focused),
           href: showMerchandiseTab ? '/(tabs)/merchandise' : null,
         }}
@@ -121,14 +123,14 @@ export default function TabLayout() {
       <Tabs.Screen
         name="messages"
         options={{
-          title: 'Chat',
+          title: t('Chat'),
           tabBarIcon: ({ focused }) => getTabBarIcon('messages', focused),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: t('Profile'),
           tabBarIcon: ({ focused }) => getTabBarIcon('profile', focused),
         }}
       />

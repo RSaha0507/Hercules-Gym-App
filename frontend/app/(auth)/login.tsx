@@ -17,11 +17,13 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
 
 export default function LoginScreen() {
   const { login } = useAuth();
   const { theme, isDark, toggleTheme } = useTheme();
+  const { t } = useLanguage();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -33,7 +35,7 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!identifier || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert(t('Error'), t('Please fill in all fields'));
       return;
     }
 
@@ -41,7 +43,7 @@ export default function LoginScreen() {
     try {
       await login(identifier.trim(), password);
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message);
+      Alert.alert(t('Login Failed'), error.message);
     } finally {
       setIsLoading(false);
     }
@@ -74,7 +76,7 @@ export default function LoginScreen() {
             />
             <Text style={[styles.title, { color: theme.text }]}>HERCULES GYM</Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              Welcome back! Login to continue
+              {t('Welcome back! Login to continue')}
             </Text>
           </View>
 
@@ -83,7 +85,7 @@ export default function LoginScreen() {
               <Ionicons name="mail-outline" size={20} color={theme.textSecondary} />
               <TextInput
                 style={[styles.input, { color: theme.text, backgroundColor: theme.inputBg }]}
-                placeholder="Email or +91 phone"
+                placeholder={t('Email or +91 phone')}
                 placeholderTextColor={theme.textSecondary}
                 value={identifier}
                 onChangeText={setIdentifier}
@@ -96,7 +98,7 @@ export default function LoginScreen() {
               <Ionicons name="lock-closed-outline" size={20} color={theme.textSecondary} />
               <TextInput
                 style={[styles.input, { color: theme.text, backgroundColor: theme.inputBg }]}
-                placeholder="Password"
+                placeholder={t('Password')}
                 placeholderTextColor={theme.textSecondary}
                 value={password}
                 onChangeText={setPassword}
@@ -119,17 +121,17 @@ export default function LoginScreen() {
               {isLoading ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
-                <Text style={styles.loginButtonText}>Login</Text>
+                <Text style={styles.loginButtonText}>{t('Login')}</Text>
               )}
             </TouchableOpacity>
 
             <View style={styles.registerContainer}>
               <Text style={[styles.registerText, { color: theme.textSecondary }]}>
-                Don&apos;t have an account?
+                {t("Don't have an account?")}
               </Text>
               <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
                 <Text style={[styles.registerLink, { color: theme.primary }]}>
-                  {' '}Register
+                  {' '}{t('Register')}
                 </Text>
               </TouchableOpacity>
             </View>

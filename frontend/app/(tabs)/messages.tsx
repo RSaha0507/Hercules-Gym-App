@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
 import { socketService } from '../../src/services/socket';
 import { toSystemDate } from '../../src/utils/time';
@@ -33,6 +34,7 @@ interface Conversation {
 export default function MessagesScreen() {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -96,25 +98,31 @@ export default function MessagesScreen() {
     }
   };
 
+  const localizeRole = (role: string) => {
+    if (role === 'admin') return t('Admin');
+    if (role === 'trainer') return t('Trainer');
+    return t('Member');
+  };
+
   const renderConversationItem = ({ item }: { item: Conversation }) => (
     <TouchableOpacity
       style={[styles.conversationCard, { backgroundColor: theme.card }]}
       onPress={() => router.push(`/chat/${item.user_id}`)}
       onLongPress={() => {
         Alert.alert(
-          'Delete chat',
-          `Delete all messages with ${item.user_name}?`,
+          t('Delete chat'),
+          t('Delete all messages with {name}?', { name: item.user_name }),
           [
-            { text: 'Cancel', style: 'cancel' },
+            { text: t('Cancel'), style: 'cancel' },
             {
-              text: 'Delete',
+              text: t('Delete'),
               style: 'destructive',
               onPress: async () => {
                 try {
                   await api.deleteConversation(item.user_id);
                   setConversations((prev) => prev.filter((c) => c.user_id !== item.user_id));
                 } catch (error: any) {
-                  Alert.alert('Failed', error.response?.data?.detail || 'Failed to delete conversation');
+                  Alert.alert(t('Failed'), error.response?.data?.detail || t('Failed to delete conversation'));
                 }
               },
             },
@@ -137,7 +145,7 @@ export default function MessagesScreen() {
           <Text style={[styles.conversationName, { color: theme.text }]}>{item.user_name}</Text>
           <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor(item.user_role) + '20' }]}>
             <Text style={[styles.roleText, { color: getRoleBadgeColor(item.user_role) }]}>
-              {item.user_role}
+              {localizeRole(item.user_role)}
             </Text>
           </View>
         </View>
@@ -168,7 +176,7 @@ export default function MessagesScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Messages</Text>
+        <Text style={[styles.title, { color: theme.text }]}>{t('Messages')}</Text>
         <TouchableOpacity
           style={[styles.newChatButton, { backgroundColor: theme.primary }]}
           onPress={() => router.push('/chat/new')}
@@ -182,10 +190,10 @@ export default function MessagesScreen() {
         <Ionicons name="information-circle" size={20} color={theme.primary} />
         <Text style={[styles.infoText, { color: theme.textSecondary }]}>
           {user?.role === 'member'
-            ? 'You can message admin, trainers, and members from your branch'
+            ? t('You can message admin, trainers, and members from your branch')
             : user?.role === 'trainer'
-            ? 'You can message all members and trainers in your branch, and all admins'
-            : 'You can message all members and trainers'}
+            ? t('You can message all members and trainers in your branch, and all admins')
+            : t('You can message all members and trainers')}
         </Text>
       </View>
 
@@ -201,18 +209,18 @@ export default function MessagesScreen() {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="chatbubbles-outline" size={60} color={theme.textSecondary} />
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-              No conversations yet
-            </Text>
-            <TouchableOpacity
-              style={[styles.startChatButton, { backgroundColor: theme.primary }]}
-              onPress={() => router.push('/chat/new')}
-            >
-              <Text style={styles.startChatText}>Start a conversation</Text>
-            </TouchableOpacity>
-          </View>
-        }
-      />
+              <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+                {t('No conversations yet')}
+              </Text>
+              <TouchableOpacity
+                style={[styles.startChatButton, { backgroundColor: theme.primary }]}
+                onPress={() => router.push('/chat/new')}
+              >
+                <Text style={styles.startChatText}>{t('Start a conversation')}</Text>
+              </TouchableOpacity>
+            </View>
+          }
+        />
     </SafeAreaView>
   );
 }

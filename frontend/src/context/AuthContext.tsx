@@ -142,6 +142,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const getApiErrorMessage = (error: any, fallback: string) =>
     error?.response?.data?.detail || fallback;
 
+  const isTransientApiError = (error: any) => {
+    if (!error?.response) return true;
+    const statusCode = Number(error.response?.status);
+    return [408, 425, 429, 500, 502, 503, 504].includes(statusCode);
+  };
+
   const loadStoredAuth = async () => {
     try {
       const [storedToken, storedUser] = await Promise.all([
@@ -163,6 +169,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             registerPushInBackground();
           } catch (error) {
             console.log('Stored session refresh failed:', error);
+            if (isTransientApiError(error)) {
+              // Keep cached session during temporary backend/database wake-up windows.
+              return;
+            }
             await clearAuthState();
             router.replace('/(auth)/login');
           }
@@ -187,6 +197,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       router.replace('/(tabs)');
       registerPushInBackground();
     } catch (error: any) {
+      if (isTransientApiError(error)) {
+        throw new Error('Server is waking up. Please try again in a few seconds.');
+      }
       throw new Error(getApiErrorMessage(error, 'Login failed'));
     }
   };
@@ -200,6 +213,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       router.replace('/(tabs)');
       registerPushInBackground();
     } catch (error: any) {
+      if (isTransientApiError(error)) {
+        throw new Error('Server is waking up. Please try again in a few seconds.');
+      }
       throw new Error(getApiErrorMessage(error, 'Registration failed'));
     }
   };

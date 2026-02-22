@@ -11,7 +11,7 @@ class ApiService {
   constructor() {
     this.client = axios.create({
       baseURL: API_BASE_URL,
-      timeout: 15000,
+      timeout: 25000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -23,6 +23,42 @@ class ApiService {
       }
       return config;
     });
+
+    this.client.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const config = error?.config as (typeof error.config & { _retryCount?: number }) | undefined;
+        if (!config) {
+          return Promise.reject(error);
+        }
+
+        const method = String(config.method || 'get').toLowerCase();
+        const url = String(config.url || '');
+        const status = error?.response?.status as number | undefined;
+        const isNetworkError = !error?.response;
+        const isTimeout = error?.code === 'ECONNABORTED';
+        const retryableStatus = status ? [408, 425, 429, 500, 502, 503, 504].includes(status) : false;
+        const isSafeMethod = method === 'get';
+        const isSafeAuthRequest =
+          method === 'post' &&
+          ['/auth/login', '/auth/register'].some((path) => url.includes(path));
+
+        const canRetry = (isNetworkError || isTimeout || retryableStatus) && (isSafeMethod || isSafeAuthRequest);
+        if (!canRetry) {
+          return Promise.reject(error);
+        }
+
+        const currentRetryCount = config._retryCount || 0;
+        if (currentRetryCount >= 2) {
+          return Promise.reject(error);
+        }
+
+        config._retryCount = currentRetryCount + 1;
+        const waitMs = config._retryCount * 600;
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        return this.client.request(config);
+      },
+    );
   }
 
   setToken(token: string | null) {

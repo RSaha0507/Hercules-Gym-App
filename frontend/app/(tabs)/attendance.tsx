@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
 import { toSystemDate } from '../../src/utils/time';
 import { format } from 'date-fns';
@@ -30,6 +31,7 @@ interface AttendanceRecord {
 export default function AttendanceScreen() {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const [todayAttendance, setTodayAttendance] = useState<AttendanceRecord[]>([]);
   const [myHistory, setMyHistory] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -78,10 +80,10 @@ export default function AttendanceScreen() {
     try {
       await api.checkIn(user.id, 'self');
       setIsCheckedIn(true);
-      Alert.alert('Success', 'You have been checked in!');
+      Alert.alert(t('Success'), t('You have been checked in!'));
       loadData();
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to check in');
+      Alert.alert(t('Error'), error.response?.data?.detail || t('Failed to check in'));
     } finally {
       setCheckingIn(false);
     }
@@ -94,10 +96,10 @@ export default function AttendanceScreen() {
     try {
       await api.checkOut(user.id);
       setIsCheckedIn(false);
-      Alert.alert('Success', 'You have been checked out!');
+      Alert.alert(t('Success'), t('You have been checked out!'));
       loadData();
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to check out');
+      Alert.alert(t('Error'), error.response?.data?.detail || t('Failed to check out'));
     } finally {
       setCheckingIn(false);
     }
@@ -112,11 +114,11 @@ export default function AttendanceScreen() {
       </View>
       <View style={styles.attendanceInfo}>
         <Text style={[styles.attendanceName, { color: theme.text }]}>
-          {item.user_name || 'Unknown'}
+          {item.user_name || t('Unknown')}
         </Text>
         <Text style={[styles.attendanceTime, { color: theme.textSecondary }]}>
-          In: {format(toSystemDate(item.check_in_time), 'hh:mm a')}
-          {item.check_out_time && ` • Out: ${format(toSystemDate(item.check_out_time), 'hh:mm a')}`}
+          {`${t('In')}: ${format(toSystemDate(item.check_in_time), 'hh:mm a')}`}
+          {item.check_out_time && ` • ${t('Out')}: ${format(toSystemDate(item.check_out_time), 'hh:mm a')}`}
         </Text>
       </View>
       <View style={[styles.methodBadge, { backgroundColor: getMethodColor(item.method) + '20' }]}>
@@ -140,12 +142,12 @@ export default function AttendanceScreen() {
       <View style={styles.historyInfo}>
         <Text style={[styles.historyTime, { color: theme.text }]}>
           {format(toSystemDate(item.check_in_time), 'hh:mm a')} - 
-          {item.check_out_time ? format(toSystemDate(item.check_out_time), ' hh:mm a') : ' Present'}
+          {item.check_out_time ? format(toSystemDate(item.check_out_time), ' hh:mm a') : ` ${t('Present')}`}
         </Text>
         <Text style={[styles.historyDuration, { color: theme.textSecondary }]}>
           {item.check_out_time ? 
-            `Duration: ${calculateDuration(item.check_in_time, item.check_out_time)}` : 
-            'Still checked in'}
+            t('Duration: {duration}', { duration: calculateDuration(item.check_in_time, item.check_out_time) }) : 
+            t('Still checked in')}
         </Text>
       </View>
     </View>
@@ -178,7 +180,7 @@ export default function AttendanceScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Attendance</Text>
+        <Text style={[styles.title, { color: theme.text }]}>{t('Attendance')}</Text>
         <Text style={[styles.date, { color: theme.textSecondary }]}>
           {format(new Date(), 'EEEE, MMMM d')}
         </Text>
@@ -205,13 +207,13 @@ export default function AttendanceScreen() {
                   color="#FFF" 
                 />
                 <Text style={styles.checkInText}>
-                  {isCheckedIn ? 'Check Out' : 'Check In'}
+                  {isCheckedIn ? t('Check Out') : t('Check In')}
                 </Text>
               </>
             )}
           </TouchableOpacity>
           <Text style={[styles.checkInStatus, { color: theme.textSecondary }]}>
-            {isCheckedIn ? 'You are currently checked in' : 'Tap to check in'}
+            {isCheckedIn ? t('You are currently checked in') : t('Tap to check in')}
           </Text>
         </View>
       )}
@@ -229,7 +231,7 @@ export default function AttendanceScreen() {
             styles.tabText,
             { color: activeTab === 'today' ? '#FFF' : theme.textSecondary },
           ]}>
-            Today ({todayAttendance.length})
+            {t('Today ({count})', { count: todayAttendance.length })}
           </Text>
         </TouchableOpacity>
         {user?.role === 'member' && (
@@ -244,7 +246,7 @@ export default function AttendanceScreen() {
               styles.tabText,
               { color: activeTab === 'history' ? '#FFF' : theme.textSecondary },
             ]}>
-              My History
+              {t('My History')}
             </Text>
           </TouchableOpacity>
         )}
@@ -264,7 +266,7 @@ export default function AttendanceScreen() {
             <View style={styles.emptyContainer}>
               <Ionicons name="calendar-outline" size={60} color={theme.textSecondary} />
               <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-                No attendance records for today
+                {t('No attendance records for today')}
               </Text>
             </View>
           }
@@ -282,7 +284,7 @@ export default function AttendanceScreen() {
             <View style={styles.emptyContainer}>
               <Ionicons name="calendar-outline" size={60} color={theme.textSecondary} />
               <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-                No attendance history
+                {t('No attendance history')}
               </Text>
             </View>
           }
