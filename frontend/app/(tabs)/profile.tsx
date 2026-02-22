@@ -259,7 +259,13 @@ export default function ProfileScreen() {
         {/* App Version */}
         <View style={styles.footer}>
           <Text style={[styles.version, { color: theme.textSecondary }]}>Hercules Gym v1.0.0</Text>
-          <Text style={[styles.copyright, { color: theme.textSecondary }]}>© 2024 Hercules Fitness</Text>
+          <Text style={[styles.copyright, { color: theme.textSecondary }]}>Copyright (c) 2026 Hercules Fitness</Text>
+          <View style={[styles.creditCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.creditTitle, { color: theme.text }]}>Built by Rounak Saha</Text>
+            <Text style={[styles.creditBody, { color: theme.textSecondary }]}>
+              Contributions: product architecture, frontend and backend engineering, deployment, and quality improvements.
+            </Text>
+          </View>
         </View>
       </ScrollView>
 
@@ -545,12 +551,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 32,
     gap: 4,
+    paddingHorizontal: 20,
   },
   version: {
     fontSize: 13,
   },
   copyright: {
     fontSize: 11,
+  },
+  creditCard: {
+    marginTop: 10,
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  creditTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  creditBody: {
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
   },
   modalOverlay: {
     flex: 1,

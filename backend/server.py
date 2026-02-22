@@ -6,7 +6,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field
 from typing import List, Optional, Literal, Dict, Tuple
 import uuid
 from datetime import datetime, timedelta
@@ -103,7 +103,7 @@ ApprovalStatus = Literal["pending", "approved", "rejected"]
 
 # User Models
 class UserBase(BaseModel):
-    email: EmailStr
+    email: str
     phone: str
     full_name: str
     role: RoleType
@@ -113,7 +113,7 @@ class UserCreate(UserBase):
     password: str
 
 class UserRegister(BaseModel):
-    email: EmailStr
+    email: Optional[str] = None
     phone: str
     full_name: str
     password: str
@@ -203,7 +203,7 @@ class MemberProfile(BaseModel):
     progress_photos: List[str] = []
 
 class MemberProfileCreate(BaseModel):
-    email: EmailStr
+    email: Optional[str] = None
     phone: str
     full_name: str
     password: str
@@ -481,6 +481,42 @@ def is_email_valid(email: str) -> bool:
     except EmailNotValidError:
         return False
 
+def build_member_fallback_email(normalized_phone: str, full_name: str) -> str:
+    digits = "".join(ch for ch in normalized_phone if ch.isdigit())
+    suffix = digits[-10:] if len(digits) >= 10 else str(uuid.uuid4().int)[:10]
+    raw_name = (full_name or "").strip().lower()
+    local = "".join(ch if ch.isalnum() else "." for ch in raw_name)
+    local = ".".join(part for part in local.split(".") if part)
+    if not local:
+        local = "member"
+    local = local[:30]
+    return f"{local}.{suffix}@member.herculesgym.app"
+
+async def resolve_registration_email(
+    email: Optional[str],
+    normalized_phone: str,
+    full_name: str,
+    role: str,
+) -> str:
+    if email and str(email).strip():
+        return normalize_and_validate_email(str(email))
+
+    if role == "member":
+        candidate = build_member_fallback_email(normalized_phone, full_name)
+        # Rare conflict safety for deterministic fallback values.
+        while await db.users.find_one({"email": candidate}):
+            candidate = build_member_fallback_email(
+                normalized_phone,
+                f"{full_name}{uuid.uuid4().hex[:4]}",
+            )
+        logger.warning(
+            "Legacy member registration compatibility mode used: auto-generated email for phone ending %s",
+            normalized_phone[-4:],
+        )
+        return candidate
+
+    raise HTTPException(status_code=400, detail="Email is required")
+
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode = data.copy()
     if expires_delta:
@@ -509,8 +545,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     user = await db.users.find_one({"id": user_id})
     if user is None:
         raise credentials_exception
-    if not is_email_valid(user.get("email", "")):
-        raise HTTPException(status_code=401, detail="Invalid account email. Please contact support.")
+
+    if not user.get("email"):
+        user["email"] = ""
     return UserInDB(**user)
 
 async def require_admin(current_user: UserInDB = Depends(get_current_user)) -> UserInDB:
@@ -845,7 +882,12 @@ async def check_payment_reminders():
 @api_router.post("/auth/register", response_model=Token)
 async def register(user: UserRegister, background_tasks: BackgroundTasks):
     normalized_phone = normalize_indian_phone(user.phone)
-    resolved_email = normalize_and_validate_email(str(user.email))
+    resolved_email = await resolve_registration_email(
+        user.email,
+        normalized_phone,
+        user.full_name,
+        user.role,
+    )
 
     # Check if user exists
     existing = await db.users.find_one({"email": resolved_email})
@@ -985,9 +1027,8 @@ async def login(credentials: UserLogin):
     user = await db.users.find_one(query)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    if not is_email_valid(user.get("email", "")):
-        raise HTTPException(status_code=401, detail="Invalid account email. Please contact support.")
+    if not user.get("email"):
+        user["email"] = ""
     
     if not verify_password(credentials.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -1196,13 +1237,17 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
     if current_user.role == "trainer" and member.center != current_user.center:
         raise HTTPException(status_code=403, detail="Trainers can only create members in their branch")
 
-    # Check if email exists
-    normalized_email = normalize_and_validate_email(str(member.email))
+    normalized_phone = normalize_indian_phone(member.phone)
+    normalized_email = await resolve_registration_email(
+        member.email,
+        normalized_phone,
+        member.full_name,
+        "member",
+    )
     existing = await db.users.find_one({"email": normalized_email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    normalized_phone = normalize_indian_phone(member.phone)
     existing_phone = await db.users.find_one({"phone": normalized_phone})
     if existing_phone:
         raise HTTPException(status_code=400, detail="Phone already registered")
