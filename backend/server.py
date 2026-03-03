@@ -10,7 +10,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal, Dict, Tuple, Callable, Awaitable, TypeVar
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, time, date as date_cls
+from calendar import monthrange
 from passlib.context import CryptContext
 import bcrypt
 from jose import JWTError, jwt
@@ -20,6 +21,7 @@ import httpx
 import asyncio
 from email_validator import validate_email, EmailNotValidError
 from pymongo.errors import AutoReconnect, ConnectionFailure, NetworkTimeout, ServerSelectionTimeoutError, PyMongoError
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -42,6 +44,21 @@ def read_int_env(name: str, default: int) -> int:
         return default
     try:
         return int(value)
+    except ValueError:
+        return default
+
+def read_bool_env(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+def read_float_env(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
     except ValueError:
         return default
 
@@ -88,6 +105,47 @@ ACCESS_TOKEN_EXPIRE_DAYS = 30
 GYM_CENTERS = ["Ranaghat", "Chakdah", "Madanpur"]
 CenterType = Literal["Ranaghat", "Chakdah", "Madanpur"]
 INDIA_PHONE_PREFIX = "+91"
+ATTENDANCE_MAX_ACTIVE_HOURS = max(1, read_int_env("ATTENDANCE_MAX_ACTIVE_HOURS", 2))
+ATTENDANCE_HISTORY_MONTHS_LIMIT = 5
+ATTENDANCE_RETENTION_DAYS = max(150, read_int_env("ATTENDANCE_RETENTION_DAYS", 180))
+ATTENDANCE_ENFORCE_QR_CHECKOUT = read_bool_env("ATTENDANCE_ENFORCE_QR_CHECKOUT", False)
+MEMBERSHIP_BASE_FEE = max(0.0, read_float_env("MEMBERSHIP_BASE_FEE", 700.0))
+MEMBERSHIP_WINDOW_DAYS = max(1, read_int_env("MEMBERSHIP_WINDOW_DAYS", 7))
+MEMBERSHIP_LATE_FEE_PER_DAY = max(0.0, read_float_env("MEMBERSHIP_LATE_FEE_PER_DAY", 5.0))
+ACHIEVEMENT_ANNOUNCEMENT_DAYS = max(1, read_int_env("ACHIEVEMENT_ANNOUNCEMENT_DAYS", 5))
+PAYMENT_PROOF_MAX_LENGTH = max(200000, read_int_env("PAYMENT_PROOF_MAX_LENGTH", 900000))
+PROFILE_IMAGE_MAX_LENGTH = max(150000, read_int_env("PROFILE_IMAGE_MAX_LENGTH", 500000))
+INDIA_TIMEZONE = timezone(timedelta(hours=5, minutes=30))
+APP_SETTING_HERO_GALLERY_KEY = "hero_gallery"
+PASSWORD_MIN_LENGTH = max(8, read_int_env("PASSWORD_MIN_LENGTH", 8))
+HERO_IMAGE_URI_MAX_LENGTH = max(120000, read_int_env("HERO_IMAGE_URI_MAX_LENGTH", 650000))
+DEFAULT_HERO_GALLERY = [
+    {
+        "id": "hero-1",
+        "title": "Strength Zone",
+        "uri": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=1400&q=80",
+    },
+    {
+        "id": "hero-2",
+        "title": "Cardio Bay",
+        "uri": "https://images.unsplash.com/photo-1571902943202-507ec2618e8f?auto=format&fit=crop&w=1400&q=80",
+    },
+    {
+        "id": "hero-3",
+        "title": "Functional Training",
+        "uri": "https://images.unsplash.com/photo-1598971639058-a63a5f6b6f32?auto=format&fit=crop&w=1400&q=80",
+    },
+    {
+        "id": "hero-4",
+        "title": "Free Weight Arena",
+        "uri": "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=1400&q=80",
+    },
+    {
+        "id": "hero-5",
+        "title": "Athlete Corner",
+        "uri": "https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?auto=format&fit=crop&w=1400&q=80",
+    },
+]
 
 # Password hashing
 pwd_context = CryptContext(
@@ -151,9 +209,11 @@ class UserBase(BaseModel):
     full_name: str
     role: RoleType
     center: Optional[CenterType] = None
+    date_of_birth: Optional[datetime] = None
 
 class UserCreate(UserBase):
     password: str
+    profile_image: Optional[str] = None
 
 class UserRegister(BaseModel):
     email: Optional[str] = None
@@ -162,12 +222,23 @@ class UserRegister(BaseModel):
     password: str
     role: RoleType
     center: Optional[CenterType] = None
+    date_of_birth: Optional[datetime] = None
+    profile_image: Optional[str] = None
 
 class UserLogin(BaseModel):
     identifier: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     password: str
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class ForgotPasswordResetRequest(BaseModel):
+    identifier: str
+    date_of_birth: str
+    new_password: str
 
 class UserResponse(UserBase):
     id: str
@@ -177,6 +248,7 @@ class UserResponse(UserBase):
     is_primary_admin: bool = False
     approval_status: ApprovalStatus = "approved"
     push_token: Optional[str] = None
+    achievements: List[str] = []
 
 class UserInDB(UserBase):
     id: str
@@ -187,6 +259,13 @@ class UserInDB(UserBase):
     is_primary_admin: bool = False
     approval_status: ApprovalStatus = "approved"
     push_token: Optional[str] = None
+    achievements: List[str] = []
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    profile_image: Optional[str] = None
+    date_of_birth: Optional[datetime] = None
 
 class Token(BaseModel):
     access_token: str
@@ -230,6 +309,8 @@ class MembershipPlan(BaseModel):
     payment_status: Literal["paid", "pending", "overdue"] = "pending"
     next_payment_date: Optional[datetime] = None
     last_reminder_sent: Optional[datetime] = None
+    last_payment_date: Optional[datetime] = None
+    billing_anchor_day: Optional[int] = None
 
 class MemberProfile(BaseModel):
     user_id: str
@@ -252,6 +333,7 @@ class MemberProfileCreate(BaseModel):
     password: str
     center: CenterType
     date_of_birth: Optional[datetime] = None
+    profile_image: Optional[str] = None
     gender: Optional[str] = None
     address: Optional[str] = None
     emergency_contact: Optional[EmergencyContact] = None
@@ -294,6 +376,11 @@ class AttendanceRecord(BaseModel):
     center: CenterType
     check_in_time: datetime = Field(default_factory=datetime.utcnow)
     check_out_time: Optional[datetime] = None
+    check_out_method: Optional[Literal["qr", "manual", "self", "auto_timeout"]] = None
+    auto_checked_out: bool = False
+    penalty_applied: bool = False
+    penalty_reason: Optional[str] = None
+    penalty_note: Optional[str] = None
     method: Literal["qr", "manual", "self"] = "manual"
     marked_by: Optional[str] = None
 
@@ -325,7 +412,7 @@ class Notification(BaseModel):
     user_id: str
     title: str
     body: str
-    notification_type: Literal["approval", "payment", "merchandise", "announcement", "general"] = "general"
+    notification_type: Literal["approval", "payment", "merchandise", "announcement", "birthday", "general"] = "general"
     data: dict = {}
     created_at: datetime = Field(default_factory=datetime.utcnow)
     read: bool = False
@@ -337,24 +424,30 @@ class Announcement(BaseModel):
     content: str
     created_by: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    target: Literal["all", "members", "trainers", "selected", "center"] = "all"
+    target: Literal["all", "members", "trainers", "selected", "center", "members_center"] = "all"
     target_center: Optional[CenterType] = None
     target_users: List[str] = []
     is_active: bool = True
+    announcement_type: Literal["general", "achievement"] = "general"
+    expires_at: Optional[datetime] = None
 
 class AnnouncementCreate(BaseModel):
     title: str
     content: str
-    target: Literal["all", "members", "trainers", "selected", "center"] = "all"
+    target: Literal["all", "members", "trainers", "selected", "center", "members_center"] = "all"
     target_center: Optional[CenterType] = None
     target_users: List[str] = []
+    announcement_type: Literal["general", "achievement"] = "general"
+    expires_at: Optional[datetime] = None
 
 class AnnouncementUpdate(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
-    target: Optional[Literal["all", "members", "trainers", "selected", "center"]] = None
+    target: Optional[Literal["all", "members", "trainers", "selected", "center", "members_center"]] = None
     target_center: Optional[CenterType] = None
     target_users: Optional[List[str]] = None
+    announcement_type: Optional[Literal["general", "achievement"]] = None
+    expires_at: Optional[datetime] = None
 
 # Merchandise Models
 class MerchandiseItem(BaseModel):
@@ -401,6 +494,10 @@ class MerchandiseOrder(BaseModel):
     items: List[dict] = []  # [{merchandise_id, name, size, quantity, price}]
     total_amount: float
     status: Literal["pending", "confirmed", "ready", "collected", "cancelled"] = "pending"
+    payment_status: Literal["pending", "completed", "failed"] = "pending"
+    payment_method: str = "upi"
+    payment_reference: Optional[str] = None
+    payment_date: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     notes: Optional[str] = None
@@ -408,26 +505,59 @@ class MerchandiseOrder(BaseModel):
 class MerchandiseOrderCreate(BaseModel):
     items: List[CartItem]
     notes: Optional[str] = None
+    payment_method: str = "upi"
+    payment_proof_image: str
 
 # Payment Models
 class Payment(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     member_id: str
     amount: float
+    payment_type: Literal["membership", "merchandise"] = "membership"
     payment_date: datetime = Field(default_factory=datetime.utcnow)
     payment_method: str = "cash"
     description: str = ""
     status: Literal["pending", "completed", "failed"] = "completed"
     recorded_by: str
     center: CenterType
+    base_amount: Optional[float] = None
+    late_fee: float = 0
+    payment_reference: Optional[str] = None
+    membership_due_date: Optional[datetime] = None
+    order_id: Optional[str] = None
+    proof_image: Optional[str] = None
+    verified_by: Optional[str] = None
+    verified_at: Optional[datetime] = None
+    verification_note: Optional[str] = None
 
 class PaymentCreate(BaseModel):
     member_id: str
     amount: float
+    payment_type: Literal["membership", "merchandise"] = "membership"
     payment_method: str = "cash"
     description: str = ""
     status: Literal["pending", "completed", "failed"] = "completed"
     next_payment_date: Optional[datetime] = None
+    order_id: Optional[str] = None
+
+class MembershipPaymentRequest(BaseModel):
+    payment_method: str = "upi"
+    proof_image: str
+
+class AchievementUpdate(BaseModel):
+    achievements: List[str] = []
+
+class PaymentVerificationRequest(BaseModel):
+    status: Literal["completed", "failed"]
+    note: Optional[str] = None
+
+class HeroSlide(BaseModel):
+    id: str
+    title: str
+    uri: str
+
+class HeroGalleryUpdate(BaseModel):
+    slides: List[HeroSlide] = Field(default_factory=list)
 
 # Workout Models
 class Exercise(BaseModel):
@@ -506,6 +636,36 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+def validate_password_strength(password: str) -> None:
+    candidate = password or ""
+    issues: List[str] = []
+
+    if len(candidate) < PASSWORD_MIN_LENGTH:
+        issues.append(f"at least {PASSWORD_MIN_LENGTH} characters")
+    if re.search(r"\s", candidate):
+        issues.append("no spaces")
+    if not re.search(r"[A-Z]", candidate):
+        issues.append("at least one uppercase letter")
+    if not re.search(r"[a-z]", candidate):
+        issues.append("at least one lowercase letter")
+    if not re.search(r"\d", candidate):
+        issues.append("at least one number")
+    if not re.search(r"[^A-Za-z0-9]", candidate):
+        issues.append("at least one special character")
+    if len(set(candidate)) < 4:
+        issues.append("more character variety")
+
+    lowered = candidate.lower()
+    common_patterns = ("password", "123456", "qwerty", "letmein", "admin", "hercules", "gym")
+    if any(pattern in lowered for pattern in common_patterns):
+        issues.append("avoid common words/patterns")
+
+    if issues:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Weak password. Use: {', '.join(issues)}.",
+        )
 
 def normalize_and_validate_email(email: str) -> str:
     candidate = (email or "").strip().lower()
@@ -620,6 +780,286 @@ def sanitize_mongo_doc(doc):
     if doc and "_id" in doc:
         del doc["_id"]
     return doc
+
+def normalize_payment_proof_image(value: Optional[str]) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Payment screenshot is required")
+    if len(raw) > PAYMENT_PROOF_MAX_LENGTH:
+        raise HTTPException(status_code=400, detail="Payment screenshot is too large")
+    if not (raw.startswith("data:image/") or raw.startswith("http://") or raw.startswith("https://")):
+        raise HTTPException(status_code=400, detail="Payment screenshot must be an image data URI or image URL")
+    return raw
+
+def normalize_profile_image(value: Optional[str], *, required: bool = False) -> Optional[str]:
+    raw = (value or "").strip()
+    if not raw:
+        if required:
+            raise HTTPException(status_code=400, detail="Profile photo is required")
+        return None
+    if len(raw) > PROFILE_IMAGE_MAX_LENGTH:
+        raise HTTPException(status_code=400, detail="Profile photo is too large")
+    if not (raw.startswith("data:image/") or raw.startswith("http://") or raw.startswith("https://")):
+        raise HTTPException(status_code=400, detail="Profile photo must be an image data URI or image URL")
+    return raw
+
+def normalize_date_of_birth(value: Optional[object], *, strict: bool = True) -> Optional[datetime]:
+    if value is None:
+        return None
+
+    parsed_date: Optional[date_cls] = None
+
+    if isinstance(value, datetime):
+        parsed_date = value.date() if value.tzinfo is None else value.astimezone(INDIA_TIMEZONE).date()
+    elif isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d"):
+            try:
+                parsed_date = datetime.strptime(raw, fmt).date()
+                break
+            except ValueError:
+                continue
+        if parsed_date is None:
+            try:
+                parsed_dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                parsed_date = (
+                    parsed_dt.date()
+                    if parsed_dt.tzinfo is None
+                    else parsed_dt.astimezone(INDIA_TIMEZONE).date()
+                )
+            except ValueError:
+                if strict:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid date_of_birth format. Use calendar date format.",
+                    )
+                return None
+    else:
+        if strict:
+            raise HTTPException(status_code=400, detail="Invalid date_of_birth value")
+        return None
+
+    if parsed_date is None:
+        return None
+
+    today = datetime.now(INDIA_TIMEZONE).date()
+    if parsed_date >= today:
+        if strict:
+            raise HTTPException(status_code=400, detail="Date of birth must be in the past")
+        return None
+    if parsed_date < date_cls(1900, 1, 1):
+        if strict:
+            raise HTTPException(status_code=400, detail="Date of birth is too old")
+        return None
+
+    return datetime(parsed_date.year, parsed_date.month, parsed_date.day)
+
+def normalize_hero_gallery(raw_slides: Optional[List[dict]]) -> List[dict]:
+    normalized: List[dict] = []
+    source = raw_slides if isinstance(raw_slides, list) else []
+    for idx, slide in enumerate(source):
+        if not isinstance(slide, dict):
+            continue
+        uri = str(slide.get("uri") or "").strip()
+        if not uri:
+            continue
+        if len(uri) > HERO_IMAGE_URI_MAX_LENGTH:
+            raise HTTPException(status_code=400, detail="Hero image is too large")
+        title = str(slide.get("title") or f"Slide {idx + 1}").strip()[:80]
+        slide_id = str(slide.get("id") or f"hero-{idx + 1}").strip()[:60]
+        normalized.append({
+            "id": slide_id or f"hero-{idx + 1}",
+            "title": title or f"Slide {idx + 1}",
+            "uri": uri,
+        })
+
+    if not normalized:
+        normalized = [dict(item) for item in DEFAULT_HERO_GALLERY]
+
+    seen_ids = set()
+    deduped: List[dict] = []
+    for idx, slide in enumerate(normalized[:10]):
+        candidate = slide.get("id") or f"hero-{idx + 1}"
+        slide_id = candidate
+        counter = 1
+        while slide_id in seen_ids:
+            counter += 1
+            slide_id = f"{candidate}-{counter}"
+        seen_ids.add(slide_id)
+        deduped.append({
+            "id": slide_id,
+            "title": slide.get("title") or f"Slide {idx + 1}",
+            "uri": slide.get("uri"),
+        })
+    return deduped
+
+def coerce_utc_naive_datetime(value: Optional[object], fallback: Optional[datetime] = None) -> Optional[datetime]:
+    if value is None:
+        return fallback
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return fallback
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                return parsed
+            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        except ValueError:
+            return fallback
+    return fallback
+
+def add_months_utc(base_dt: datetime, months: int = 1) -> datetime:
+    total_months = (base_dt.month - 1) + months
+    year = base_dt.year + (total_months // 12)
+    month = (total_months % 12) + 1
+    day = min(base_dt.day, monthrange(year, month)[1])
+    return base_dt.replace(year=year, month=month, day=day)
+
+def normalize_membership_plan(
+    membership: Optional[Dict],
+    *,
+    reference_now: Optional[datetime] = None,
+) -> Optional[Dict]:
+    if not membership:
+        return membership
+
+    now = reference_now or datetime.utcnow()
+    normalized = dict(membership)
+
+    start_date = coerce_utc_naive_datetime(normalized.get("start_date"), now) or now
+    end_date = coerce_utc_naive_datetime(normalized.get("end_date"), add_months_utc(start_date, 1))
+    if end_date <= start_date:
+        end_date = add_months_utc(start_date, 1)
+
+    raw_anchor = normalized.get("billing_anchor_day")
+    if raw_anchor is None:
+        raw_anchor = start_date.day
+    try:
+        anchor_day = int(raw_anchor)
+    except (TypeError, ValueError):
+        anchor_day = start_date.day
+    anchor_day = min(31, max(1, anchor_day))
+
+    next_payment_date = coerce_utc_naive_datetime(normalized.get("next_payment_date"))
+    if next_payment_date is None:
+        first_due = add_months_utc(start_date, 1)
+        next_payment_date = first_due.replace(day=min(anchor_day, monthrange(first_due.year, first_due.month)[1]))
+
+    amount_value = normalized.get("amount")
+    if amount_value is None:
+        amount_value = MEMBERSHIP_BASE_FEE
+    try:
+        amount = float(amount_value)
+    except (TypeError, ValueError):
+        amount = MEMBERSHIP_BASE_FEE
+    amount = max(0.0, amount)
+
+    payment_status = normalized.get("payment_status")
+    if payment_status not in {"paid", "pending", "overdue"}:
+        payment_status = "pending"
+
+    normalized["start_date"] = start_date
+    normalized["end_date"] = end_date
+    normalized["next_payment_date"] = next_payment_date
+    normalized["billing_anchor_day"] = anchor_day
+    normalized["amount"] = amount
+    normalized["payment_status"] = payment_status
+    normalized["last_reminder_sent"] = coerce_utc_naive_datetime(normalized.get("last_reminder_sent"))
+    normalized["last_payment_date"] = coerce_utc_naive_datetime(normalized.get("last_payment_date"))
+
+    return normalized
+
+def get_membership_due_details(
+    membership: Optional[Dict],
+    *,
+    reference_now: Optional[datetime] = None,
+) -> Optional[Dict]:
+    if not membership:
+        return None
+
+    now = reference_now or datetime.utcnow()
+    normalized = normalize_membership_plan(membership, reference_now=now)
+    if not normalized:
+        return None
+
+    due_date_dt = coerce_utc_naive_datetime(normalized.get("next_payment_date"), now) or now
+    due_date = due_date_dt.date()
+    today = now.date()
+    days_from_due = (today - due_date).days
+    days_until_due = max(0, -days_from_due)
+    window_end = due_date + timedelta(days=MEMBERSHIP_WINDOW_DAYS - 1)
+
+    late_days = 0
+    if days_from_due >= MEMBERSHIP_WINDOW_DAYS:
+        late_days = days_from_due - (MEMBERSHIP_WINDOW_DAYS - 1)
+
+    base_amount = float(normalized.get("amount") or MEMBERSHIP_BASE_FEE)
+    late_fee = round(late_days * MEMBERSHIP_LATE_FEE_PER_DAY, 2)
+    total_amount = round(base_amount + late_fee, 2)
+    reminder_active = days_from_due >= 0
+    is_overdue = late_days > 0
+
+    if is_overdue:
+        payment_status = "overdue"
+    elif reminder_active:
+        payment_status = "pending"
+    else:
+        payment_status = "pending"
+
+    return {
+        "due_date": due_date_dt,
+        "due_date_iso": due_date_dt.isoformat(),
+        "window_end_date": datetime.combine(window_end, time.min),
+        "window_end_date_iso": datetime.combine(window_end, time.min).isoformat(),
+        "base_amount": round(base_amount, 2),
+        "late_fee": late_fee,
+        "total_amount": total_amount,
+        "days_from_due": max(0, days_from_due),
+        "days_until_due": days_until_due,
+        "days_late": late_days,
+        "reminder_active": reminder_active,
+        "is_due_now": reminder_active,
+        "is_overdue": is_overdue,
+        "recommended_payment_status": payment_status,
+    }
+
+def build_membership_reminder_text(details: Dict) -> Tuple[str, str]:
+    due_date_text = details["due_date"].strftime("%d %b %Y")
+    if details.get("is_overdue"):
+        late_fee_text = int(details["late_fee"]) if details["late_fee"].is_integer() else details["late_fee"]
+        total_text = int(details["total_amount"]) if details["total_amount"].is_integer() else details["total_amount"]
+        title = "Membership Payment Overdue"
+        body = (
+            f"Payment due date was {due_date_text}. Late fee now Rs.{late_fee_text}. "
+            f"Total payable Rs.{total_text}. Please pay today."
+        )
+        return title, body
+
+    if details.get("is_due_now"):
+        remaining_days = max(0, MEMBERSHIP_WINDOW_DAYS - details.get("days_from_due", 0))
+        base_text = int(details["base_amount"]) if details["base_amount"].is_integer() else details["base_amount"]
+        title = "Membership Payment Reminder"
+        body = (
+            f"Monthly payment is due from {due_date_text}. Pay within {remaining_days} day(s) "
+            f"to avoid late fee. Amount Rs.{base_text}."
+        )
+        return title, body
+
+    title = "Upcoming Membership Payment"
+    body = f"Your next membership payment is due on {due_date_text}."
+    return title, body
+
+def next_membership_due_date(current_due_date: datetime, anchor_day: int) -> datetime:
+    next_due = add_months_utc(current_due_date, 1)
+    aligned_day = min(anchor_day, monthrange(next_due.year, next_due.month)[1])
+    return next_due.replace(day=aligned_day)
 
 def _is_same_center(user_a: Dict, user_b: Dict) -> bool:
     return bool(user_a.get("center")) and user_a.get("center") == user_b.get("center")
@@ -860,74 +1300,185 @@ async def notify_center_trainers(center: str, title: str, body: str, notificatio
 # ==================== PAYMENT REMINDER BACKGROUND TASK ====================
 
 async def check_payment_reminders():
-    """Background task to check and send payment reminders"""
+    """Background task to send daily membership reminders for due/overdue cycles."""
     while True:
         try:
-            today = datetime.utcnow().date()
-            reminder_start = today + timedelta(days=2)
-            
-            # Find members with upcoming payments
-            profiles = await db.member_profiles.find({
-                "membership.payment_status": {"$in": ["pending", "overdue"]},
-                "membership.next_payment_date": {"$lte": datetime.combine(reminder_start, datetime.max.time())}
-            }).to_list(1000)
-            
+            now = datetime.utcnow()
+            today = now.date()
+
+            profiles = await db.member_profiles.find({"membership": {"$exists": True, "$ne": None}}).to_list(2000)
+
             for profile in profiles:
-                membership = profile.get("membership", {})
-                next_payment = membership.get("next_payment_date")
-                last_reminder = membership.get("last_reminder_sent")
-                
-                if not next_payment:
+                membership = normalize_membership_plan(profile.get("membership"), reference_now=now)
+                if not membership:
                     continue
-                
-                # Check if we should send reminder (once per day)
-                if last_reminder:
-                    last_reminder_date = last_reminder.date() if isinstance(last_reminder, datetime) else last_reminder
-                    if last_reminder_date == today:
-                        continue
-                
-                # Calculate days until payment
-                payment_date = next_payment.date() if isinstance(next_payment, datetime) else next_payment
-                days_until = (payment_date - today).days
-                
-                if days_until <= 2:
-                    user = await db.users.find_one({"id": profile["user_id"]})
-                    if user:
-                        if days_until < 0:
-                            title = "Payment Overdue!"
-                            body = f"Your gym subscription payment is overdue by {abs(days_until)} day(s). Please pay immediately."
-                        elif days_until == 0:
-                            title = "Payment Due Today!"
-                            body = "Your gym subscription payment is due today. Please make the payment."
-                        else:
-                            title = "Payment Reminder"
-                            body = f"Your gym subscription payment is due in {days_until} day(s)."
-                        
-                        await send_notification_to_user(
-                            user["id"], 
-                            title, 
-                            body, 
-                            "payment",
-                            {"payment_date": str(next_payment), "member_id": profile["member_id"]}
-                        )
-                        
-                        # Update last reminder sent
+
+                details = get_membership_due_details(membership, reference_now=now)
+                if not details:
+                    continue
+
+                if not details.get("reminder_active"):
+                    if membership.get("payment_status") != "pending":
+                        membership["payment_status"] = "pending"
                         await db.member_profiles.update_one(
                             {"user_id": profile["user_id"]},
-                            {"$set": {"membership.last_reminder_sent": datetime.utcnow()}}
+                            {"$set": {"membership": membership}},
                         )
-            
-            # Sleep for 1 hour before next check
+                    continue
+
+                membership["payment_status"] = details["recommended_payment_status"]
+                last_reminder = membership.get("last_reminder_sent")
+                if last_reminder:
+                    last_reminder_date = (
+                        last_reminder.date()
+                        if isinstance(last_reminder, datetime)
+                        else coerce_utc_naive_datetime(last_reminder, now).date()
+                    )
+                    if last_reminder_date == today:
+                        await db.member_profiles.update_one(
+                            {"user_id": profile["user_id"]},
+                            {"$set": {"membership": membership}},
+                        )
+                        continue
+
+                user = await db.users.find_one({"id": profile["user_id"], "is_active": True})
+                if not user:
+                    continue
+
+                title, body = build_membership_reminder_text(details)
+                await send_notification_to_user(
+                    user["id"],
+                    title,
+                    body,
+                    "payment",
+                    {
+                        "member_id": profile.get("member_id"),
+                        "due_date": details["due_date_iso"],
+                        "total_amount": details["total_amount"],
+                        "late_fee": details["late_fee"],
+                        "days_late": details["days_late"],
+                    },
+                )
+
+                membership["last_reminder_sent"] = now
+                await db.member_profiles.update_one(
+                    {"user_id": profile["user_id"]},
+                    {"$set": {"membership": membership}},
+                )
+
             await asyncio.sleep(3600)
         except Exception as e:
             logger.error(f"Payment reminder error: {e}")
+            await asyncio.sleep(3600)
+
+async def resolve_user_date_of_birth(user_doc: Dict) -> Optional[datetime]:
+    normalized = normalize_date_of_birth(user_doc.get("date_of_birth"), strict=False)
+    if normalized:
+        return normalized
+
+    if user_doc.get("role") != "member":
+        return None
+
+    profile = await db.member_profiles.find_one(
+        {"user_id": user_doc.get("id")},
+        {"date_of_birth": 1},
+    )
+    profile_dob = normalize_date_of_birth(
+        profile.get("date_of_birth") if profile else None,
+        strict=False,
+    )
+    if profile_dob:
+        await db.users.update_one(
+            {"id": user_doc.get("id")},
+            {"$set": {"date_of_birth": profile_dob}},
+        )
+    return profile_dob
+
+async def check_birthday_reminders():
+    """Background task to send birthday notifications to users/admins/trainers."""
+    while True:
+        try:
+            today_ist = datetime.now(INDIA_TIMEZONE).date()
+            today_key = today_ist.isoformat()
+            users = await db.users.find(
+                {
+                    "is_active": True,
+                    "approval_status": "approved",
+                }
+            ).to_list(5000)
+
+            for user in users:
+                dob = await resolve_user_date_of_birth(user)
+                if not dob:
+                    continue
+                if dob.month != today_ist.month or dob.day != today_ist.day:
+                    continue
+                if user.get("birthday_last_notified_on") == today_key:
+                    continue
+
+                user_id = user.get("id")
+                full_name = user.get("full_name") or "Member"
+                role = user.get("role") or "member"
+                center = user.get("center")
+
+                await send_notification_to_user(
+                    user_id,
+                    "Happy Birthday!",
+                    f"Happy Birthday {full_name}! Wishing you a healthy and strong year ahead.",
+                    "birthday",
+                    {
+                        "user_id": user_id,
+                        "role": role,
+                        "center": center,
+                        "birthday_date": today_key,
+                    },
+                )
+
+                center_text = f" ({center})" if center else ""
+                await notify_all_admins(
+                    "Birthday Reminder",
+                    f"Today is {full_name}'s birthday ({role}){center_text}.",
+                    "birthday",
+                    {
+                        "user_id": user_id,
+                        "role": role,
+                        "center": center,
+                        "birthday_date": today_key,
+                    },
+                )
+
+                if role == "member" and center:
+                    await notify_center_trainers(
+                        center,
+                        "Member Birthday Reminder",
+                        f"Today is {full_name}'s birthday.",
+                        "birthday",
+                        {
+                            "user_id": user_id,
+                            "center": center,
+                            "birthday_date": today_key,
+                        },
+                    )
+
+                await db.users.update_one(
+                    {"id": user_id},
+                    {"$set": {"birthday_last_notified_on": today_key}},
+                )
+
+            await asyncio.sleep(3600)
+        except Exception as exc:
+            logger.error(f"Birthday reminder error: {exc}")
             await asyncio.sleep(3600)
 
 # ==================== AUTH ROUTES ====================
 
 @api_router.post("/auth/register", response_model=Token)
 async def register(user: UserRegister, background_tasks: BackgroundTasks):
+    if not user.date_of_birth:
+        raise HTTPException(status_code=400, detail="Date of birth is required")
     normalized_phone = normalize_indian_phone(user.phone)
+    normalized_dob = normalize_date_of_birth(user.date_of_birth)
+    normalized_profile_image = normalize_profile_image(user.profile_image)
     resolved_email = await resolve_registration_email(
         user.email,
         normalized_phone,
@@ -969,6 +1520,7 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="Center is required for trainers and members")
     
     # Create user
+    validate_password_strength(user.password)
     user_id = str(uuid.uuid4())
     hashed_password = get_password_hash(user.password)
     
@@ -979,13 +1531,15 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
         "full_name": user.full_name,
         "role": user.role,
         "center": user.center,
+        "date_of_birth": normalized_dob,
         "hashed_password": hashed_password,
         "created_at": datetime.utcnow(),
         "is_active": True,
-        "profile_image": None,
+        "profile_image": normalized_profile_image,
         "is_primary_admin": is_first_admin,
         "approval_status": approval_status,
-        "push_token": None
+        "push_token": None,
+        "achievements": [],
     }
     
     await run_with_mongo_retry(
@@ -999,6 +1553,7 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
         profile = {
             "user_id": user_id,
             "member_id": member_id,
+            "date_of_birth": normalized_dob,
             "assigned_trainers": [],
             "body_metrics": [],
             "progress_photos": []
@@ -1068,10 +1623,13 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
         full_name=user.full_name,
         role=user.role,
         center=user.center,
+        date_of_birth=normalized_dob,
         created_at=user_dict["created_at"],
         is_active=True,
+        profile_image=normalized_profile_image,
         is_primary_admin=is_first_admin,
-        approval_status=approval_status
+        approval_status=approval_status,
+        achievements=[],
     )
     
     return Token(access_token=access_token, token_type="bearer", user=user_response)
@@ -1115,12 +1673,14 @@ async def login(credentials: UserLogin):
         full_name=user["full_name"],
         role=user["role"],
         center=user.get("center"),
+        date_of_birth=normalize_date_of_birth(user.get("date_of_birth"), strict=False),
         created_at=user["created_at"],
         is_active=user.get("is_active", True),
         profile_image=user.get("profile_image"),
         is_primary_admin=user.get("is_primary_admin", False),
         approval_status=user.get("approval_status", "approved"),
-        push_token=user.get("push_token")
+        push_token=user.get("push_token"),
+        achievements=user.get("achievements", []),
     )
     
     return Token(access_token=access_token, token_type="bearer", user=user_response)
@@ -1134,12 +1694,14 @@ async def get_me(current_user: UserInDB = Depends(get_current_user)):
         full_name=current_user.full_name,
         role=current_user.role,
         center=current_user.center,
+        date_of_birth=normalize_date_of_birth(current_user.date_of_birth, strict=False),
         created_at=current_user.created_at,
         is_active=current_user.is_active,
         profile_image=current_user.profile_image,
         is_primary_admin=current_user.is_primary_admin,
         approval_status=current_user.approval_status,
-        push_token=current_user.push_token
+        push_token=current_user.push_token,
+        achievements=current_user.achievements or [],
     )
 
 @api_router.put("/auth/push-token")
@@ -1149,23 +1711,117 @@ async def update_push_token(push_token: str, current_user: UserInDB = Depends(ge
 
 @api_router.put("/auth/profile")
 async def update_profile(
-    full_name: Optional[str] = None,
-    phone: Optional[str] = None,
-    profile_image: Optional[str] = None,
+    payload: UserProfileUpdate,
     current_user: UserInDB = Depends(get_current_user)
 ):
+    incoming = payload.model_dump(exclude_unset=True)
     update_data = {}
-    if full_name:
-        update_data["full_name"] = full_name
-    if phone:
-        update_data["phone"] = normalize_indian_phone(phone)
-    if profile_image:
-        update_data["profile_image"] = profile_image
+    if "full_name" in incoming:
+        full_name = (incoming.get("full_name") or "").strip()
+        if full_name:
+            update_data["full_name"] = full_name
+    if "phone" in incoming:
+        phone = (incoming.get("phone") or "").strip()
+        if phone:
+            update_data["phone"] = normalize_indian_phone(phone)
+    if "profile_image" in incoming:
+        update_data["profile_image"] = normalize_profile_image(incoming.get("profile_image"))
+    if "date_of_birth" in incoming:
+        normalized_dob = normalize_date_of_birth(incoming.get("date_of_birth"))
+        update_data["date_of_birth"] = normalized_dob
+        if current_user.role == "member":
+            await db.member_profiles.update_one(
+                {"user_id": current_user.id},
+                {"$set": {"date_of_birth": normalized_dob}},
+                upsert=True,
+            )
     
     if update_data:
         await db.users.update_one({"id": current_user.id}, {"$set": update_data})
     
     return {"message": "Profile updated successfully"}
+
+@api_router.put("/auth/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    current_user: UserInDB = Depends(get_current_user),
+):
+    user_doc = await run_with_mongo_retry(
+        lambda: db.users.find_one({"id": current_user.id}),
+        context="auth.change_password.find_user",
+    )
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not verify_password(payload.current_password, user_doc.get("hashed_password", "")):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="New password must be different from current password")
+
+    validate_password_strength(payload.new_password)
+
+    if verify_password(payload.new_password, user_doc.get("hashed_password", "")):
+        raise HTTPException(status_code=400, detail="New password must be different from current password")
+
+    await run_with_mongo_retry(
+        lambda: db.users.update_one(
+            {"id": current_user.id},
+            {
+                "$set": {
+                    "hashed_password": get_password_hash(payload.new_password),
+                    "password_updated_at": datetime.utcnow(),
+                }
+            },
+        ),
+        context="auth.change_password.update_hash",
+    )
+    return {"message": "Password changed successfully"}
+
+@api_router.post("/auth/forgot-password/reset")
+async def reset_forgotten_password(payload: ForgotPasswordResetRequest):
+    identifier = (payload.identifier or "").strip()
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Email or phone is required")
+
+    query = {}
+    if "@" in identifier:
+        query["email"] = normalize_and_validate_email(identifier)
+    else:
+        query["phone"] = normalize_indian_phone(identifier)
+
+    user_doc = await run_with_mongo_retry(
+        lambda: db.users.find_one(query),
+        context="auth.forgot_password.find_user",
+    )
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    stored_dob = normalize_date_of_birth(user_doc.get("date_of_birth"), strict=False)
+    if not stored_dob:
+        raise HTTPException(status_code=400, detail="Password reset is unavailable for this account")
+
+    provided_dob = normalize_date_of_birth(payload.date_of_birth)
+    if provided_dob is None or stored_dob.date() != provided_dob.date():
+        raise HTTPException(status_code=400, detail="Recovery details do not match")
+
+    validate_password_strength(payload.new_password)
+    if verify_password(payload.new_password, user_doc.get("hashed_password", "")):
+        raise HTTPException(status_code=400, detail="New password must be different from current password")
+
+    await run_with_mongo_retry(
+        lambda: db.users.update_one(
+            {"id": user_doc["id"]},
+            {
+                "$set": {
+                    "hashed_password": get_password_hash(payload.new_password),
+                    "password_updated_at": datetime.utcnow(),
+                }
+            },
+        ),
+        context="auth.forgot_password.update_hash",
+    )
+    return {"message": "Password reset successful"}
 
 # ==================== APPROVAL ROUTES ====================
 
@@ -1306,7 +1962,11 @@ async def reject_request(
 async def create_member(member: MemberProfileCreate, current_user: UserInDB = Depends(require_admin_or_trainer)):
     if current_user.role == "trainer" and member.center != current_user.center:
         raise HTTPException(status_code=403, detail="Trainers can only create members in their branch")
+    if not member.date_of_birth:
+        raise HTTPException(status_code=400, detail="Date of birth is required")
 
+    normalized_dob = normalize_date_of_birth(member.date_of_birth) if member.date_of_birth else None
+    normalized_profile_image = normalize_profile_image(member.profile_image)
     normalized_phone = normalize_indian_phone(member.phone)
     normalized_email = await resolve_registration_email(
         member.email,
@@ -1323,6 +1983,7 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
         raise HTTPException(status_code=400, detail="Phone already registered")
     
     # Create user account
+    validate_password_strength(member.password)
     user_id = str(uuid.uuid4())
     hashed_password = get_password_hash(member.password)
     
@@ -1333,13 +1994,15 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
         "full_name": member.full_name,
         "role": "member",
         "center": member.center,
+        "date_of_birth": normalized_dob,
         "hashed_password": hashed_password,
         "created_at": datetime.utcnow(),
         "is_active": True,
-        "profile_image": None,
+        "profile_image": normalized_profile_image,
         "is_primary_admin": False,
         "approval_status": "approved",  # Created by admin/trainer, so pre-approved
-        "push_token": None
+        "push_token": None,
+        "achievements": [],
     }
     await db.users.insert_one(user_dict)
     
@@ -1348,12 +2011,16 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
     profile = {
         "user_id": user_id,
         "member_id": member_id,
-        "date_of_birth": member.date_of_birth,
+        "date_of_birth": normalized_dob,
         "gender": member.gender,
         "address": member.address,
         "emergency_contact": member.emergency_contact.dict() if member.emergency_contact else None,
         "assigned_trainers": [],
-        "membership": member.membership.dict() if member.membership else None,
+        "membership": normalize_membership_plan(
+            (member.membership.model_dump() if hasattr(member.membership, "model_dump") else member.membership.dict())
+            if member.membership
+            else None
+        ),
         "body_metrics": [],
         "medical_notes": member.medical_notes,
         "goals": member.goals,
@@ -1398,6 +2065,10 @@ async def get_members(
     result = []
     for member in members:
         profile = profile_by_user_id.get(member["id"])
+        member_dob = normalize_date_of_birth(member.get("date_of_birth"), strict=False) or normalize_date_of_birth(
+            profile.get("date_of_birth") if profile else None,
+            strict=False,
+        )
         result.append({
             "id": member["id"],
             "email": member["email"],
@@ -1406,10 +2077,12 @@ async def get_members(
             "is_active": member.get("is_active", True),
             "created_at": member["created_at"],
             "profile_image": member.get("profile_image"),
+            "date_of_birth": member_dob,
             "center": member.get("center"),
             "member_id": profile["member_id"] if profile else None,
             "membership": profile.get("membership") if profile else None,
-            "approval_status": member.get("approval_status", "approved")
+            "approval_status": member.get("approval_status", "approved"),
+            "achievements": member.get("achievements", []),
         })
     
     return result
@@ -1440,7 +2113,13 @@ async def get_member(user_id: str, current_user: UserInDB = Depends(get_current_
             "is_active": user.get("is_active", True),
             "created_at": user["created_at"],
             "profile_image": user.get("profile_image"),
-            "center": user.get("center")
+            "date_of_birth": normalize_date_of_birth(user.get("date_of_birth"), strict=False) or normalize_date_of_birth(
+                profile.get("date_of_birth") if profile else None,
+                strict=False,
+            ),
+            "center": user.get("center"),
+            "role": user.get("role"),
+            "achievements": user.get("achievements", []),
         },
         "profile": sanitize_mongo_doc(profile)
     }
@@ -1482,6 +2161,11 @@ async def update_member(
         user_fields["phone"] = normalize_indian_phone(update_dict.pop("phone"))
     if "center" in update_dict:
         user_fields["center"] = update_dict.pop("center")
+    if "date_of_birth" in update_dict:
+        raw_dob = update_dict.get("date_of_birth")
+        normalized_dob = normalize_date_of_birth(raw_dob) if raw_dob else None
+        update_dict["date_of_birth"] = normalized_dob
+        user_fields["date_of_birth"] = normalized_dob
     
     if user_fields:
         await db.users.update_one({"id": user_id}, {"$set": user_fields})
@@ -1491,7 +2175,8 @@ async def update_member(
         if "emergency_contact" in update_dict and update_dict["emergency_contact"]:
             update_dict["emergency_contact"] = update_dict["emergency_contact"].dict() if hasattr(update_dict["emergency_contact"], 'dict') else update_dict["emergency_contact"]
         if "membership" in update_dict and update_dict["membership"]:
-            update_dict["membership"] = update_dict["membership"].dict() if hasattr(update_dict["membership"], 'dict') else update_dict["membership"]
+            raw_membership = update_dict["membership"].dict() if hasattr(update_dict["membership"], 'dict') else update_dict["membership"]
+            update_dict["membership"] = normalize_membership_plan(raw_membership)
         await db.member_profiles.update_one({"user_id": user_id}, {"$set": update_dict})
 
     if "center" in user_fields:
@@ -1595,6 +2280,8 @@ async def create_trainer(user: UserCreate, current_user: UserInDB = Depends(requ
     
     if not user.center:
         raise HTTPException(status_code=400, detail="Center is required for trainers")
+    if not user.date_of_birth:
+        raise HTTPException(status_code=400, detail="Date of birth is required")
     
     normalized_email = normalize_and_validate_email(str(user.email))
     existing = await db.users.find_one({"email": normalized_email})
@@ -1606,6 +2293,9 @@ async def create_trainer(user: UserCreate, current_user: UserInDB = Depends(requ
     if existing_phone:
         raise HTTPException(status_code=400, detail="Phone already registered")
     
+    normalized_dob = normalize_date_of_birth(user.date_of_birth) if user.date_of_birth else None
+    normalized_profile_image = normalize_profile_image(user.profile_image)
+    validate_password_strength(user.password)
     user_id = str(uuid.uuid4())
     hashed_password = get_password_hash(user.password)
     
@@ -1616,13 +2306,15 @@ async def create_trainer(user: UserCreate, current_user: UserInDB = Depends(requ
         "full_name": user.full_name,
         "role": "trainer",
         "center": user.center,
+        "date_of_birth": normalized_dob,
         "hashed_password": hashed_password,
         "created_at": datetime.utcnow(),
         "is_active": True,
-        "profile_image": None,
+        "profile_image": normalized_profile_image,
         "is_primary_admin": False,
         "approval_status": "approved",  # Created by primary admin
-        "push_token": None
+        "push_token": None,
+        "achievements": [],
     }
     await db.users.insert_one(user_dict)
     await sync_member_assignments_for_center(user.center)
@@ -1660,11 +2352,37 @@ async def get_trainers(
             "phone": trainer["phone"],
             "full_name": trainer["full_name"],
             "profile_image": trainer.get("profile_image"),
+            "date_of_birth": normalize_date_of_birth(trainer.get("date_of_birth"), strict=False),
             "center": trainer.get("center"),
-            "member_count": member_count
+            "member_count": member_count,
+            "achievements": trainer.get("achievements", []),
         })
     
     return result
+
+@api_router.get("/trainers/{user_id}")
+async def get_trainer(user_id: str, current_user: UserInDB = Depends(get_current_user)):
+    if current_user.role == "member":
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    trainer = await db.users.find_one({"id": user_id, "role": "trainer", "is_active": True})
+    if not trainer:
+        raise HTTPException(status_code=404, detail="Trainer not found")
+
+    member_count = await db.member_profiles.count_documents({"assigned_trainers": user_id})
+
+    return {
+        "id": trainer["id"],
+        "email": trainer["email"],
+        "phone": trainer["phone"],
+        "full_name": trainer["full_name"],
+        "center": trainer.get("center"),
+        "created_at": trainer.get("created_at"),
+        "profile_image": trainer.get("profile_image"),
+        "date_of_birth": normalize_date_of_birth(trainer.get("date_of_birth"), strict=False),
+        "member_count": member_count,
+        "achievements": trainer.get("achievements", []),
+    }
 
 @api_router.put("/trainers/{user_id}/center")
 async def change_trainer_center(
@@ -1684,10 +2402,120 @@ async def change_trainer_center(
     await sync_member_assignments_for_center(new_center)
     return {"message": f"Trainer center changed to {new_center}"}
 
+@api_router.put("/users/{user_id}/achievements")
+async def update_user_achievements(
+    user_id: str,
+    payload: AchievementUpdate,
+    current_user: UserInDB = Depends(require_admin),
+):
+    user_doc = await db.users.find_one({"id": user_id, "role": {"$in": ["member", "trainer"]}})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    incoming = payload.achievements or []
+    achievements = [item.strip() for item in incoming if isinstance(item, str) and item.strip()]
+    # Keep payload bounded to avoid oversized documents from accidental paste.
+    achievements = achievements[:50]
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"achievements": achievements, "updated_at": datetime.utcnow()}},
+    )
+
+    if achievements:
+        top_items = ", ".join(achievements[:3])
+        if len(achievements) > 3:
+            top_items += ", and more"
+        announcement = Announcement(
+            title=f"Achievement Update: {user_doc['full_name']}",
+            content=f"{user_doc['full_name']} achieved: {top_items}.",
+            created_by=current_user.id,
+            target="all",
+            announcement_type="achievement",
+            expires_at=datetime.utcnow() + timedelta(days=ACHIEVEMENT_ANNOUNCEMENT_DAYS),
+        )
+        await db.announcements.insert_one(announcement.dict())
+        try:
+            await sio.emit("announcement", announcement.dict())
+        except Exception as exc:
+            logger.error(f"Achievement announcement emit failed for {user_id}: {exc}")
+
+    return {"message": "Achievements updated", "achievements": achievements, "user_id": user_id}
+
+def get_day_start_utc(at: Optional[datetime] = None) -> datetime:
+    ref = at or datetime.utcnow()
+    return ref.replace(hour=0, minute=0, second=0, microsecond=0)
+
+def to_utc_naive(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+def get_attendance_retention_cutoff(at: Optional[datetime] = None) -> datetime:
+    return (at or datetime.utcnow()) - timedelta(days=ATTENDANCE_RETENTION_DAYS)
+
+def build_daily_qr_code(prefix: str, day: str) -> str:
+    day_compact = day.replace("-", "")
+    return f"HERCULES-{prefix}-{day_compact}-{uuid.uuid4().hex[:8].upper()}"
+
+async def ensure_daily_qr_codes(day: str) -> Dict[str, str]:
+    stored = await db.qr_codes.find_one({"date": day}) or {}
+    check_in_code = stored.get("check_in_code") or stored.get("code") or build_daily_qr_code("IN", day)
+    check_out_code = stored.get("check_out_code") or build_daily_qr_code("OUT", day)
+
+    payload = {
+        "date": day,
+        "code": check_in_code,
+        "check_in_code": check_in_code,
+        "check_out_code": check_out_code,
+    }
+    await db.qr_codes.update_one({"date": day}, {"$set": payload}, upsert=True)
+    return payload
+
+async def finalize_expired_attendance_sessions() -> int:
+    now = datetime.utcnow()
+    timeout_cutoff = now - timedelta(hours=ATTENDANCE_MAX_ACTIVE_HOURS)
+    stale_records = await db.attendance.find(
+        {
+            "check_out_time": None,
+            "check_in_time": {"$lte": timeout_cutoff},
+        }
+    ).to_list(5000)
+
+    modified = 0
+    for record in stale_records:
+        record_id = record.get("id")
+        if not record_id:
+            continue
+        check_in_at = record.get("check_in_time") or now
+        auto_checkout_at = check_in_at + timedelta(hours=ATTENDANCE_MAX_ACTIVE_HOURS)
+        update_result = await db.attendance.update_one(
+            {"id": record_id, "check_out_time": None},
+            {
+                "$set": {
+                    "check_out_time": auto_checkout_at,
+                    "check_out_method": "auto_timeout",
+                    "auto_checked_out": True,
+                    "penalty_applied": True,
+                    "penalty_reason": "missed_qr_checkout",
+                    "penalty_note": f"Auto checkout after {ATTENDANCE_MAX_ACTIVE_HOURS}h without QR checkout.",
+                }
+            },
+        )
+        if update_result.modified_count:
+            modified += 1
+    return modified
+
+async def cleanup_expired_attendance_records() -> int:
+    cutoff = get_attendance_retention_cutoff()
+    delete_result = await db.attendance.delete_many({"check_in_time": {"$lt": cutoff}})
+    return int(delete_result.deleted_count)
+
 # ==================== ATTENDANCE ROUTES ====================
 
 @api_router.post("/attendance/check-in")
 async def check_in(attendance: AttendanceCreate, current_user: UserInDB = Depends(get_current_user)):
+    await finalize_expired_attendance_sessions()
+
     # Validate access
     if current_user.role == "member":
         if attendance.user_id != current_user.id:
@@ -1706,7 +2534,7 @@ async def check_in(attendance: AttendanceCreate, current_user: UserInDB = Depend
         raise HTTPException(status_code=404, detail="User not found")
     
     # Check if already checked in today
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = get_day_start_utc()
     existing = await db.attendance.find_one({
         "user_id": attendance.user_id,
         "check_in_time": {"$gte": today_start},
@@ -1729,12 +2557,14 @@ async def check_in(attendance: AttendanceCreate, current_user: UserInDB = Depend
 
 @api_router.post("/attendance/check-out/{user_id}")
 async def check_out(user_id: str, current_user: UserInDB = Depends(get_current_user)):
+    await finalize_expired_attendance_sessions()
+
     # Validate access
     if current_user.role == "member" and user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Can only check out yourself")
     
     # Find today's check-in
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = get_day_start_utc()
     record = await db.attendance.find_one({
         "user_id": user_id,
         "check_in_time": {"$gte": today_start},
@@ -1743,10 +2573,24 @@ async def check_out(user_id: str, current_user: UserInDB = Depends(get_current_u
     
     if not record:
         raise HTTPException(status_code=400, detail="No active check-in found")
+
+    if (
+        ATTENDANCE_ENFORCE_QR_CHECKOUT
+        and current_user.role == "member"
+        and user_id == current_user.id
+        and record.get("method") == "qr"
+    ):
+        raise HTTPException(status_code=400, detail="Please use QR check-out")
     
     await db.attendance.update_one(
         {"id": record["id"]},
-        {"$set": {"check_out_time": datetime.utcnow()}}
+        {
+            "$set": {
+                "check_out_time": datetime.utcnow(),
+                "check_out_method": "self" if current_user.id == user_id else "manual",
+                "auto_checked_out": False,
+            }
+        }
     )
     
     return {"message": "Checked out successfully"}
@@ -1756,13 +2600,14 @@ async def get_today_attendance(
     center: Optional[CenterType] = None,
     current_user: UserInDB = Depends(get_current_user)
 ):
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    await finalize_expired_attendance_sessions()
+    today_start = get_day_start_utc()
     
     if current_user.role == "member":
         records = await db.attendance.find({
             "user_id": current_user.id,
             "check_in_time": {"$gte": today_start}
-        }).to_list(100)
+        }).sort("check_in_time", -1).to_list(100)
     elif current_user.role == "trainer":
         # Get assigned members
         profiles = await db.member_profiles.find({"assigned_trainers": current_user.id}).to_list(1000)
@@ -1773,13 +2618,13 @@ async def get_today_attendance(
         }
         if center:
             query["center"] = center
-        records = await db.attendance.find(query).to_list(1000)
+        records = await db.attendance.find(query).sort("check_in_time", -1).to_list(1000)
     else:
         # Admin sees all
         query = {"check_in_time": {"$gte": today_start}}
         if center:
             query["center"] = center
-        records = await db.attendance.find(query).to_list(1000)
+        records = await db.attendance.find(query).sort("check_in_time", -1).to_list(1000)
     
     # Enrich with user info
     result = []
@@ -1798,54 +2643,70 @@ async def get_attendance_history(
     user_id: str,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
+    months: int = Query(ATTENDANCE_HISTORY_MONTHS_LIMIT, ge=1, le=ATTENDANCE_HISTORY_MONTHS_LIMIT),
     current_user: UserInDB = Depends(get_current_user)
 ):
-    # Check access
-    if current_user.role == "member" and current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    if current_user.role == "trainer":
-        profile = await db.member_profiles.find_one({"user_id": user_id})
-        if not profile or current_user.id not in profile.get("assigned_trainers", []):
+    await finalize_expired_attendance_sessions()
+
+    target_user = await db.users.find_one({"id": user_id, "is_active": True})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Members can only see their own attendance.
+    if current_user.role == "member":
+        if current_user.id != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
-    
-    query = {"user_id": user_id}
-    if start_date:
-        query["check_in_time"] = {"$gte": start_date}
-    if end_date:
-        if "check_in_time" in query:
-            query["check_in_time"]["$lte"] = end_date
-        else:
-            query["check_in_time"] = {"$lte": end_date}
+    else:
+        # Trainer/admin member-history view is restricted to members only.
+        if target_user.get("role") != "member":
+            raise HTTPException(status_code=403, detail="Attendance history is available for members only")
+
+        # Branch-wise visibility: trainer/non-primary admin can only access own center members.
+        target_center = target_user.get("center")
+        if current_user.role == "trainer":
+            if current_user.center and target_center != current_user.center:
+                raise HTTPException(status_code=403, detail="Access denied for another center")
+        elif current_user.role == "admin":
+            if not current_user.is_primary_admin and current_user.center and target_center != current_user.center:
+                raise HTTPException(status_code=403, detail="Access denied for another center")
+
+    now = datetime.utcnow()
+    default_start = add_months_utc(get_day_start_utc(now), -months)
+    normalized_start = to_utc_naive(start_date) if start_date else None
+    normalized_end = to_utc_naive(end_date) if end_date else None
+    retention_cutoff = get_attendance_retention_cutoff()
+    effective_start = default_start
+    if normalized_start:
+        effective_start = max(effective_start, normalized_start)
+    effective_start = max(effective_start, retention_cutoff)
+
+    effective_end = normalized_end or now
+    if effective_end < effective_start:
+        raise HTTPException(status_code=400, detail="Invalid date range")
+
+    query = {"user_id": user_id, "check_in_time": {"$gte": effective_start, "$lte": effective_end}}
     
     records = await db.attendance.find(query).sort("check_in_time", -1).to_list(1000)
     return [sanitize_mongo_doc(r) for r in records]
 
 @api_router.get("/attendance/qr-code")
 async def get_qr_code(current_user: UserInDB = Depends(require_admin)):
-    # Generate a unique code for today
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    code = f"HERCULES-{today}-{uuid.uuid4().hex[:8].upper()}"
-    
-    # Store the code
-    await db.qr_codes.update_one(
-        {"date": today},
-        {"$set": {"code": code, "date": today}},
-        upsert=True
-    )
-    
-    return {"code": code, "date": today}
+    return await ensure_daily_qr_codes(today)
 
 @api_router.post("/attendance/qr-check-in")
 async def qr_check_in(code: str, current_user: UserInDB = Depends(get_current_user)):
+    await finalize_expired_attendance_sessions()
+
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    stored = await db.qr_codes.find_one({"date": today})
+    stored = await ensure_daily_qr_codes(today)
+    expected_code = stored.get("check_in_code") or stored.get("code")
     
-    if not stored or stored["code"] != code:
+    if not expected_code or expected_code != code:
         raise HTTPException(status_code=400, detail="Invalid QR code")
     
     # Check if already checked in
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = get_day_start_utc()
     existing = await db.attendance.find_one({
         "user_id": current_user.id,
         "check_in_time": {"$gte": today_start}
@@ -1863,6 +2724,42 @@ async def qr_check_in(code: str, current_user: UserInDB = Depends(get_current_us
     await db.attendance.insert_one(record.dict())
     
     return {"message": "QR Check-in successful", "record": record.dict()}
+
+@api_router.post("/attendance/qr-check-out")
+async def qr_check_out(code: str, current_user: UserInDB = Depends(get_current_user)):
+    await finalize_expired_attendance_sessions()
+
+    if current_user.role != "member":
+        raise HTTPException(status_code=403, detail="Only members can use QR check-out")
+
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    stored = await ensure_daily_qr_codes(today)
+    expected_code = stored.get("check_out_code")
+    if not expected_code or expected_code != code:
+        raise HTTPException(status_code=400, detail="Invalid QR code")
+
+    today_start = get_day_start_utc()
+    record = await db.attendance.find_one(
+        {
+            "user_id": current_user.id,
+            "check_in_time": {"$gte": today_start},
+            "check_out_time": None,
+        }
+    )
+    if not record:
+        raise HTTPException(status_code=400, detail="No active check-in found")
+
+    await db.attendance.update_one(
+        {"id": record["id"]},
+        {
+            "$set": {
+                "check_out_time": datetime.utcnow(),
+                "check_out_method": "qr",
+                "auto_checked_out": False,
+            }
+        },
+    )
+    return {"message": "QR Check-out successful"}
 
 # ==================== NOTIFICATION ROUTES ====================
 
@@ -2158,13 +3055,26 @@ async def create_announcement(
     announcement: AnnouncementCreate,
     current_user: UserInDB = Depends(require_admin)
 ):
+    expires_at = announcement.expires_at
+    if announcement.announcement_type == "achievement" and not expires_at:
+        expires_at = datetime.utcnow() + timedelta(days=ACHIEVEMENT_ANNOUNCEMENT_DAYS)
+
+    target_users = announcement.target_users
+    if announcement.target != "selected":
+        target_users = []
+
+    if announcement.target == "members_center" and not announcement.target_center:
+        raise HTTPException(status_code=400, detail="target_center is required for members_center announcements")
+
     ann = Announcement(
         title=announcement.title,
         content=announcement.content,
         created_by=current_user.id,
         target=announcement.target,
         target_center=announcement.target_center,
-        target_users=announcement.target_users
+        target_users=target_users,
+        announcement_type=announcement.announcement_type,
+        expires_at=expires_at,
     )
     
     await db.announcements.insert_one(ann.dict())
@@ -2175,6 +3085,14 @@ async def create_announcement(
             await sio.emit("announcement", ann_payload)
         elif announcement.target == "members":
             members = await db.users.find({"role": "member", "is_active": True}).to_list(2000)
+            await asyncio.gather(
+                *[sio.emit(f"announcement_{member['id']}", ann_payload) for member in members],
+                return_exceptions=True,
+            )
+        elif announcement.target == "members_center" and announcement.target_center:
+            members = await db.users.find(
+                {"role": "member", "center": announcement.target_center, "is_active": True}
+            ).to_list(2000)
             await asyncio.gather(
                 *[sio.emit(f"announcement_{member['id']}", ann_payload) for member in members],
                 return_exceptions=True,
@@ -2202,26 +3120,56 @@ async def create_announcement(
     return ann.dict()
 
 @api_router.get("/announcements")
-async def get_announcements(current_user: UserInDB = Depends(get_current_user)):
-    query = {"is_active": True}
+async def get_announcements(
+    limit: int = Query(100, ge=1, le=100),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    now = datetime.utcnow()
+    query = {
+        "is_active": True,
+        "$and": [
+            {
+                "$or": [
+                    {"expires_at": {"$exists": False}},
+                    {"expires_at": None},
+                    {"expires_at": {"$gt": now}},
+                ]
+            }
+        ],
+    }
     
     if current_user.role != "admin":
-        query["$or"] = [
+        target_filters = [
             {"target": "all"},
             {"target": current_user.role + "s"},
             {"target_users": current_user.id},
             {"target": "center", "target_center": current_user.center}
         ]
+        if current_user.role == "member" and current_user.center:
+            target_filters.append({"target": "members_center", "target_center": current_user.center})
+        query["$and"].append({"$or": target_filters})
     
-    announcements = await db.announcements.find(query).sort("created_at", -1).to_list(100)
-    
-    # Enrich with creator info
+    announcements = await db.announcements.find(query).sort("created_at", -1).to_list(limit)
+
+    creator_ids = list({ann.get("created_by") for ann in announcements if ann.get("created_by")})
+    creators_by_id: Dict[str, str] = {}
+    if creator_ids:
+        creators = await db.users.find(
+            {"id": {"$in": creator_ids}},
+            {"id": 1, "full_name": 1},
+        ).to_list(len(creator_ids))
+        creators_by_id = {
+            creator.get("id"): creator.get("full_name")
+            for creator in creators
+            if creator.get("id") and creator.get("full_name")
+        }
+
     for ann in announcements:
         sanitize_mongo_doc(ann)
-        creator = await db.users.find_one({"id": ann["created_by"]})
-        if creator:
-            ann["creator_name"] = creator["full_name"]
-    
+        creator_name = creators_by_id.get(ann.get("created_by"))
+        if creator_name:
+            ann["creator_name"] = creator_name
+
     return announcements
 
 @api_router.put("/announcements/{announcement_id}")
@@ -2237,6 +3185,13 @@ async def update_announcement(
     update_data = {k: v for k, v in update.model_dump(exclude_unset=True).items()}
     if not update_data:
         return sanitize_mongo_doc(existing)
+
+    next_target = update_data.get("target", existing.get("target"))
+    next_center = update_data.get("target_center", existing.get("target_center"))
+    if next_target == "members_center" and not next_center:
+        raise HTTPException(status_code=400, detail="target_center is required for members_center announcements")
+    if next_target != "selected":
+        update_data["target_users"] = []
 
     update_data["updated_at"] = datetime.utcnow()
     await db.announcements.update_one({"id": announcement_id}, {"$set": update_data})
@@ -2347,28 +3302,67 @@ async def create_merchandise_order(
         })
         total_amount += item["price"] * cart_item.quantity
     
-    # Create order
+    payment_proof_image = normalize_payment_proof_image(order.payment_proof_image)
+
+    # Create order and mark payment as pending verification
+    payment_reference = f"SHOP-{uuid.uuid4().hex[:10].upper()}"
+
     merchandise_order = MerchandiseOrder(
         user_id=current_user.id,
         user_name=current_user.full_name,
         center=current_user.center or "Ranaghat",
         items=order_items,
         total_amount=total_amount,
-        notes=order.notes
+        notes=order.notes,
+        payment_status="pending",
+        payment_method=order.payment_method or "upi",
+        payment_reference=payment_reference,
     )
-    
+
     await db.merchandise_orders.insert_one(merchandise_order.dict())
-    
+
+    payment = Payment(
+        member_id=current_user.id,
+        amount=total_amount,
+        payment_type="merchandise",
+        payment_method=order.payment_method or "upi",
+        description=f"Shop purchase payment for order {merchandise_order.id}",
+        status="pending",
+        recorded_by=current_user.id,
+        center=current_user.center or "Ranaghat",
+        base_amount=total_amount,
+        late_fee=0,
+        payment_reference=payment_reference,
+        order_id=merchandise_order.id,
+        proof_image=payment_proof_image,
+    )
+    await db.payments.insert_one(payment.dict())
+
     # Notify all admins
     items_summary = ", ".join([f"{i['name']} ({i['size']}) x{i['quantity']}" for i in order_items])
     await notify_all_admins(
-        "New Merchandise Order",
-        f"{current_user.full_name} from {current_user.center} ordered: {items_summary}. Total: ₹{total_amount}",
+        "Merchandise Payment Proof Submitted",
+        (
+            f"{current_user.full_name} from {current_user.center} submitted shop payment proof. "
+            f"Items: {items_summary}. Total: Rs.{total_amount}"
+        ),
         "merchandise",
-        {"order_id": merchandise_order.id, "user_id": current_user.id}
+        {"order_id": merchandise_order.id, "user_id": current_user.id, "payment_id": payment.id}
     )
-    
-    return merchandise_order.dict()
+
+    await send_notification_to_user(
+        current_user.id,
+        "Payment Proof Submitted",
+        "Shop payment screenshot submitted. Waiting for admin confirmation.",
+        "merchandise",
+        {"order_id": merchandise_order.id, "payment_reference": payment_reference},
+    )
+
+    response = merchandise_order.dict()
+    response["payment_success"] = False
+    response["payment_message"] = "Payment screenshot submitted. Awaiting admin confirmation."
+    response["payment_id"] = payment.id
+    return response
 
 @api_router.get("/merchandise/orders/my")
 async def get_my_merchandise_orders(current_user: UserInDB = Depends(get_current_user)):
@@ -2434,47 +3428,428 @@ async def create_payment(
     member = await db.users.find_one({"id": payment.member_id})
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
-    
+
+    profile = await db.member_profiles.find_one({"user_id": payment.member_id})
+    membership = normalize_membership_plan(profile.get("membership") if profile else None)
+    due_details = get_membership_due_details(membership) if membership else None
+
+    base_amount = payment.amount
+    late_fee = 0.0
+    membership_due_date = None
+    if payment.payment_type == "membership" and due_details:
+        base_amount = due_details["base_amount"]
+        late_fee = max(0.0, round(payment.amount - base_amount, 2))
+        membership_due_date = due_details["due_date"]
+
     pay = Payment(
         member_id=payment.member_id,
         amount=payment.amount,
+        payment_type=payment.payment_type,
         payment_method=payment.payment_method,
         description=payment.description,
         status=payment.status,
         recorded_by=current_user.id,
-        center=member.get("center", "Ranaghat")
+        center=member.get("center", "Ranaghat"),
+        base_amount=base_amount,
+        late_fee=late_fee,
+        membership_due_date=membership_due_date,
+        order_id=payment.order_id,
     )
-    
+
     await db.payments.insert_one(pay.dict())
-    
-    # Update membership payment status and next payment date
-    update_data = {"membership.payment_status": "paid"}
-    if payment.next_payment_date:
-        update_data["membership.next_payment_date"] = payment.next_payment_date
-        update_data["membership.payment_status"] = "pending"
-    
-    await db.member_profiles.update_one(
-        {"user_id": payment.member_id},
-        {"$set": update_data}
-    )
-    
-    # Notify member
-    await send_notification_to_user(
-        payment.member_id,
-        "Payment Recorded",
-        f"Your payment of ₹{payment.amount} has been recorded. Thank you!",
-        "payment",
-        {"amount": payment.amount, "next_payment": str(payment.next_payment_date) if payment.next_payment_date else None}
-    )
-    
+
+    if payment.payment_type == "membership":
+        if not profile:
+            raise HTTPException(status_code=404, detail="Member profile not found")
+
+        if not membership:
+            raise HTTPException(status_code=400, detail="Membership plan not set for this member")
+
+        if payment.next_payment_date:
+            next_due_date = coerce_utc_naive_datetime(payment.next_payment_date, datetime.utcnow()) or datetime.utcnow()
+        elif due_details:
+            next_due_date = next_membership_due_date(
+                due_details["due_date"],
+                membership.get("billing_anchor_day", due_details["due_date"].day),
+            )
+        else:
+            fallback_due = coerce_utc_naive_datetime(membership.get("next_payment_date"), datetime.utcnow()) or datetime.utcnow()
+            next_due_date = next_membership_due_date(
+                fallback_due,
+                membership.get("billing_anchor_day", fallback_due.day),
+            )
+
+        membership["next_payment_date"] = next_due_date
+        membership["payment_status"] = "pending"
+        membership["last_payment_date"] = datetime.utcnow()
+        membership["last_reminder_sent"] = None
+
+        await db.member_profiles.update_one(
+            {"user_id": payment.member_id},
+            {"$set": {"membership": membership}},
+        )
+
+        await send_notification_to_user(
+            payment.member_id,
+            "Payment Recorded",
+            f"Your membership payment of Rs.{payment.amount} has been recorded.",
+            "payment",
+            {"amount": payment.amount, "next_payment": next_due_date.isoformat()},
+        )
+
     return pay.dict()
 
+@api_router.post("/payments/membership/pay")
+async def pay_membership_fee(
+    request: MembershipPaymentRequest,
+    current_user: UserInDB = Depends(get_current_user),
+):
+    if current_user.role != "member":
+        raise HTTPException(status_code=403, detail="Member access required")
+
+    profile = await db.member_profiles.find_one({"user_id": current_user.id})
+    if not profile or not profile.get("membership"):
+        raise HTTPException(status_code=400, detail="Membership plan not found")
+
+    membership = normalize_membership_plan(profile.get("membership"))
+    if not membership:
+        raise HTTPException(status_code=400, detail="Membership plan not found")
+
+    due_details = get_membership_due_details(membership)
+    if not due_details:
+        raise HTTPException(status_code=400, detail="Unable to determine payment due details")
+
+    if not due_details["is_due_now"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Membership payment is not due yet. Next due date is {due_details['due_date'].date().isoformat()}",
+        )
+
+    payment_proof_image = normalize_payment_proof_image(request.proof_image)
+    payment_reference = f"MEM-{uuid.uuid4().hex[:10].upper()}"
+    payment = Payment(
+        member_id=current_user.id,
+        amount=due_details["total_amount"],
+        payment_type="membership",
+        payment_method=request.payment_method,
+        description=f"Membership fee payment due on {due_details['due_date'].date().isoformat()}",
+        status="pending",
+        recorded_by=current_user.id,
+        center=current_user.center or "Ranaghat",
+        base_amount=due_details["base_amount"],
+        late_fee=due_details["late_fee"],
+        membership_due_date=due_details["due_date"],
+        payment_reference=payment_reference,
+        proof_image=payment_proof_image,
+    )
+    await db.payments.insert_one(payment.dict())
+
+    await notify_all_admins(
+        "Membership Payment Proof Submitted",
+        (
+            f"{current_user.full_name} from {current_user.center} submitted membership payment proof "
+            f"for Rs.{due_details['total_amount']}."
+        ),
+        "payment",
+        {"payment_id": payment.id, "member_id": current_user.id, "payment_type": "membership"},
+    )
+    await send_notification_to_user(
+        current_user.id,
+        "Payment Proof Submitted",
+        "Membership payment screenshot submitted. Waiting for admin confirmation.",
+        "payment",
+        {
+            "amount": due_details["total_amount"],
+            "base_amount": due_details["base_amount"],
+            "late_fee": due_details["late_fee"],
+            "payment_reference": payment_reference,
+            "payment_id": payment.id,
+        },
+    )
+
+    return {
+        "message": "Membership payment proof submitted",
+        "payment": payment.dict(),
+    }
+
+@api_router.get("/payments/summary/me")
+async def get_my_payment_summary(current_user: UserInDB = Depends(get_current_user)):
+    if current_user.role != "member":
+        raise HTTPException(status_code=403, detail="Member access required")
+
+    profile = await db.member_profiles.find_one({"user_id": current_user.id})
+    membership = normalize_membership_plan(profile.get("membership") if profile else None)
+    due_details = get_membership_due_details(membership) if membership else None
+
+    if profile and membership and membership != profile.get("membership"):
+        await db.member_profiles.update_one(
+            {"user_id": current_user.id},
+            {"$set": {"membership": membership}},
+        )
+
+    membership_history = await db.payments.find(
+        {"member_id": current_user.id, "payment_type": "membership", "status": "completed"}
+    ).sort("payment_date", -1).to_list(3)
+
+    shop_history = await db.payments.find(
+        {"member_id": current_user.id, "payment_type": "merchandise", "status": "completed"}
+    ).sort("payment_date", -1).to_list(3)
+
+    pending_submissions = await db.payments.find(
+        {"member_id": current_user.id, "status": {"$in": ["pending", "failed"]}}
+    ).sort("payment_date", -1).to_list(5)
+
+    return {
+        "membership_due": due_details,
+        "membership_plan": membership,
+        "membership_history": [sanitize_mongo_doc(p) for p in membership_history],
+        "shop_history": [sanitize_mongo_doc(p) for p in shop_history],
+        "pending_submissions": [sanitize_mongo_doc(p) for p in pending_submissions],
+    }
+
+@api_router.get("/payments/summary/admin")
+async def get_admin_payment_summary(
+    center: Optional[CenterType] = Query(None),
+    history_limit: int = Query(100, ge=20, le=500),
+    current_user: UserInDB = Depends(require_admin),
+):
+    selected_center = center
+    if not current_user.is_primary_admin:
+        user_center = current_user.center
+        if center and user_center and center != user_center:
+            raise HTTPException(status_code=403, detail="Access denied for selected center")
+        selected_center = user_center
+
+    base_match: Dict[str, object] = {"status": "completed"}
+    if selected_center:
+        base_match["center"] = selected_center
+
+    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_match = {**base_match, "payment_date": {"$gte": month_start}}
+
+    async def aggregate_by_type(match_query: Dict[str, object]):
+        pipeline = [
+            {"$match": match_query},
+            {
+                "$group": {
+                    "_id": "$payment_type",
+                    "total_amount": {"$sum": "$amount"},
+                    "count": {"$sum": 1},
+                }
+            },
+        ]
+        rows = await db.payments.aggregate(pipeline).to_list(10)
+        summary = {
+            "membership_revenue": 0.0,
+            "shop_revenue": 0.0,
+            "membership_payments_count": 0,
+            "shop_payments_count": 0,
+        }
+        for row in rows:
+            payment_type = row.get("_id")
+            total_amount = float(row.get("total_amount") or 0.0)
+            count = int(row.get("count") or 0)
+            if payment_type == "membership":
+                summary["membership_revenue"] = total_amount
+                summary["membership_payments_count"] = count
+            elif payment_type == "merchandise":
+                summary["shop_revenue"] = total_amount
+                summary["shop_payments_count"] = count
+        summary["total_revenue"] = round(summary["membership_revenue"] + summary["shop_revenue"], 2)
+        summary["total_payments_count"] = summary["membership_payments_count"] + summary["shop_payments_count"]
+        return summary
+
+    totals = await aggregate_by_type(base_match)
+    monthly = await aggregate_by_type(month_match)
+
+    recent_payments = await db.payments.find(base_match).sort("payment_date", -1).to_list(history_limit)
+    member_ids = list({p.get("member_id") for p in recent_payments if p.get("member_id")})
+    users_by_id: Dict[str, dict] = {}
+    member_code_by_user_id: Dict[str, str] = {}
+
+    if member_ids:
+        users = await db.users.find({"id": {"$in": member_ids}}).to_list(len(member_ids))
+        users_by_id = {u["id"]: u for u in users if u.get("id")}
+
+        profiles = await db.member_profiles.find(
+            {"user_id": {"$in": member_ids}},
+            {"user_id": 1, "member_id": 1, "_id": 0},
+        ).to_list(len(member_ids))
+        member_code_by_user_id = {
+            p.get("user_id"): p.get("member_id")
+            for p in profiles
+            if p.get("user_id") and p.get("member_id")
+        }
+
+    history = []
+    for payment in recent_payments:
+        payment_doc = sanitize_mongo_doc(payment)
+        member_id = payment_doc.get("member_id")
+        member_user = users_by_id.get(member_id or "", {})
+        payment_doc["member_name"] = member_user.get("full_name")
+        payment_doc["member_code"] = member_code_by_user_id.get(member_id or "")
+        history.append(payment_doc)
+
+    pending_query: Dict[str, object] = {"status": "pending"}
+    if selected_center:
+        pending_query["center"] = selected_center
+    pending_items = await db.payments.find(pending_query).sort("payment_date", -1).to_list(300)
+    pending_member_ids = list({p.get("member_id") for p in pending_items if p.get("member_id")})
+    pending_users_by_id: Dict[str, dict] = {}
+    pending_member_code_by_user_id: Dict[str, str] = {}
+    if pending_member_ids:
+        pending_users = await db.users.find({"id": {"$in": pending_member_ids}}).to_list(len(pending_member_ids))
+        pending_users_by_id = {u["id"]: u for u in pending_users if u.get("id")}
+        pending_profiles = await db.member_profiles.find(
+            {"user_id": {"$in": pending_member_ids}},
+            {"user_id": 1, "member_id": 1, "_id": 0},
+        ).to_list(len(pending_member_ids))
+        pending_member_code_by_user_id = {
+            p.get("user_id"): p.get("member_id")
+            for p in pending_profiles
+            if p.get("user_id") and p.get("member_id")
+        }
+
+    pending_verifications = []
+    for payment in pending_items:
+        payment_doc = sanitize_mongo_doc(payment)
+        member_id = payment_doc.get("member_id")
+        member_user = pending_users_by_id.get(member_id or "", {})
+        payment_doc["member_name"] = member_user.get("full_name")
+        payment_doc["member_code"] = pending_member_code_by_user_id.get(member_id or "")
+        pending_verifications.append(payment_doc)
+
+    return {
+        "center": selected_center,
+        "totals": totals,
+        "monthly": monthly,
+        "history": history,
+        "pending_verifications": pending_verifications,
+    }
+
+@api_router.put("/payments/{payment_id}/verify")
+async def verify_payment_submission(
+    payment_id: str,
+    payload: PaymentVerificationRequest,
+    current_user: UserInDB = Depends(require_primary_admin),
+):
+    payment = await db.payments.find_one({"id": payment_id})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    if payment.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Only pending payments can be verified")
+
+    now = datetime.utcnow()
+    note = (payload.note or "").strip() or None
+    await db.payments.update_one(
+        {"id": payment_id},
+        {
+            "$set": {
+                "status": payload.status,
+                "verified_by": current_user.id,
+                "verified_at": now,
+                "verification_note": note,
+                "updated_at": now,
+            }
+        },
+    )
+
+    member_id = payment.get("member_id")
+    member_user = await db.users.find_one({"id": member_id}) if member_id else None
+
+    if payment.get("payment_type") == "membership" and member_id:
+        profile = await db.member_profiles.find_one({"user_id": member_id})
+        membership = normalize_membership_plan(profile.get("membership") if profile else None)
+        if membership:
+            if payload.status == "completed":
+                due_reference = coerce_utc_naive_datetime(payment.get("membership_due_date")) or (
+                    coerce_utc_naive_datetime(membership.get("next_payment_date"), now) or now
+                )
+                anchor_day = membership.get("billing_anchor_day", due_reference.day)
+                next_due_date = next_membership_due_date(due_reference, anchor_day)
+                membership["next_payment_date"] = next_due_date
+                membership["payment_status"] = "pending"
+                membership["last_payment_date"] = now
+                membership["last_reminder_sent"] = None
+                await db.member_profiles.update_one({"user_id": member_id}, {"$set": {"membership": membership}})
+                await send_notification_to_user(
+                    member_id,
+                    "Membership Payment Successful",
+                    "Payment successful. Your membership payment has been confirmed by admin.",
+                    "payment",
+                    {
+                        "payment_id": payment_id,
+                        "amount": payment.get("amount"),
+                        "payment_type": "membership",
+                        "next_due_date": next_due_date.isoformat(),
+                    },
+                )
+            else:
+                await send_notification_to_user(
+                    member_id,
+                    "Membership Payment Not Confirmed",
+                    note or "Payment error observed/not received. Please contact gym admin and re-submit.",
+                    "payment",
+                    {
+                        "payment_id": payment_id,
+                        "amount": payment.get("amount"),
+                        "payment_type": "membership",
+                    },
+                )
+
+    if payment.get("payment_type") == "merchandise":
+        order_id = payment.get("order_id")
+        if order_id:
+            order_update: Dict[str, object] = {
+                "payment_status": "completed" if payload.status == "completed" else "failed",
+                "updated_at": now,
+            }
+            if payload.status == "completed":
+                order_update["payment_date"] = now
+            await db.merchandise_orders.update_one({"id": order_id}, {"$set": order_update})
+
+        if member_id:
+            if payload.status == "completed":
+                await send_notification_to_user(
+                    member_id,
+                    "Payment Successful",
+                    "Payment successful - do collect your items from the gym.",
+                    "merchandise",
+                    {"payment_id": payment_id, "order_id": order_id},
+                )
+            else:
+                await send_notification_to_user(
+                    member_id,
+                    "Shop Payment Not Confirmed",
+                    note or "Payment error observed/not received. Please re-submit payment screenshot.",
+                    "merchandise",
+                    {"payment_id": payment_id, "order_id": order_id},
+                )
+
+    updated_payment = await db.payments.find_one({"id": payment_id})
+    if not updated_payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    result = sanitize_mongo_doc(updated_payment)
+    if member_user:
+        result["member_name"] = member_user.get("full_name")
+    return result
+
 @api_router.get("/payments/{member_id}")
-async def get_payments(member_id: str, current_user: UserInDB = Depends(get_current_user)):
+async def get_payments(
+    member_id: str,
+    payment_type: Optional[Literal["membership", "merchandise"]] = Query(None),
+    current_user: UserInDB = Depends(get_current_user),
+):
     if current_user.role == "member" and current_user.id != member_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    
-    payments = await db.payments.find({"member_id": member_id}).sort("payment_date", -1).to_list(100)
+
+    query: Dict[str, object] = {"member_id": member_id}
+    if payment_type:
+        query["payment_type"] = payment_type
+
+    payments = await db.payments.find(query).sort("payment_date", -1).to_list(100)
     return [sanitize_mongo_doc(p) for p in payments]
 
 # ==================== WORKOUT PLAN ROUTES ====================
@@ -2656,41 +4031,47 @@ async def admin_dashboard(
     member_query = {"role": "member"}
     if center:
         member_query["center"] = center
-    
-    total_members = await db.users.count_documents(member_query)
-    active_members = await db.users.count_documents({**member_query, "is_active": True, "approval_status": "approved"})
-    
+
     trainer_query = {"role": "trainer", "is_active": True, "approval_status": "approved"}
     if center:
         trainer_query["center"] = center
-    total_trainers = await db.users.count_documents(trainer_query)
-    
-    # Today's attendance
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     attendance_query = {"check_in_time": {"$gte": today_start}}
     if center:
         attendance_query["center"] = center
-    today_attendance = await db.attendance.count_documents(attendance_query)
-    
-    # This month's revenue (only for admins)
-    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     payment_query = {"payment_date": {"$gte": month_start}, "status": "completed"}
     if center:
         payment_query["center"] = center
-    payments = await db.payments.find(payment_query).to_list(1000)
+
+    next_week = now + timedelta(days=7)
+    expiring_query = {
+        "membership.end_date": {"$lte": next_week, "$gte": now}
+    }
+
+    (
+        total_members,
+        active_members,
+        total_trainers,
+        today_attendance,
+        payments,
+        expiring,
+        pending_approvals,
+        pending_orders,
+    ) = await asyncio.gather(
+        db.users.count_documents(member_query),
+        db.users.count_documents({**member_query, "is_active": True, "approval_status": "approved"}),
+        db.users.count_documents(trainer_query),
+        db.attendance.count_documents(attendance_query),
+        db.payments.find(payment_query).to_list(1000),
+        db.member_profiles.count_documents(expiring_query),
+        db.approval_requests.count_documents({"status": "pending"}),
+        db.merchandise_orders.count_documents({"status": "pending"}),
+    )
     monthly_revenue = sum(p["amount"] for p in payments)
-    
-    # Expiring memberships (next 7 days)
-    next_week = datetime.utcnow() + timedelta(days=7)
-    expiring = await db.member_profiles.count_documents({
-        "membership.end_date": {"$lte": next_week, "$gte": datetime.utcnow()}
-    })
-    
-    # Pending approvals
-    pending_approvals = await db.approval_requests.count_documents({"status": "pending"})
-    
-    # Pending merchandise orders
-    pending_orders = await db.merchandise_orders.count_documents({"status": "pending"})
     
     return {
         "total_members": total_members,
@@ -2709,30 +4090,31 @@ async def trainer_dashboard(current_user: UserInDB = Depends(get_current_user)):
     if current_user.role != "trainer":
         raise HTTPException(status_code=403, detail="Trainer access required")
     
-    # Count assigned members
-    assigned_members = await db.member_profiles.count_documents({"assigned_trainers": current_user.id})
-    
-    # Today's attendance for assigned members
-    profiles = await db.member_profiles.find({"assigned_trainers": current_user.id}).to_list(1000)
+    profiles_task = db.member_profiles.find({"assigned_trainers": current_user.id}).to_list(1000)
+    assigned_members_task = db.member_profiles.count_documents({"assigned_trainers": current_user.id})
+    unread_messages_task = db.messages.count_documents({
+        "receiver_id": current_user.id,
+        "read": False
+    })
+    pending_approvals_task = db.approval_requests.count_documents({
+        "status": "pending",
+        "user_role": "member",
+        "center": current_user.center
+    })
+
+    profiles, assigned_members, unread_messages, pending_approvals = await asyncio.gather(
+        profiles_task,
+        assigned_members_task,
+        unread_messages_task,
+        pending_approvals_task,
+    )
+
     user_ids = [p["user_id"] for p in profiles]
     
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today_attendance = await db.attendance.count_documents({
         "user_id": {"$in": user_ids},
         "check_in_time": {"$gte": today_start}
-    })
-    
-    # Pending messages
-    unread_messages = await db.messages.count_documents({
-        "receiver_id": current_user.id,
-        "read": False
-    })
-    
-    # Pending member approvals at this center
-    pending_approvals = await db.approval_requests.count_documents({
-        "status": "pending",
-        "user_role": "member",
-        "center": current_user.center
     })
     
     return {
@@ -2754,47 +4136,58 @@ async def member_dashboard(current_user: UserInDB = Depends(get_current_user)):
     membership_valid = False
     days_remaining = 0
     payment_due = False
+    payment_due_info = None
     if profile and profile.get("membership"):
+        membership = normalize_membership_plan(profile["membership"])
+        if membership and membership != profile["membership"]:
+            await db.member_profiles.update_one(
+                {"user_id": current_user.id},
+                {"$set": {"membership": membership}},
+            )
+            profile["membership"] = membership
+
         end_date = profile["membership"].get("end_date")
         if end_date:
-            if isinstance(end_date, str):
-                end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            end_date = coerce_utc_naive_datetime(end_date, datetime.utcnow()) or datetime.utcnow()
             days_remaining = (end_date - datetime.utcnow()).days
             membership_valid = days_remaining > 0
-        
-        payment_status = profile["membership"].get("payment_status")
-        payment_due = payment_status in ["pending", "overdue"]
+
+        payment_due_info = get_membership_due_details(profile["membership"])
+        payment_due = bool(payment_due_info and payment_due_info["is_due_now"])
     
-    # This month's attendance
-    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    attendance_count = await db.attendance.count_documents({
-        "user_id": current_user.id,
-        "check_in_time": {"$gte": month_start}
-    })
-    
-    # Today's workout
-    today_day = datetime.utcnow().strftime("%A")
-    today_workouts = await db.workouts.find({
-        "member_id": current_user.id,
-        "day_of_week": {"$regex": f"^{today_day}$", "$options": "i"}
-    }).to_list(100)
-    
-    # Unread messages
-    unread_messages = await db.messages.count_documents({
-        "receiver_id": current_user.id,
-        "read": False
-    })
-    
-    # Unread notifications
-    unread_notifications = await db.notifications.count_documents({
-        "user_id": current_user.id,
-        "read": False
-    })
+    now = datetime.utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    today_day = now.strftime("%A")
+
+    (
+        attendance_count,
+        today_workouts,
+        unread_messages,
+        unread_notifications,
+    ) = await asyncio.gather(
+        db.attendance.count_documents({
+            "user_id": current_user.id,
+            "check_in_time": {"$gte": month_start}
+        }),
+        db.workouts.find({
+            "member_id": current_user.id,
+            "day_of_week": {"$regex": f"^{today_day}$", "$options": "i"}
+        }).to_list(100),
+        db.messages.count_documents({
+            "receiver_id": current_user.id,
+            "read": False
+        }),
+        db.notifications.count_documents({
+            "user_id": current_user.id,
+            "read": False
+        }),
+    )
     
     return {
         "membership_valid": membership_valid,
         "days_remaining": max(0, days_remaining),
         "payment_due": payment_due,
+        "payment_due_info": payment_due_info,
         "attendance_this_month": attendance_count,
         "has_today_workout": len(today_workouts) > 0,
         "today_workout_count": len(today_workouts),
@@ -2808,6 +4201,35 @@ async def member_dashboard(current_user: UserInDB = Depends(get_current_user)):
 @api_router.get("/centers")
 async def get_centers():
     return {"centers": GYM_CENTERS}
+
+@api_router.get("/settings/hero-images")
+async def get_hero_images(current_user: UserInDB = Depends(get_current_user)):
+    _ = current_user
+    settings = await db.app_settings.find_one({"key": APP_SETTING_HERO_GALLERY_KEY})
+    slides = normalize_hero_gallery(settings.get("slides") if settings else None)
+    return {"slides": slides}
+
+@api_router.put("/settings/hero-images")
+async def update_hero_images(
+    payload: HeroGalleryUpdate,
+    current_user: UserInDB = Depends(require_admin),
+):
+    raw_slides = [slide.model_dump() for slide in payload.slides]
+    slides = normalize_hero_gallery(raw_slides)
+    now = datetime.utcnow()
+    await db.app_settings.update_one(
+        {"key": APP_SETTING_HERO_GALLERY_KEY},
+        {
+            "$set": {
+                "slides": slides,
+                "updated_by": current_user.id,
+                "updated_at": now,
+            },
+            "$setOnInsert": {"key": APP_SETTING_HERO_GALLERY_KEY, "created_at": now},
+        },
+        upsert=True,
+    )
+    return {"slides": slides, "message": "Hero gallery updated"}
 
 # ==================== SOCKET.IO EVENTS ====================
 
@@ -2902,11 +4324,20 @@ async def startup_event():
         await db.users.create_index([("id", 1)], unique=True)
         await db.users.create_index([("email", 1)], unique=True)
         await db.users.create_index([("role", 1), ("center", 1)])
+        await db.users.create_index([("date_of_birth", 1), ("is_active", 1), ("approval_status", 1)])
         await db.member_profiles.create_index([("user_id", 1)], unique=True)
         await db.member_profiles.create_index([("assigned_trainers", 1)])
+        await db.attendance.create_index([("user_id", 1), ("check_in_time", -1)])
+        await db.attendance.create_index([("check_out_time", 1), ("check_in_time", 1)])
+        await db.attendance.create_index([("center", 1), ("check_in_time", -1)])
+        await db.qr_codes.create_index([("date", 1)], unique=True)
         await db.approval_requests.create_index([("status", 1), ("requested_at", -1)])
         await db.messages.create_index([("sender_id", 1), ("receiver_id", 1), ("created_at", 1)])
         await db.conversations.create_index([("participant_ids", 1), ("last_message_time", -1)])
+        await db.payments.create_index([("member_id", 1), ("payment_type", 1), ("payment_date", -1)])
+        await db.payments.create_index([("status", 1), ("center", 1), ("payment_date", -1)])
+        await db.announcements.create_index([("is_active", 1), ("expires_at", -1), ("created_at", -1)])
+        await db.app_settings.create_index([("key", 1)], unique=True)
         logger.info("MongoDB indexes ensured")
     except Exception as exc:
         logger.warning(f"Could not ensure one or more MongoDB indexes: {exc}")
@@ -2931,9 +4362,39 @@ async def startup_event():
 
     asyncio.create_task(_periodic_db_ping())
 
+    async def _periodic_attendance_maintenance():
+        finalize_interval = max(60, read_int_env("ATTENDANCE_FINALIZE_INTERVAL_SECONDS", 120))
+        cleanup_interval = max(3600, read_int_env("ATTENDANCE_CLEANUP_INTERVAL_SECONDS", 86400))
+        next_cleanup_at = datetime.utcnow()
+        while True:
+            try:
+                finalized = await finalize_expired_attendance_sessions()
+                if finalized:
+                    logger.info(f"Auto checked-out {finalized} expired attendance sessions")
+            except Exception as exc:
+                logger.warning(f"Attendance auto-checkout task failed: {exc}")
+
+            if datetime.utcnow() >= next_cleanup_at:
+                try:
+                    removed = await cleanup_expired_attendance_records()
+                    if removed:
+                        logger.info(f"Deleted {removed} attendance records older than {ATTENDANCE_RETENTION_DAYS} days")
+                except Exception as exc:
+                    logger.warning(f"Attendance cleanup task failed: {exc}")
+                next_cleanup_at = datetime.utcnow() + timedelta(seconds=cleanup_interval)
+
+            await asyncio.sleep(finalize_interval)
+
+    asyncio.create_task(_periodic_attendance_maintenance())
+    logger.info("Attendance maintenance background task started")
+
     # Start payment reminder background task
     asyncio.create_task(check_payment_reminders())
     logger.info("Payment reminder background task started")
+
+    # Start birthday reminder background task
+    asyncio.create_task(check_birthday_reminders())
+    logger.info("Birthday reminder background task started")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
