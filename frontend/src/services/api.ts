@@ -65,6 +65,22 @@ class ApiService {
     this.token = token;
   }
 
+  private throwFeatureUnavailable(error: any, featureName: string): never {
+    if (error?.response?.status !== 404) {
+      throw error;
+    }
+    const detail = `${featureName} is unavailable on the current backend deployment. Please redeploy the backend service and try again.`;
+    const wrapped: any = new Error(detail);
+    wrapped.response = {
+      ...error.response,
+      data: {
+        ...(error.response?.data || {}),
+        detail,
+      },
+    };
+    throw wrapped;
+  }
+
   async ping() {
     const response = await this.client.get('/health', { timeout: 12000 });
     return response.data;
@@ -90,6 +106,8 @@ class ApiService {
     phone: string;
     role: string;
     center?: string;
+    date_of_birth?: string;
+    profile_image?: string;
   }) {
     const response = await this.client.post('/auth/register', data);
     return response.data;
@@ -100,9 +118,38 @@ class ApiService {
     return response.data;
   }
 
-  async updateProfile(data: { full_name?: string; phone?: string; profile_image?: string }) {
-    const response = await this.client.put('/auth/profile', null, { params: data });
-    return response.data;
+  async updateProfile(data: { full_name?: string; phone?: string; profile_image?: string; date_of_birth?: string }) {
+    try {
+      const response = await this.client.put('/auth/profile', data);
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Profile update');
+    }
+  }
+
+  async changePassword(current_password: string, new_password: string) {
+    try {
+      const response = await this.client.put('/auth/change-password', {
+        current_password,
+        new_password,
+      });
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Change password');
+    }
+  }
+
+  async resetForgotPassword(identifier: string, date_of_birth: string, new_password: string) {
+    try {
+      const response = await this.client.post('/auth/forgot-password/reset', {
+        identifier,
+        date_of_birth,
+        new_password,
+      });
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Forgot password reset');
+    }
   }
 
   async updatePushToken(pushToken: string) {
@@ -184,6 +231,11 @@ class ApiService {
     return response.data;
   }
 
+  async getTrainer(userId: string) {
+    const response = await this.client.get(`/trainers/${userId}`);
+    return response.data;
+  }
+
   async createTrainer(data: any) {
     const response = await this.client.post('/trainers', data);
     return response.data;
@@ -192,6 +244,15 @@ class ApiService {
   async changeTrainerCenter(userId: string, newCenter: string) {
     const response = await this.client.put(`/trainers/${userId}/center`, null, { params: { new_center: newCenter } });
     return response.data;
+  }
+
+  async updateUserAchievements(userId: string, achievements: string[]) {
+    try {
+      const response = await this.client.put(`/users/${userId}/achievements`, { achievements });
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Achievements update');
+    }
   }
 
   // Attendance
@@ -210,10 +271,11 @@ class ApiService {
     return response.data;
   }
 
-  async getAttendanceHistory(userId: string, startDate?: string, endDate?: string) {
+  async getAttendanceHistory(userId: string, startDate?: string, endDate?: string, months?: number) {
     const params: any = {};
     if (startDate) params.start_date = startDate;
     if (endDate) params.end_date = endDate;
+    if (typeof months === 'number') params.months = months;
     const response = await this.client.get(`/attendance/history/${userId}`, { params });
     return response.data;
   }
@@ -225,6 +287,11 @@ class ApiService {
 
   async qrCheckIn(code: string) {
     const response = await this.client.post('/attendance/qr-check-in', null, { params: { code } });
+    return response.data;
+  }
+
+  async qrCheckOut(code: string) {
+    const response = await this.client.post('/attendance/qr-check-out', null, { params: { code } });
     return response.data;
   }
 
@@ -290,7 +357,7 @@ class ApiService {
   async createAnnouncement(data: {
     title: string;
     content: string;
-    target: string;
+    target: 'all' | 'members' | 'trainers' | 'selected' | 'center' | 'members_center';
     target_center?: string;
     target_users?: string[];
   }) {
@@ -301,7 +368,7 @@ class ApiService {
   async updateAnnouncement(id: string, data: {
     title?: string;
     content?: string;
-    target?: string;
+    target?: 'all' | 'members' | 'trainers' | 'selected' | 'center' | 'members_center';
     target_center?: string;
     target_users?: string[];
   }) {
@@ -309,8 +376,10 @@ class ApiService {
     return response.data;
   }
 
-  async getAnnouncements() {
-    const response = await this.client.get('/announcements');
+  async getAnnouncements(limit?: number) {
+    const response = await this.client.get('/announcements', {
+      params: typeof limit === 'number' ? { limit } : undefined,
+    });
     return response.data;
   }
 
@@ -345,8 +414,18 @@ class ApiService {
     return response.data;
   }
 
-  async createMerchandiseOrder(items: { merchandise_id: string; size: string; quantity: number }[], notes?: string) {
-    const response = await this.client.post('/merchandise/order', { items, notes });
+  async createMerchandiseOrder(
+    items: { merchandise_id: string; size: string; quantity: number }[],
+    notes?: string,
+    payment_method: string = 'upi',
+    payment_proof_image?: string,
+  ) {
+    const response = await this.client.post('/merchandise/order', {
+      items,
+      notes,
+      payment_method,
+      payment_proof_image,
+    });
     return response.data;
   }
 
@@ -420,6 +499,44 @@ class ApiService {
     return response.data;
   }
 
+  async payMembership(payment_method: string = 'upi', proof_image?: string) {
+    try {
+      const response = await this.client.post('/payments/membership/pay', { payment_method, proof_image });
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Membership payment proof submission');
+    }
+  }
+
+  async getMyPaymentSummary() {
+    try {
+      const response = await this.client.get('/payments/summary/me');
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Member payment summary');
+    }
+  }
+
+  async getAdminRevenueSummary(center?: string, history_limit: number = 100) {
+    try {
+      const response = await this.client.get('/payments/summary/admin', {
+        params: { center, history_limit },
+      });
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Admin revenue summary');
+    }
+  }
+
+  async verifyPayment(paymentId: string, status: 'completed' | 'failed', note?: string) {
+    try {
+      const response = await this.client.put(`/payments/${paymentId}/verify`, { status, note });
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Payment verification');
+    }
+  }
+
   async getPayments(memberId: string) {
     const response = await this.client.get(`/payments/${memberId}`);
     return response.data;
@@ -439,6 +556,24 @@ class ApiService {
   async getMemberDashboard() {
     const response = await this.client.get('/dashboard/member');
     return response.data;
+  }
+
+  async getHeroImages() {
+    try {
+      const response = await this.client.get('/settings/hero-images');
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Hero images');
+    }
+  }
+
+  async updateHeroImages(slides: { id: string; title: string; uri: string }[]) {
+    try {
+      const response = await this.client.put('/settings/hero-images', { slides });
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Hero image update');
+    }
   }
 }
 
