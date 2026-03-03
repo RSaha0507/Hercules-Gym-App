@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { API_BASE_URL } from '../config/backend';
+import { API_BASE_URL, BACKEND_URL } from '../config/backend';
 
 export const GYM_CENTERS = ['Ranaghat', 'Chakdah', 'Madanpur'] as const;
 export type CenterType = typeof GYM_CENTERS[number];
@@ -7,6 +7,9 @@ export type CenterType = typeof GYM_CENTERS[number];
 class ApiService {
   private client: AxiosInstance;
   private token: string | null = null;
+  private availableRoutes: Set<string> | null = null;
+  private availableRoutesFetchedAt = 0;
+  private readonly availableRoutesTtlMs = 5 * 60 * 1000;
 
   constructor() {
     this.client = axios.create({
@@ -65,6 +68,47 @@ class ApiService {
     this.token = token;
   }
 
+  private async loadAvailableRoutes(): Promise<Set<string> | null> {
+    const isCacheFresh =
+      this.availableRoutes &&
+      Date.now() - this.availableRoutesFetchedAt < this.availableRoutesTtlMs;
+    if (isCacheFresh) {
+      return this.availableRoutes;
+    }
+
+    try {
+      const response = await axios.get(`${BACKEND_URL}/openapi.json`, { timeout: 15000 });
+      const routes = new Set<string>(Object.keys(response.data?.paths || {}));
+      this.availableRoutes = routes;
+      this.availableRoutesFetchedAt = Date.now();
+      return routes;
+    } catch {
+      // If OpenAPI is unreachable, skip proactive guarding and rely on endpoint error handling.
+      return null;
+    }
+  }
+
+  private normalizeApiRoute(path: string) {
+    if (path.startsWith('/api/')) return path;
+    if (path.startsWith('/')) return `/api${path}`;
+    return `/api/${path}`;
+  }
+
+  private async ensureRouteAvailable(path: string, featureName: string): Promise<void> {
+    const routes = await this.loadAvailableRoutes();
+    if (!routes) return;
+    const normalizedPath = this.normalizeApiRoute(path);
+    if (routes.has(normalizedPath)) return;
+
+    const detail = `${featureName} is unavailable on the current backend deployment. Please redeploy the backend service and try again.`;
+    const wrapped: any = new Error(detail);
+    wrapped.response = {
+      status: 404,
+      data: { detail },
+    };
+    throw wrapped;
+  }
+
   private throwFeatureUnavailable(error: any, featureName: string): never {
     if (error?.response?.status !== 404) {
       throw error;
@@ -119,6 +163,7 @@ class ApiService {
   }
 
   async updateProfile(data: { full_name?: string; phone?: string; profile_image?: string; date_of_birth?: string }) {
+    await this.ensureRouteAvailable('/auth/profile', 'Profile update');
     try {
       const response = await this.client.put('/auth/profile', data);
       return response.data;
@@ -128,6 +173,7 @@ class ApiService {
   }
 
   async changePassword(current_password: string, new_password: string) {
+    await this.ensureRouteAvailable('/auth/change-password', 'Change password');
     try {
       const response = await this.client.put('/auth/change-password', {
         current_password,
@@ -140,6 +186,7 @@ class ApiService {
   }
 
   async resetForgotPassword(identifier: string, date_of_birth: string, new_password: string) {
+    await this.ensureRouteAvailable('/auth/forgot-password/reset', 'Forgot password reset');
     try {
       const response = await this.client.post('/auth/forgot-password/reset', {
         identifier,
@@ -247,6 +294,7 @@ class ApiService {
   }
 
   async updateUserAchievements(userId: string, achievements: string[]) {
+    await this.ensureRouteAvailable('/users/{user_id}/achievements', 'Achievements update');
     try {
       const response = await this.client.put(`/users/${userId}/achievements`, { achievements });
       return response.data;
@@ -500,6 +548,7 @@ class ApiService {
   }
 
   async payMembership(payment_method: string = 'upi', proof_image?: string) {
+    await this.ensureRouteAvailable('/payments/membership/pay', 'Membership payment proof submission');
     try {
       const response = await this.client.post('/payments/membership/pay', { payment_method, proof_image });
       return response.data;
@@ -509,6 +558,7 @@ class ApiService {
   }
 
   async getMyPaymentSummary() {
+    await this.ensureRouteAvailable('/payments/summary/me', 'Member payment summary');
     try {
       const response = await this.client.get('/payments/summary/me');
       return response.data;
@@ -518,6 +568,7 @@ class ApiService {
   }
 
   async getAdminRevenueSummary(center?: string, history_limit: number = 100) {
+    await this.ensureRouteAvailable('/payments/summary/admin', 'Admin revenue summary');
     try {
       const response = await this.client.get('/payments/summary/admin', {
         params: { center, history_limit },
@@ -529,6 +580,7 @@ class ApiService {
   }
 
   async verifyPayment(paymentId: string, status: 'completed' | 'failed', note?: string) {
+    await this.ensureRouteAvailable('/payments/{payment_id}/verify', 'Payment verification');
     try {
       const response = await this.client.put(`/payments/${paymentId}/verify`, { status, note });
       return response.data;
@@ -559,6 +611,7 @@ class ApiService {
   }
 
   async getHeroImages() {
+    await this.ensureRouteAvailable('/settings/hero-images', 'Hero images');
     try {
       const response = await this.client.get('/settings/hero-images');
       return response.data;
@@ -568,6 +621,7 @@ class ApiService {
   }
 
   async updateHeroImages(slides: { id: string; title: string; uri: string }[]) {
+    await this.ensureRouteAvailable('/settings/hero-images', 'Hero image update');
     try {
       const response = await this.client.put('/settings/hero-images', { slides });
       return response.data;
