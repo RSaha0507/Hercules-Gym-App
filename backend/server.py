@@ -23,6 +23,8 @@ from email_validator import validate_email, EmailNotValidError
 from pymongo.errors import AutoReconnect, ConnectionFailure, NetworkTimeout, ServerSelectionTimeoutError, PyMongoError
 import re
 
+T = TypeVar("T")
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -165,7 +167,6 @@ client = AsyncIOMotorClient(
 db = client[db_name]
 
 RETRYABLE_MONGO_EXCEPTIONS = (AutoReconnect, ConnectionFailure, NetworkTimeout, ServerSelectionTimeoutError)
-T = TypeVar("T")
 
 # Security
 security = HTTPBearer()

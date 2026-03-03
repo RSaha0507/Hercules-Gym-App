@@ -32,6 +32,9 @@ jobs:
       - name: Validate backend syntax
         run: python -m py_compile backend/server.py
 
+      - name: Import backend module
+        run: python -c "import backend.server"
+
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest
