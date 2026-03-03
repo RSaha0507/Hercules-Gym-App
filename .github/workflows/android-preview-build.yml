@@ -1,0 +1,95 @@
+name: Android Preview Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      wait_for_completion:
+        description: "Wait for EAS build completion and fetch APK URL"
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  build-preview-apk:
+    name: Build Preview APK
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          if [ -z "${EXPO_TOKEN:-}" ]; then
+            echo "EXPO_TOKEN is missing. Add it in repo settings: Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Expo and EAS authentication
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build preview APK
+        run: |
+          if [ "${{ inputs.wait_for_completion }}" = "true" ]; then
+            eas build --platform android --profile preview --non-interactive --wait --json > eas-build-preview.json
+          else
+            eas build --platform android --profile preview --non-interactive --json > eas-build-preview.json
+          fi
+
+          BUILD_ID="$(jq -r 'if type=="array" then .[0].id else .id end' eas-build-preview.json)"
+          if [ -z "$BUILD_ID" ] || [ "$BUILD_ID" = "null" ]; then
+            echo "Unable to parse build id from EAS response."
+            cat eas-build-preview.json
+            exit 1
+          fi
+
+          echo "BUILD_ID=$BUILD_ID" >> "$GITHUB_ENV"
+          echo "Preview build started: $BUILD_ID"
+
+      - name: Resolve build artifact URL
+        if: ${{ inputs.wait_for_completion }}
+        run: |
+          eas build:view "$BUILD_ID" --json > eas-build-preview-view.json
+          APK_URL="$(jq -r '.artifacts.buildUrl // .artifacts.applicationArchiveUrl // empty' eas-build-preview-view.json)"
+          if [ -z "$APK_URL" ]; then
+            echo "APK URL is not available yet."
+            cat eas-build-preview-view.json
+            exit 1
+          fi
+
+          {
+            echo "### Android Preview APK"
+            echo ""
+            echo "- Build ID: \`$BUILD_ID\`"
+            echo "- APK: $APK_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Add non-wait summary
+        if: ${{ !inputs.wait_for_completion }}
+        run: |
+          {
+            echo "### Android Preview Build Started"
+            echo ""
+            echo "- Build ID: \`$BUILD_ID\`"
+            echo "- Check build status in Expo dashboard."
+          } >> "$GITHUB_STEP_SUMMARY"
