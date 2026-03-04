@@ -1019,6 +1019,39 @@ def build_default_membership_plan(
     }
     return normalize_membership_plan(base_plan, reference_now=now) or base_plan
 
+def align_membership_with_join_date(
+    membership: Optional[Dict],
+    joined_at: Optional[object],
+    *,
+    reference_now: Optional[datetime] = None,
+) -> Tuple[Optional[Dict], bool]:
+    now = coerce_utc_naive_datetime(reference_now, datetime.utcnow()) or datetime.utcnow()
+    normalized = normalize_membership_plan(membership, reference_now=now)
+    if not normalized:
+        return normalized, False
+
+    joined = coerce_utc_naive_datetime(joined_at)
+    if not joined:
+        return normalized, False
+
+    anchor_day = min(31, max(1, joined.day))
+    min_due = add_months_utc(joined, 1)
+    min_due = min_due.replace(day=min(anchor_day, monthrange(min_due.year, min_due.month)[1]))
+    current_due = coerce_utc_naive_datetime(normalized.get("next_payment_date"), now) or min_due
+
+    # Before completing month-1 from join date, payment cycle must not start.
+    if now < min_due and current_due < min_due:
+        normalized["start_date"] = joined
+        normalized["end_date"] = add_months_utc(joined, 1)
+        normalized["billing_anchor_day"] = anchor_day
+        normalized["next_payment_date"] = min_due
+        if normalized.get("payment_status") != "paused":
+            normalized["payment_status"] = "pending"
+        normalized["last_reminder_sent"] = None
+        return normalized, True
+
+    return normalized, False
+
 def get_membership_due_details(
     membership: Optional[Dict],
     *,
@@ -1386,7 +1419,7 @@ async def check_payment_reminders():
                     continue
                 user = await db.users.find_one(
                     {"id": profile.get("user_id"), "role": "member"},
-                    {"id": 1, "is_active": 1, "approval_status": 1},
+                    {"id": 1, "is_active": 1, "approval_status": 1, "created_at": 1},
                 )
                 if not _is_user_active_and_approved(user):
                     if membership.get("payment_status") != "paused":
@@ -1400,6 +1433,17 @@ async def check_payment_reminders():
                     continue
                 if membership.get("payment_status") == "paused":
                     continue
+
+                membership, aligned = align_membership_with_join_date(
+                    membership,
+                    user.get("created_at") if user else None,
+                    reference_now=now,
+                )
+                if aligned:
+                    await db.member_profiles.update_one(
+                        {"user_id": profile["user_id"]},
+                        {"$set": {"membership": membership}},
+                    )
 
                 details = get_membership_due_details(membership, reference_now=now)
                 if not details:
@@ -4033,6 +4077,19 @@ async def get_my_payment_summary(current_user: UserInDB = Depends(get_current_us
             upsert=True,
         )
         profile["membership"] = membership
+    if membership:
+        membership, aligned = align_membership_with_join_date(
+            membership,
+            current_user.created_at,
+            reference_now=datetime.utcnow(),
+        )
+        if aligned:
+            await db.member_profiles.update_one(
+                {"user_id": current_user.id},
+                {"$set": {"membership": membership}},
+            )
+            if profile:
+                profile["membership"] = membership
     due_details = get_membership_due_details(membership) if membership else None
     active_due_details = due_details if due_details and due_details.get("is_due_now") else None
 
@@ -4602,6 +4659,18 @@ async def member_dashboard(current_user: UserInDB = Depends(get_current_user)):
 
     if profile and profile.get("membership"):
         membership = normalize_membership_plan(profile["membership"])
+        if membership:
+            membership, aligned = align_membership_with_join_date(
+                membership,
+                current_user.created_at,
+                reference_now=datetime.utcnow(),
+            )
+            if aligned:
+                await db.member_profiles.update_one(
+                    {"user_id": current_user.id},
+                    {"$set": {"membership": membership}},
+                )
+                profile["membership"] = membership
         if membership and membership != profile["membership"]:
             await db.member_profiles.update_one(
                 {"user_id": current_user.id},
