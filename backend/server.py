@@ -2,7 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Query, B
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, HTMLResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -254,6 +254,16 @@ class ForgotPasswordResetRequest(BaseModel):
     otp: str
     new_password: str
     confirm_password: str
+
+class DataDeletionRequestCreate(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    full_name: Optional[str] = None
+    reason: Optional[str] = None
+
+class DataDeletionRequestResolve(BaseModel):
+    status: Literal["in_review", "completed", "rejected"] = "completed"
+    note: Optional[str] = None
 
 class UserResponse(UserBase):
     id: str
@@ -2085,6 +2095,130 @@ async def reset_forgotten_password(payload: ForgotPasswordResetRequest):
         context="auth.forgot_password.reset.delete_otp",
     )
     return {"message": "Password reset successful"}
+
+@api_router.post("/data-deletion/request")
+async def request_data_deletion(payload: DataDeletionRequestCreate):
+    email = (payload.email or "").strip()
+    phone = (payload.phone or "").strip()
+    full_name = (payload.full_name or "").strip()
+    reason = (payload.reason or "").strip()
+
+    if not email and not phone:
+        raise HTTPException(status_code=400, detail="Provide at least email or phone")
+
+    normalized_email: Optional[str] = None
+    normalized_phone: Optional[str] = None
+
+    if email:
+        normalized_email = normalize_and_validate_email(email)
+    if phone:
+        normalized_phone = normalize_indian_phone(phone)
+
+    if len(full_name) > 120:
+        raise HTTPException(status_code=400, detail="Full name is too long")
+    if len(reason) > 1500:
+        raise HTTPException(status_code=400, detail="Reason is too long")
+
+    user_query_clauses: List[Dict[str, object]] = []
+    if normalized_email:
+        user_query_clauses.append({"email": normalized_email})
+    if normalized_phone:
+        user_query_clauses.append({"phone": {"$in": phone_lookup_values(normalized_phone)}})
+
+    linked_user = None
+    if user_query_clauses:
+        linked_user = await run_with_mongo_retry(
+            lambda: db.users.find_one({"$or": user_query_clauses}, {"id": 1, "email": 1, "phone": 1, "full_name": 1}),
+            context="data_deletion.request.find_user",
+        )
+
+    request_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    request_doc = {
+        "id": request_id,
+        "email": normalized_email,
+        "phone": normalized_phone,
+        "full_name": full_name or (linked_user.get("full_name") if linked_user else None),
+        "reason": reason or None,
+        "user_id": linked_user.get("id") if linked_user else None,
+        "status": "pending",
+        "requested_at": now,
+        "source": "public_form",
+        "resolved_at": None,
+        "resolved_by": None,
+        "resolution_note": None,
+    }
+    await run_with_mongo_retry(
+        lambda: db.data_deletion_requests.insert_one(request_doc),
+        context="data_deletion.request.insert",
+    )
+
+    admin_users = await run_with_mongo_retry(
+        lambda: db.users.find(
+            {"role": "admin", "is_active": True, "approval_status": "approved"},
+            {"id": 1},
+        ).to_list(200),
+        context="data_deletion.request.find_admins",
+    )
+    for admin_doc in admin_users:
+        admin_id = admin_doc.get("id")
+        if not admin_id:
+            continue
+        await send_notification_to_user(
+            admin_id,
+            "Data deletion request received",
+            "A user submitted a new account/data deletion request.",
+            "general",
+            {"request_id": request_id, "action": "data_deletion_request"},
+        )
+
+    return {
+        "message": "Data deletion request submitted successfully",
+        "request_id": request_id,
+    }
+
+@api_router.get("/data-deletion/requests")
+async def get_data_deletion_requests(current_user: UserInDB = Depends(require_admin)):
+    _ = current_user
+    requests = await run_with_mongo_retry(
+        lambda: db.data_deletion_requests.find({}).sort("requested_at", -1).to_list(1000),
+        context="data_deletion.list",
+    )
+    return [sanitize_mongo_doc(item) for item in requests]
+
+@api_router.put("/data-deletion/requests/{request_id}")
+async def resolve_data_deletion_request(
+    request_id: str,
+    payload: DataDeletionRequestResolve,
+    current_user: UserInDB = Depends(require_admin),
+):
+    existing = await run_with_mongo_retry(
+        lambda: db.data_deletion_requests.find_one({"id": request_id}),
+        context="data_deletion.resolve.find",
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Data deletion request not found")
+
+    note = (payload.note or "").strip()
+    if len(note) > 1500:
+        raise HTTPException(status_code=400, detail="Resolution note is too long")
+
+    now = datetime.utcnow()
+    await run_with_mongo_retry(
+        lambda: db.data_deletion_requests.update_one(
+            {"id": request_id},
+            {
+                "$set": {
+                    "status": payload.status,
+                    "resolution_note": note or None,
+                    "resolved_at": now,
+                    "resolved_by": current_user.id,
+                }
+            },
+        ),
+        context="data_deletion.resolve.update",
+    )
+    return {"message": "Data deletion request updated successfully"}
 
 # ==================== APPROVAL ROUTES ====================
 
@@ -4838,6 +4972,221 @@ async def health():
         "version": "2.0.0",
     }
 
+DATA_DELETION_PAGE_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hercules Gym - Data Deletion Request</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --text: #111111;
+      --muted: #616161;
+      --line: #d9d9d9;
+      --brand: #0b3d91;
+      --brand-2: #f6a800;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(165deg, var(--bg), #eceff3);
+      color: var(--text);
+      padding: 24px;
+    }
+    .card {
+      max-width: 760px;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.06);
+      overflow: hidden;
+    }
+    .head {
+      padding: 20px 24px;
+      background: linear-gradient(110deg, var(--brand), #0f5ec7);
+      color: #fff;
+      border-bottom: 4px solid var(--brand-2);
+    }
+    .head h1 {
+      margin: 0 0 6px 0;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+    .head p {
+      margin: 0;
+      opacity: 0.95;
+    }
+    .body {
+      padding: 22px 24px 26px;
+    }
+    .notice {
+      background: #f7fbff;
+      border: 1px solid #d5e5ff;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      color: #1b3762;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .grid {
+      display: grid;
+      gap: 12px;
+    }
+    label {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      display: inline-block;
+    }
+    input, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 11px 12px;
+      font-size: 14px;
+      outline: none;
+    }
+    input:focus, textarea:focus {
+      border-color: #7aa9ff;
+      box-shadow: 0 0 0 3px rgba(122, 169, 255, 0.18);
+    }
+    textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+    .hint {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .actions {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    button {
+      border: 0;
+      background: var(--brand);
+      color: #fff;
+      font-weight: 700;
+      padding: 10px 16px;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+    #result {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .ok { color: #0c7a2c; }
+    .err { color: #a12222; }
+    .foot {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <h1>Hercules Gym Data Deletion Request</h1>
+      <p>Request deletion of your account and associated personal data.</p>
+    </div>
+    <div class="body">
+      <div class="notice">
+        Use this form if you want your account/data removed. You must provide at least one identifier (email or phone).
+        Our admin team will review and process valid requests.
+      </div>
+      <form id="deletionForm" class="grid">
+        <div>
+          <label for="full_name">Full Name (optional)</label>
+          <input id="full_name" name="full_name" maxlength="120" placeholder="Your full name" />
+        </div>
+        <div>
+          <label for="email">Email (optional)</label>
+          <input id="email" name="email" type="email" placeholder="name@example.com" />
+        </div>
+        <div>
+          <label for="phone">Phone (optional)</label>
+          <input id="phone" name="phone" placeholder="+91XXXXXXXXXX or 10-digit number" />
+          <p class="hint">At least one of email or phone is required.</p>
+        </div>
+        <div>
+          <label for="reason">Reason (optional)</label>
+          <textarea id="reason" name="reason" maxlength="1500" placeholder="You can mention context for faster verification."></textarea>
+        </div>
+        <div class="actions">
+          <button id="submitBtn" type="submit">Submit Request</button>
+          <span id="result" aria-live="polite"></span>
+        </div>
+      </form>
+      <div class="foot">
+        For security, we may verify ownership before deletion is finalized. Operational and legal retention may apply where required.
+      </div>
+    </div>
+  </div>
+  <script>
+    const form = document.getElementById("deletionForm");
+    const submitBtn = document.getElementById("submitBtn");
+    const result = document.getElementById("result");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      result.textContent = "";
+      result.className = "";
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Submitting...";
+      const payload = {
+        full_name: form.full_name.value.trim(),
+        email: form.email.value.trim(),
+        phone: form.phone.value.trim(),
+        reason: form.reason.value.trim(),
+      };
+      try {
+        const response = await fetch("/api/data-deletion/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || "Unable to submit request");
+        }
+        form.reset();
+        result.textContent = "Request submitted successfully. Reference ID: " + data.request_id;
+        result.className = "ok";
+      } catch (error) {
+        result.textContent = error.message || "Something went wrong. Please try again.";
+        result.className = "err";
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Submit Request";
+      }
+    });
+  </script>
+</body>
+</html>
+"""
+
+@app.get("/data-deletion", response_class=HTMLResponse)
+async def data_deletion_page():
+    return HTMLResponse(content=DATA_DELETION_PAGE_HTML)
+
+@app.get("/account-deletion", response_class=HTMLResponse)
+async def account_deletion_page():
+    return HTMLResponse(content=DATA_DELETION_PAGE_HTML)
+
 # Include router
 app.include_router(api_router)
 
@@ -4892,6 +5241,10 @@ async def startup_event():
         await db.payments.create_index([("status", 1), ("center", 1), ("payment_date", -1)])
         await db.announcements.create_index([("is_active", 1), ("expires_at", -1), ("created_at", -1)])
         await db.app_settings.create_index([("key", 1)], unique=True)
+        await db.data_deletion_requests.create_index([("id", 1)], unique=True)
+        await db.data_deletion_requests.create_index([("status", 1), ("requested_at", -1)])
+        await db.data_deletion_requests.create_index([("email", 1)])
+        await db.data_deletion_requests.create_index([("phone", 1)])
         logger.info("MongoDB indexes ensured")
     except Exception as exc:
         logger.warning(f"Could not ensure one or more MongoDB indexes: {exc}")
