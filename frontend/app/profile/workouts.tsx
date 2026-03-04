@@ -180,7 +180,7 @@ export default function WorkoutsScreen() {
                 {section.items.map((item) => (
                   <View key={item.id} style={[styles.card, { backgroundColor: theme.card }]}>
                     <View style={styles.cardHeader}>
-                      <Image source={require('../../assets/images/app-image.png')} style={styles.cardImage} />
+                      <Image source={require('../../assets/images/hercules-logo.png')} style={styles.cardImage} />
                       <View style={styles.cardHeaderInfo}>
                         <Text style={[styles.name, { color: theme.text }]} numberOfLines={2}>
                           {item.name}

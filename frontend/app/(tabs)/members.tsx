@@ -11,10 +11,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
 
 interface Member {
@@ -34,6 +36,7 @@ interface Member {
 export default function MembersScreen() {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const [members, setMembers] = useState<Member[]>([]);
   const [filteredMembers, setFilteredMembers] = useState<Member[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -95,14 +98,14 @@ export default function MembersScreen() {
   };
 
   const getMembershipStatus = (member: Member) => {
-    if (!member.membership) return { text: 'No Plan', color: theme.textSecondary };
+    if (!member.membership) return { text: t('No Plan'), color: theme.textSecondary };
     const endDate = new Date(member.membership.end_date);
     const now = new Date();
     const daysRemaining = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-    if (daysRemaining < 0) return { text: 'Expired', color: theme.error };
-    if (daysRemaining <= 7) return { text: `${daysRemaining}d left`, color: theme.warning };
-    return { text: 'Active', color: theme.success };
+    if (daysRemaining < 0) return { text: t('Expired'), color: theme.error };
+    if (daysRemaining <= 7) return { text: t('{days}d left', { days: daysRemaining }), color: theme.warning };
+    return { text: t('Active'), color: theme.success };
   };
 
   const renderMemberItem = ({ item }: { item: Member }) => {
@@ -110,24 +113,30 @@ export default function MembersScreen() {
     
     return (
       <TouchableOpacity
-        style={[styles.memberCard, { backgroundColor: theme.card }]}
+        style={styles.memberRailRow}
         onPress={() => router.push(`/member/${item.id}`)}
       >
-        <View style={[styles.avatar, { backgroundColor: theme.primary + '20' }]}>
-          <Text style={[styles.avatarText, { color: theme.primary }]}>
-            {item.full_name.charAt(0).toUpperCase()}
-          </Text>
+        <View style={styles.memberRail}>
+          <View style={[styles.memberNode, { backgroundColor: status.color }]} />
+          <View style={[styles.memberLine, { backgroundColor: theme.border }]} />
         </View>
-        <View style={styles.memberInfo}>
-          <Text style={[styles.memberName, { color: theme.text }]}>{item.full_name}</Text>
-          <Text style={[styles.memberId, { color: theme.textSecondary }]}>{item.member_id}</Text>
-          <Text style={[styles.memberEmail, { color: theme.textSecondary }]}>{item.email}</Text>
-        </View>
-        <View style={styles.memberStatus}>
-          <View style={[styles.statusBadge, { backgroundColor: status.color + '20' }]}>
-            <Text style={[styles.statusText, { color: status.color }]}>{status.text}</Text>
+        <View style={[styles.memberCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={[styles.avatar, { backgroundColor: theme.primary + '20' }]}>
+            <Text style={[styles.avatarText, { color: theme.primary }]}>
+              {item.full_name.charAt(0).toUpperCase()}
+            </Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+          <View style={styles.memberInfo}>
+            <Text style={[styles.memberName, { color: theme.text }]}>{item.full_name}</Text>
+            <Text style={[styles.memberId, { color: theme.textSecondary }]}>{item.member_id}</Text>
+            <Text style={[styles.memberEmail, { color: theme.textSecondary }]}>{item.email}</Text>
+          </View>
+          <View style={styles.memberStatus}>
+            <View style={[styles.statusBadge, { backgroundColor: status.color + '20' }]}>
+              <Text style={[styles.statusText, { color: status.color }]}>{status.text}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -143,57 +152,67 @@ export default function MembersScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Members</Text>
-        {user?.role === 'admin' && (
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: theme.primary }]}
-            onPress={() => router.push('/member/create')}
-          >
-            <Ionicons name="add" size={24} color="#FFF" />
-          </TouchableOpacity>
-        )}
-      </View>
+      <View pointerEvents="none" style={styles.glassBlobOne} />
+      <View pointerEvents="none" style={styles.glassBlobTwo} />
 
-      {/* Search */}
-      <View style={styles.searchContainer}>
-        <View style={[styles.searchInput, { backgroundColor: theme.inputBg }]}>
-          <Ionicons name="search" size={20} color={theme.textSecondary} />
-          <TextInput
-            style={[styles.searchText, { color: theme.text }]}
-            placeholder="Search members..."
-            placeholderTextColor={theme.textSecondary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={20} color={theme.textSecondary} />
+      <LinearGradient
+        colors={[theme.primary, theme.secondary]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.heroPane}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>{t('Members')}</Text>
+          {user?.role === 'admin' && (
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => router.push('/member/create')}
+            >
+              <Ionicons name="add" size={24} color="#EAF8FF" />
             </TouchableOpacity>
-          ) : null}
+          )}
         </View>
-      </View>
 
-      {/* Stats */}
-      <View style={styles.statsContainer}>
-        <View style={[styles.statItem, { backgroundColor: theme.card }]}>
-          <Text style={[styles.statValue, { color: theme.text }]}>{members.length}</Text>
-          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Total</Text>
+        {/* Search */}
+        <View style={styles.searchContainer}>
+          <View style={[styles.searchInput, { borderColor: 'rgba(255,255,255,0.28)' }]}>
+            <Ionicons name="search" size={20} color="#D8EEFF" />
+            <TextInput
+              style={styles.searchText}
+              placeholder={t('Search members...')}
+              placeholderTextColor="#D8EEFF"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={20} color="#D8EEFF" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
-        <View style={[styles.statItem, { backgroundColor: theme.card }]}>
-          <Text style={[styles.statValue, { color: theme.success }]}>
-            {members.filter((m) => m.is_active).length}
-          </Text>
-          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Active</Text>
-        </View>
-        <View style={[styles.statItem, { backgroundColor: theme.card }]}>
-          <Text style={[styles.statValue, { color: theme.error }]}>
-            {members.filter((m) => !m.is_active).length}
-          </Text>
-          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Inactive</Text>
-        </View>
-      </View>
+
+        {/* Stats */}
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{members.length}</Text>
+            <Text style={styles.statLabel}>{t('Total')}</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={[styles.statValue, { color: '#B8FFE7' }]}>
+              {members.filter((m) => m.is_active).length}
+            </Text>
+            <Text style={styles.statLabel}>{t('Active')}</Text>
+          </View>
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: '#FFD8D8' }]}>
+                {members.filter((m) => !m.is_active).length}
+              </Text>
+            <Text style={styles.statLabel}>{t('Inactive')}</Text>
+            </View>
+          </View>
+        </LinearGradient>
 
       {/* Members List */}
       <FlatList
@@ -208,8 +227,8 @@ export default function MembersScreen() {
           <View style={styles.emptyContainer}>
             <Ionicons name="people-outline" size={60} color={theme.textSecondary} />
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-              {searchQuery ? 'No members found' : 'No members yet'}
-            </Text>
+                {searchQuery ? t('No members found') : t('No members yet')}
+              </Text>
           </View>
         }
       />
@@ -221,6 +240,36 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  glassBlobOne: {
+    position: 'absolute',
+    top: 78,
+    left: -36,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: 'rgba(97, 209, 255, 0.14)',
+  },
+  glassBlobTwo: {
+    position: 'absolute',
+    top: 220,
+    right: -44,
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    backgroundColor: 'rgba(255, 176, 232, 0.12)',
+  },
+  heroPane: {
+    marginHorizontal: 14,
+    marginTop: 8,
+    borderRadius: 28,
+    overflow: 'hidden',
+    paddingBottom: 8,
+    shadowColor: '#0A1626',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 6,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -230,12 +279,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 16,
   },
   title: {
+    color: '#F5FCFF',
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   addButton: {
     width: 44,
@@ -243,6 +293,9 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(8,20,38,0.2)',
   },
   searchContainer: {
     paddingHorizontal: 20,
@@ -253,43 +306,78 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     height: 48,
-    borderRadius: 12,
+    borderRadius: 14,
     gap: 12,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   searchText: {
     flex: 1,
     fontSize: 16,
+    color: '#F3FCFF',
   },
   statsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 18,
   },
   statItem: {
     flex: 1,
     padding: 12,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: 'center',
+    backgroundColor: 'rgba(8, 20, 38, 0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   statValue: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   statLabel: {
     fontSize: 12,
     marginTop: 4,
+    color: '#D8EEFF',
   },
   listContent: {
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 120,
+    paddingTop: 16,
+  },
+  memberRailRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginBottom: 12,
+  },
+  memberRail: {
+    width: 18,
+    alignItems: 'center',
+  },
+  memberNode: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 24,
+  },
+  memberLine: {
+    width: 2,
+    flex: 1,
+    marginTop: 4,
   },
   memberCard: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    shadowColor: '#0D192B',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
   },
   avatar: {
     width: 50,

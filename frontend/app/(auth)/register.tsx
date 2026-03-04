@@ -10,14 +10,18 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { GYM_CENTERS, CenterType } from '../../src/services/api';
+import { evaluatePasswordStrength } from '../../src/utils/password';
 
 export default function RegisterScreen() {
   const { register } = useAuth();
@@ -31,14 +35,60 @@ export default function RegisterScreen() {
     confirmPassword: '',
     role: 'member' as 'admin' | 'trainer' | 'member',
     center: 'Ranaghat' as CenterType,
+    date_of_birth: null as Date | null,
+    profile_image: '',
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [showDobPicker, setShowDobPicker] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const passwordStrength = evaluatePasswordStrength(formData.password);
   const formatIndianPhoneDigits = (text: string) => text.replace(/\D/g, '').slice(0, 10);
   const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim());
+  const formatDateDisplay = (value: Date | null) => {
+    if (!value) return t('Select DOB');
+    const day = String(value.getDate()).padStart(2, '0');
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const year = value.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+  const formatDatePayload = (value: Date) => {
+    const day = String(value.getDate()).padStart(2, '0');
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const year = value.getFullYear();
+    return `${year}-${month}-${day}T00:00:00`;
+  };
+
+  const pickProfilePhoto = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t('Error'), t('Gallery permission is required to upload profile photo.'));
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets.length) return;
+      const asset = result.assets[0];
+      if (!asset.base64) {
+        Alert.alert(t('Error'), t('Could not process selected photo. Please try another image.'));
+        return;
+      }
+
+      const mime = asset.mimeType || 'image/jpeg';
+      setFormData((prev) => ({ ...prev, profile_image: `data:${mime};base64,${asset.base64}` }));
+    } catch {
+      Alert.alert(t('Error'), t('Could not process selected photo. Please try another image.'));
+    }
+  };
 
   const handleRegister = async () => {
-    const { full_name, email, phone, password, confirmPassword, role, center } = formData;
+    const { full_name, email, phone, password, confirmPassword, role, center, date_of_birth, profile_image } = formData;
     const phoneDigits = formatIndianPhoneDigits(phone);
 
     if (!full_name || !email || !phone || !password) {
@@ -61,13 +111,19 @@ export default function RegisterScreen() {
       return;
     }
 
-    if (password.length < 6) {
-      Alert.alert(t('Error'), t('Password must be at least 6 characters'));
+    if (!passwordStrength.isStrong) {
+      const guidance = passwordStrength.unmetLabels.map((item) => `- ${t(item)}`).join('\n');
+      Alert.alert(t('Error'), `${t('Password is too weak')}\n\n${guidance}`);
       return;
     }
 
     if ((role === 'trainer' || role === 'member') && !center) {
       Alert.alert(t('Error'), t('Please select a gym center'));
+      return;
+    }
+
+    if ((role === 'member' || role === 'trainer') && !date_of_birth) {
+      Alert.alert(t('Error'), t('DOB is required'));
       return;
     }
 
@@ -80,6 +136,11 @@ export default function RegisterScreen() {
         password,
         role,
         center: role !== 'admin' ? center : undefined,
+        date_of_birth:
+          (role === 'member' || role === 'trainer') && date_of_birth
+            ? formatDatePayload(date_of_birth)
+            : undefined,
+        profile_image: profile_image || undefined,
       });
       
       // Show approval message
@@ -199,6 +260,26 @@ export default function RegisterScreen() {
               </>
             )}
 
+            <TouchableOpacity
+              style={[styles.photoPicker, { backgroundColor: theme.inputBg, borderColor: theme.border }]}
+              onPress={pickProfilePhoto}
+            >
+              {formData.profile_image ? (
+                <Image source={{ uri: formData.profile_image }} style={styles.photoPreview} />
+              ) : (
+                <View style={[styles.photoPlaceholder, { backgroundColor: theme.primary + '20' }]}>
+                  <Ionicons name="camera-outline" size={20} color={theme.primary} />
+                </View>
+              )}
+              <View style={styles.photoTextWrap}>
+                <Text style={[styles.photoTitle, { color: theme.text }]}>{t('Profile Photo')}</Text>
+                <Text style={[styles.photoSubtitle, { color: theme.textSecondary }]}>
+                  {formData.profile_image ? t('Change Photo') : t('Upload Photo')}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+            </TouchableOpacity>
+
             <View style={[styles.inputContainer, { backgroundColor: theme.inputBg }]}>
               <Ionicons name="person-outline" size={20} color={theme.textSecondary} />
               <TextInput
@@ -238,6 +319,20 @@ export default function RegisterScreen() {
             </View>
 
             <View style={[styles.inputContainer, { backgroundColor: theme.inputBg }]}>
+              <Ionicons name="calendar-outline" size={20} color={theme.textSecondary} />
+              <TouchableOpacity style={styles.dateInputButton} onPress={() => setShowDobPicker(true)}>
+                <Text
+                  style={[
+                    styles.dateInputText,
+                    { color: formData.date_of_birth ? theme.text : theme.textSecondary },
+                  ]}
+                >
+                  {formatDateDisplay(formData.date_of_birth)}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.inputContainer, { backgroundColor: theme.inputBg }]}>
               <Ionicons name="lock-closed-outline" size={20} color={theme.textSecondary} />
               <TextInput
                 style={[styles.input, { color: theme.text }]}
@@ -254,6 +349,27 @@ export default function RegisterScreen() {
                   color={theme.textSecondary}
                 />
               </TouchableOpacity>
+            </View>
+
+            <View style={[styles.passwordCheckWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.passwordCheckTitle, { color: theme.text }]}>{t('Password checker')}</Text>
+              {passwordStrength.checks.map((rule) => (
+                <View key={rule.key} style={styles.passwordCheckRow}>
+                  <Ionicons
+                    name={rule.passed ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={14}
+                    color={rule.passed ? theme.success : theme.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.passwordCheckText,
+                      { color: rule.passed ? theme.success : theme.textSecondary },
+                    ]}
+                  >
+                    {t(rule.label)}
+                  </Text>
+                </View>
+              ))}
             </View>
 
             <View style={[styles.inputContainer, { backgroundColor: theme.inputBg }]}>
@@ -301,6 +417,20 @@ export default function RegisterScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      {showDobPicker && (
+        <DateTimePicker
+          value={formData.date_of_birth || new Date(2000, 0, 1)}
+          mode="date"
+          maximumDate={new Date()}
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(_, selectedDate) => {
+            setShowDobPicker(false);
+            if (selectedDate) {
+              setFormData((prev) => ({ ...prev, date_of_birth: selectedDate }));
+            }
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -379,6 +509,38 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
   },
+  photoPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  photoPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoPreview: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  photoTextWrap: {
+    flex: 1,
+  },
+  photoTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  photoSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -390,6 +552,14 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     height: '100%',
+    fontSize: 16,
+  },
+  dateInputButton: {
+    flex: 1,
+    height: '100%',
+    justifyContent: 'center',
+  },
+  dateInputText: {
     fontSize: 16,
   },
   phonePrefix: {
@@ -408,6 +578,27 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
     lineHeight: 18,
+  },
+  passwordCheckWrap: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  passwordCheckTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  passwordCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  passwordCheckText: {
+    fontSize: 12,
+    flex: 1,
   },
   registerButton: {
     height: 56,

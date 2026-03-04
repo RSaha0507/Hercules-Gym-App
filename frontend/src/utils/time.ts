@@ -21,3 +21,11 @@ export function toSystemDate(value?: string | Date | null): Date {
   }
   return parsed;
 }
+
+export function formatDateDDMMYYYY(value?: string | Date | null): string {
+  const date = toSystemDate(value);
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+}

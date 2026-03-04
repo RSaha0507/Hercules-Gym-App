@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,20 +11,45 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
-import { toSystemDate } from '../../src/utils/time';
+import { formatDateDDMMYYYY, toSystemDate } from '../../src/utils/time';
+
+interface PaymentRecord {
+  id: string;
+  amount: number;
+  base_amount?: number;
+  late_fee?: number;
+  payment_method?: string;
+  payment_date: string;
+  payment_type?: 'membership' | 'merchandise';
+  description?: string;
+}
+
+interface MembershipDueInfo {
+  due_date_iso?: string;
+  base_amount?: number;
+  late_fee?: number;
+  total_amount?: number;
+  days_late?: number;
+}
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const { theme, isDark, toggleTheme } = useTheme();
   const { t, languageLabel } = useLanguage();
   const [memberProfile, setMemberProfile] = useState<any>(null);
+  const [memberAchievements, setMemberAchievements] = useState<string[]>([]);
+  const [membershipDue, setMembershipDue] = useState<MembershipDueInfo | null>(null);
+  const [membershipHistory, setMembershipHistory] = useState<PaymentRecord[]>([]);
+  const [shopHistory, setShopHistory] = useState<PaymentRecord[]>([]);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const isMountedRef = useRef(true);
 
   const localizeRole = (role?: string) => {
     if (role === 'admin') return t('Admin');
@@ -36,28 +61,53 @@ export default function ProfileScreen() {
   const loadProfile = useCallback(async () => {
     if (user?.role === 'member' && user?.id) {
       try {
-        const data = await api.getMember(user.id);
+        const [data, paymentSummary] = await Promise.all([
+          api.getMember(user.id),
+          api.getMyPaymentSummary(),
+        ]);
         setMemberProfile(data.profile);
+        setMemberAchievements(data.user?.achievements || []);
+        setMembershipDue(paymentSummary.membership_due || null);
+        setMembershipHistory(paymentSummary.membership_history || []);
+        setShopHistory(paymentSummary.shop_history || []);
       } catch (error) {
         console.log('Error loading profile:', error);
       }
+      return;
     }
-  }, [user?.id, user?.role]);
+
+    if (user?.role === 'trainer') {
+      setMemberAchievements(user?.achievements || []);
+    }
+  }, [user?.achievements, user?.id, user?.role]);
 
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
 
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const handleLogout = async () => {
+    if (isLoggingOut) return;
+    setShowLogoutModal(false);
     setIsLoggingOut(true);
     try {
       await logout();
     } catch (error) {
       console.log('Logout error:', error);
     } finally {
-      setIsLoggingOut(false);
-      setShowLogoutModal(false);
+      if (isMountedRef.current) {
+        setIsLoggingOut(false);
+      }
     }
+  };
+
+  const handlePayMembership = () => {
+    router.push('/profile/payments' as any);
   };
 
   const MenuItem = ({ icon, label, onPress, color, showArrow = true, badge }: {
@@ -88,54 +138,59 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: theme.text }]}>{t('Profile')}</Text>
-          <TouchableOpacity 
-            style={[styles.settingsButton, { backgroundColor: theme.card }]}
-            onPress={toggleTheme}
-          >
-            <Ionicons name={isDark ? 'sunny' : 'moon'} size={22} color={theme.primary} />
-          </TouchableOpacity>
-        </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        <LinearGradient
+          colors={[theme.primary, theme.secondary]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.profileHero}
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.title}>{t('Profile')}</Text>
+            <TouchableOpacity style={styles.settingsButton} onPress={toggleTheme}>
+              <Ionicons name={isDark ? 'sunny' : 'moon'} size={22} color="#E8F6FF" />
+            </TouchableOpacity>
+          </View>
 
-        {/* Profile Card */}
-        <View style={[styles.profileCard, { backgroundColor: theme.card }]}>
-          <View style={styles.avatarContainer}>
-            {user?.profile_image ? (
-              <Image source={{ uri: user.profile_image }} style={styles.avatarImage} />
-            ) : (
-              <View style={[styles.avatarPlaceholder, { backgroundColor: theme.inputBg }]}>
-                <Text style={[styles.avatarText, { color: theme.text }]}>
-                  {user?.full_name?.charAt(0).toUpperCase()}
-                </Text>
+          {/* Profile Card */}
+          <View style={[styles.profileCard, styles.heroProfileCard]}>
+            <View style={styles.avatarContainer}>
+              {user?.profile_image ? (
+                <Image source={{ uri: user.profile_image }} style={styles.avatarImage} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarText}>{user?.full_name?.charAt(0).toUpperCase()}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.userName}>{user?.full_name}</Text>
+            <Text style={styles.userEmail}>{user?.email}</Text>
+            <View style={styles.roleBadge}>
+              <Text style={styles.roleText}>
+                {localizeRole(user?.role)}
+                {user?.is_primary_admin && ` (${t('Primary Admin')})`}
+              </Text>
+            </View>
+
+            {user?.center && (
+              <View style={styles.centerRow}>
+                <Ionicons name="location" size={16} color="#DFF5FF" />
+                <Text style={styles.centerText}>{`${user.center} ${t('Center')}`}</Text>
+              </View>
+            )}
+
+            {memberProfile?.member_id && (
+              <View style={styles.memberIdRow}>
+                <Ionicons name="card" size={16} color="#DFF5FF" />
+                <Text style={styles.memberIdText}>ID: {memberProfile.member_id}</Text>
               </View>
             )}
           </View>
-          <Text style={[styles.userName, { color: theme.text }]}>{user?.full_name}</Text>
-          <Text style={[styles.userEmail, { color: theme.textSecondary }]}>{user?.email}</Text>
-          <View style={[styles.roleBadge, { backgroundColor: theme.primary + '18' }]}>
-            <Text style={[styles.roleText, { color: theme.primary }]}>
-              {localizeRole(user?.role)}
-              {user?.is_primary_admin && ` (${t('Primary Admin')})`}
-            </Text>
-          </View>
-
-          {user?.center && (
-            <View style={[styles.centerRow, { borderTopColor: theme.border }]}>
-              <Ionicons name="location" size={16} color={theme.primary} />
-              <Text style={[styles.centerText, { color: theme.text }]}>{`${user.center} ${t('Center')}`}</Text>
-            </View>
-          )}
-
-          {memberProfile?.member_id && (
-            <View style={styles.memberIdRow}>
-              <Ionicons name="card" size={16} color={theme.textSecondary} />
-              <Text style={[styles.memberIdText, { color: theme.textSecondary }]}>ID: {memberProfile.member_id}</Text>
-            </View>
-          )}
-        </View>
+        </LinearGradient>
 
         {/* Membership Status for Members */}
         {user?.role === 'member' && memberProfile?.membership && (
@@ -168,16 +223,132 @@ export default function ProfileScreen() {
               <View style={styles.membershipDate}>
                 <Text style={[styles.membershipDateLabel, { color: theme.textSecondary }]}>{t('Start')}</Text>
                 <Text style={[styles.membershipDateValue, { color: theme.text }]}>
-                  {toSystemDate(memberProfile.membership.start_date).toLocaleDateString()}
+                  {formatDateDDMMYYYY(memberProfile.membership.start_date)}
                 </Text>
               </View>
               <View style={[styles.membershipDivider, { backgroundColor: theme.border }]} />
               <View style={styles.membershipDate}>
                 <Text style={[styles.membershipDateLabel, { color: theme.textSecondary }]}>{t('Expires')}</Text>
                 <Text style={[styles.membershipDateValue, { color: theme.text }]}>
-                  {toSystemDate(memberProfile.membership.end_date).toLocaleDateString()}
+                  {formatDateDDMMYYYY(memberProfile.membership.end_date)}
                 </Text>
               </View>
+            </View>
+          </View>
+        )}
+
+        {(user?.role === 'member' || user?.role === 'trainer') && (
+          <View style={[styles.sectionCard, { backgroundColor: theme.card }]}>
+            <View style={styles.sectionCardHeader}>
+              <Ionicons name="trophy-outline" size={18} color={theme.primary} />
+              <Text style={[styles.sectionCardTitle, { color: theme.text }]}>{t('Achievements')}</Text>
+            </View>
+            {memberAchievements.length === 0 ? (
+              <Text style={[styles.sectionCardText, { color: theme.textSecondary }]}>
+                {t('No achievements added yet')}
+              </Text>
+            ) : (
+              memberAchievements.map((achievement, index) => (
+                <View key={`${achievement}-${index}`} style={styles.achievementRow}>
+                  <Ionicons name="star" size={14} color={theme.warning} />
+                  <Text style={[styles.achievementText, { color: theme.text }]}>{achievement}</Text>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {user?.role === 'member' && membershipDue?.due_date_iso && (
+          <View style={[styles.sectionCard, styles.timelineCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.sectionCardHeader}>
+              <Ionicons name="card-outline" size={18} color={theme.error} />
+              <Text style={[styles.sectionCardTitle, { color: theme.text }]}>{t('Membership Payment')}</Text>
+            </View>
+            <View style={styles.timelineRow}>
+              <View style={styles.timelineRail}>
+                <View style={[styles.timelineNode, { backgroundColor: theme.success }]} />
+                <View style={[styles.timelineLine, { backgroundColor: theme.border }]} />
+                <View style={[styles.timelineNode, { backgroundColor: theme.warning }]} />
+                <View style={[styles.timelineLine, { backgroundColor: theme.border }]} />
+                <View style={[styles.timelineNode, { backgroundColor: theme.error }]} />
+              </View>
+              <View style={styles.timelineContent}>
+                <Text style={[styles.sectionCardText, { color: theme.textSecondary }]}>{t('1-7: Standard fee Rs.700')}</Text>
+                <Text style={[styles.sectionCardText, { color: theme.textSecondary }]}>{t('8+: Rs.5/day late fee')}</Text>
+                <Text style={[styles.sectionCardText, { color: theme.textSecondary }]}>
+                  {t('Due Date: {date}', { date: formatDateDDMMYYYY(membershipDue.due_date_iso) })}
+                </Text>
+                <Text style={[styles.sectionCardText, { color: (membershipDue.late_fee || 0) > 0 ? theme.error : theme.textSecondary }]}>
+                  {t('Late Fee: Rs.{amount}', { amount: Math.round(membershipDue.late_fee || 0) })}
+                </Text>
+                <Text style={[styles.paymentTotalText, { color: theme.text }]}>
+                  {t('Total Payable: Rs.{amount}', { amount: Math.round(membershipDue.total_amount || 0) })}
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity style={[styles.payButton, { backgroundColor: theme.primary }]} onPress={handlePayMembership}>
+              <Text style={styles.payButtonText}>{t('Open Payments')}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {user?.role === 'member' && (
+          <View style={styles.paymentHistoryWrap}>
+            <View style={[styles.sectionCard, { backgroundColor: theme.card }]}>
+              <View style={styles.sectionCardHeader}>
+                <Ionicons name="receipt-outline" size={18} color={theme.primary} />
+                <Text style={[styles.sectionCardTitle, { color: theme.text }]}>{t('Last 3 Membership Payments')}</Text>
+              </View>
+              {membershipHistory.length === 0 ? (
+                <Text style={[styles.sectionCardText, { color: theme.textSecondary }]}>{t('No membership payment history')}</Text>
+              ) : (
+                membershipHistory.map((payment, index) => (
+                  <View key={payment.id} style={styles.timelineHistoryRow}>
+                    <View style={styles.historyRail}>
+                      <View style={[styles.historyDot, { backgroundColor: theme.primary }]} />
+                      {index < membershipHistory.length - 1 && (
+                        <View style={[styles.historyLine, { backgroundColor: theme.border }]} />
+                      )}
+                    </View>
+                    <View style={styles.historyDetail}>
+                      <Text style={[styles.paymentHistoryAmount, { color: theme.text }]}>
+                        {t('Rs.{amount}', { amount: Math.round(payment.amount || 0) })}
+                      </Text>
+                      <Text style={[styles.paymentHistoryMeta, { color: theme.textSecondary }]}>
+                        {formatDateDDMMYYYY(payment.payment_date)}
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
+            <View style={[styles.sectionCard, { backgroundColor: theme.card }]}>
+              <View style={styles.sectionCardHeader}>
+                <Ionicons name="cart-outline" size={18} color={theme.primary} />
+                <Text style={[styles.sectionCardTitle, { color: theme.text }]}>{t('Last 3 Shop Payments')}</Text>
+              </View>
+              {shopHistory.length === 0 ? (
+                <Text style={[styles.sectionCardText, { color: theme.textSecondary }]}>{t('No shop payment history')}</Text>
+              ) : (
+                shopHistory.map((payment, index) => (
+                  <View key={payment.id} style={styles.timelineHistoryRow}>
+                    <View style={styles.historyRail}>
+                      <View style={[styles.historyDot, { backgroundColor: theme.success }]} />
+                      {index < shopHistory.length - 1 && (
+                        <View style={[styles.historyLine, { backgroundColor: theme.border }]} />
+                      )}
+                    </View>
+                    <View style={styles.historyDetail}>
+                      <Text style={[styles.paymentHistoryAmount, { color: theme.text }]}>
+                        {t('Rs.{amount}', { amount: Math.round(payment.amount || 0) })}
+                      </Text>
+                      <Text style={[styles.paymentHistoryMeta, { color: theme.textSecondary }]}>
+                        {formatDateDDMMYYYY(payment.payment_date)}
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              )}
             </View>
           </View>
         )}
@@ -213,8 +384,16 @@ export default function ProfileScreen() {
         <View style={styles.menuSection}>
           <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{t('Account')}</Text>
           <MenuItem icon="person-outline" label={t('Edit Profile')} onPress={() => router.push('/profile/edit')} />
+          <MenuItem icon="lock-closed-outline" label={t('Change Password')} onPress={() => router.push('/profile/change-password' as any)} />
+          {user?.role === 'admin' && (
+            <>
+              <MenuItem icon="cash-outline" label={t('Revenues')} onPress={() => router.push('/profile/revenues' as any)} />
+              <MenuItem icon="qr-code-outline" label={t('Attendance QR')} onPress={() => router.push('/profile/attendance-qr' as any)} />
+            </>
+          )}
           {user?.role === 'member' && (
             <>
+              <MenuItem icon="card-outline" label={t('Payments')} onPress={() => router.push('/profile/payments' as any)} />
               <MenuItem icon="qr-code-outline" label={t('QR Check-In')} onPress={() => router.push('/profile/checkin-qr' as any)} />
               <MenuItem icon="body-outline" label={t('Body Metrics')} onPress={() => router.push('/profile/metrics' as any)} />
               <MenuItem icon="barbell-outline" label={t('My Workouts')} onPress={() => router.push('/profile/workouts' as any)} />
@@ -250,6 +429,7 @@ export default function ProfileScreen() {
         <View style={styles.menuSection}>
           <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>{t('Support')}</Text>
           <MenuItem icon="help-circle-outline" label={t('Help & Support')} onPress={() => router.push('/profile/help')} />
+          <MenuItem icon="list-outline" label={t('Gym Rules')} onPress={() => router.push('/profile/rules' as any)} />
           <MenuItem icon="document-text-outline" label={t('Terms of Service')} onPress={() => router.push('/profile/terms' as any)} />
           <MenuItem icon="shield-checkmark-outline" label={t('Privacy Policy')} onPress={() => router.push('/profile/privacy' as any)} />
         </View>
@@ -320,16 +500,32 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  scrollContent: {
+    paddingBottom: 96,
+  },
+  profileHero: {
+    marginHorizontal: 14,
+    marginTop: 8,
+    borderRadius: 28,
+    overflow: 'hidden',
+    paddingBottom: 16,
+    shadowColor: '#0B1524',
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 6,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 14,
   },
   title: {
+    color: '#F4FBFF',
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   settingsButton: {
     width: 40,
@@ -338,10 +534,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ECEEF2',
+    borderColor: 'rgba(255,255,255,0.34)',
+    backgroundColor: 'rgba(7,20,37,0.2)',
   },
   profileCard: {
-    marginHorizontal: 20,
+    marginHorizontal: 16,
     padding: 22,
     borderRadius: 24,
     alignItems: 'center',
@@ -353,6 +550,12 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 1,
   },
+  heroProfileCard: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderColor: 'rgba(255,255,255,0.22)',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   avatarContainer: {
     position: 'relative',
   },
@@ -362,6 +565,7 @@ const styles = StyleSheet.create({
     borderRadius: 48,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(9, 26, 44, 0.36)',
   },
   avatarImage: {
     width: 96,
@@ -369,19 +573,23 @@ const styles = StyleSheet.create({
     borderRadius: 48,
   },
   avatarText: {
+    color: '#F8FDFF',
     fontSize: 30,
     fontWeight: '800',
   },
   userName: {
+    color: '#FFFFFF',
     fontSize: 34,
     fontWeight: '800',
     marginTop: 14,
   },
   userEmail: {
+    color: '#D5EEFF',
     fontSize: 13,
     marginTop: 4,
   },
   roleBadge: {
+    backgroundColor: 'rgba(9, 30, 50, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
@@ -390,6 +598,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   roleText: {
+    color: '#F8FDFF',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -399,11 +608,13 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 18,
     paddingTop: 16,
-    borderTopWidth: 1,
+    borderTopWidth: 1.5,
+    borderTopColor: 'rgba(255,255,255,0.24)',
     width: '100%',
     justifyContent: 'center',
   },
   centerText: {
+    color: '#E8F7FF',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -414,6 +625,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   memberIdText: {
+    color: '#D5EEFF',
     fontSize: 14,
   },
   membershipCard: {
@@ -465,6 +677,124 @@ const styles = StyleSheet.create({
   membershipDivider: {
     width: 1,
     marginHorizontal: 16,
+  },
+  sectionCard: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#ECEEF2',
+  },
+  timelineCard: {
+    borderRadius: 20,
+    shadowColor: '#102238',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    elevation: 2,
+  },
+  timelineRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginBottom: 8,
+  },
+  timelineRail: {
+    width: 24,
+    alignItems: 'center',
+    paddingTop: 4,
+  },
+  timelineNode: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  timelineLine: {
+    width: 2,
+    height: 28,
+    marginVertical: 4,
+  },
+  timelineContent: {
+    flex: 1,
+    gap: 7,
+  },
+  sectionCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  sectionCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  sectionCardText: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  achievementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  achievementText: {
+    flex: 1,
+    fontSize: 13,
+  },
+  paymentTotalText: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  payButton: {
+    marginTop: 12,
+    height: 42,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  paymentHistoryWrap: {
+    gap: 0,
+  },
+  timelineHistoryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  historyRail: {
+    width: 18,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  historyDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  historyLine: {
+    width: 2,
+    minHeight: 22,
+    marginTop: 3,
+  },
+  historyDetail: {
+    flex: 1,
+    paddingLeft: 8,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF2F7',
+  },
+  paymentHistoryAmount: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  paymentHistoryMeta: {
+    fontSize: 12,
   },
   statsRow: {
     flexDirection: 'row',

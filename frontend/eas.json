@@ -15,6 +15,9 @@
     "preview": {
       "credentialsSource": "local",
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://hercules-gym-api-rsaha0507.onrender.com"
+      },
       "android": {
         "buildType": "apk"
       }
@@ -22,6 +25,9 @@
     "production": {
       "credentialsSource": "local",
       "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://hercules-gym-api-rsaha0507.onrender.com"
+      },
       "android": {
         "buildType": "app-bundle"
       }

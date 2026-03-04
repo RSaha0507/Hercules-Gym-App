@@ -29,12 +29,6 @@ interface DietPlan {
   created_at: string;
 }
 
-const VALID_MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'];
-
-function toMealLines(meals: Meal[] = []): string {
-  return meals.map((meal) => `${meal.meal_type}: ${meal.description}`).join('\n');
-}
-
 export default function MemberDietScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { theme } = useTheme();
@@ -45,12 +39,18 @@ export default function MemberDietScreen() {
 
   const [name, setName] = useState('');
   const [notes, setNotes] = useState('');
-  const [mealLines, setMealLines] = useState('');
+  const [breakfast, setBreakfast] = useState('');
+  const [lunch, setLunch] = useState('');
+  const [evening, setEvening] = useState('');
+  const [dinner, setDinner] = useState('');
 
   const resetForm = () => {
     setName('');
     setNotes('');
-    setMealLines('');
+    setBreakfast('');
+    setLunch('');
+    setEvening('');
+    setDinner('');
     setEditingDietId(null);
   };
 
@@ -75,42 +75,24 @@ export default function MemberDietScreen() {
     }, [loadPlans]),
   );
 
-  const parseMeals = (): Meal[] => {
-    return mealLines
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [typeRaw, ...descParts] = line.split(':');
-        const mealType = typeRaw?.trim().toLowerCase();
-        const description = descParts.join(':').trim();
-        if (!VALID_MEAL_TYPES.includes(mealType) || !description) {
-          return null;
-        }
-        return {
-          meal_type: mealType as Meal['meal_type'],
-          description,
-        };
-      })
-      .filter((meal): meal is Meal => !!meal);
+  const buildMeals = (): Meal[] => {
+    const rawMeals: Meal[] = [
+      { meal_type: 'breakfast', description: breakfast.trim() },
+      { meal_type: 'lunch', description: lunch.trim() },
+      { meal_type: 'snack', description: evening.trim() },
+      { meal_type: 'dinner', description: dinner.trim() },
+    ];
+    return rawMeals.filter((meal) => meal.description.length > 0);
   };
 
   const handleSaveDiet = async () => {
-    const meals = parseMeals();
-    if (!name.trim()) {
-      Alert.alert('Validation', 'Plan name is required.');
-      return;
-    }
-    if (!meals.length) {
-      Alert.alert('Validation', 'Add at least one valid meal line.');
-      return;
-    }
+    const meals = buildMeals();
 
     setSaving(true);
     try {
       const payload = {
         member_id: id,
-        name: name.trim(),
+        name: name.trim() || 'Diet Plan',
         notes: notes.trim() || undefined,
         meals,
       };
@@ -136,7 +118,22 @@ export default function MemberDietScreen() {
     setEditingDietId(plan.id);
     setName(plan.name || '');
     setNotes(plan.notes || '');
-    setMealLines(toMealLines(plan.meals || []));
+    const mappedMeals = (plan.meals || []).reduce(
+      (acc, meal) => {
+        const description = (meal.description || '').trim();
+        if (!description) return acc;
+        if (meal.meal_type === 'breakfast') acc.breakfast = description;
+        if (meal.meal_type === 'lunch') acc.lunch = description;
+        if (meal.meal_type === 'snack') acc.evening = description;
+        if (meal.meal_type === 'dinner') acc.dinner = description;
+        return acc;
+      },
+      { breakfast: '', lunch: '', evening: '', dinner: '' },
+    );
+    setBreakfast(mappedMeals.breakfast);
+    setLunch(mappedMeals.lunch);
+    setEvening(mappedMeals.evening);
+    setDinner(mappedMeals.dinner);
   };
 
   const handleDeletePlan = (dietId: string) => {
@@ -183,18 +180,53 @@ export default function MemberDietScreen() {
             onChangeText={setName}
           />
 
-          <TextInput
-            style={[
-              styles.input,
-              styles.multiline,
-              { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border },
-            ]}
-            placeholder={'Meals (one per line):\nbreakfast: oats + banana\nlunch: rice + chicken\ndinner: fish + vegetables'}
-            placeholderTextColor={theme.textSecondary}
-            value={mealLines}
-            onChangeText={setMealLines}
-            multiline
-          />
+          <View style={styles.mealSection}>
+            <Text style={[styles.label, { color: theme.textSecondary }]}>Meals (all optional)</Text>
+            <TextInput
+              style={[
+                styles.input,
+                styles.mealInput,
+                { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border },
+              ]}
+              placeholder="Breakfast"
+              placeholderTextColor={theme.textSecondary}
+              value={breakfast}
+              onChangeText={setBreakfast}
+            />
+            <TextInput
+              style={[
+                styles.input,
+                styles.mealInput,
+                { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border },
+              ]}
+              placeholder="Lunch"
+              placeholderTextColor={theme.textSecondary}
+              value={lunch}
+              onChangeText={setLunch}
+            />
+            <TextInput
+              style={[
+                styles.input,
+                styles.mealInput,
+                { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border },
+              ]}
+              placeholder="Evening"
+              placeholderTextColor={theme.textSecondary}
+              value={evening}
+              onChangeText={setEvening}
+            />
+            <TextInput
+              style={[
+                styles.input,
+                styles.mealInput,
+                { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border },
+              ]}
+              placeholder="Dinner"
+              placeholderTextColor={theme.textSecondary}
+              value={dinner}
+              onChangeText={setDinner}
+            />
+          </View>
 
           <TextInput
             style={[
@@ -260,11 +292,17 @@ export default function MemberDietScreen() {
                     <Text style={[styles.iconButtonText, { color: theme.error }]}>Delete</Text>
                   </TouchableOpacity>
                 </View>
-                {(plan.meals || []).map((meal, index) => (
-                  <Text key={`${plan.id}-${index}`} style={[styles.mealText, { color: theme.textSecondary }]}>
-                    {meal.meal_type}: {meal.description}
-                  </Text>
-                ))}
+                {(plan.meals || []).map((meal, index) => {
+                  const label =
+                    meal.meal_type === 'snack'
+                      ? 'Evening'
+                      : meal.meal_type.charAt(0).toUpperCase() + meal.meal_type.slice(1);
+                  return (
+                    <Text key={`${plan.id}-${index}`} style={[styles.mealText, { color: theme.textSecondary }]}>
+                      {label}: {meal.description}
+                    </Text>
+                  );
+                })}
                 {plan.notes ? (
                   <Text style={[styles.planNotes, { color: theme.textSecondary }]}>{plan.notes}</Text>
                 ) : null}
@@ -301,6 +339,17 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  mealSection: {
+    gap: 8,
+  },
+  mealInput: {
+    height: 44,
   },
   input: {
     borderWidth: 1,

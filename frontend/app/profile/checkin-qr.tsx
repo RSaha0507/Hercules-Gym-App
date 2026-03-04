@@ -12,18 +12,32 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
 
-function extractQrCodeValue(raw: string): string {
+function parseQrPayload(raw: string): { code: string } {
   const value = raw.trim();
-  if (!value) return '';
+  if (!value) return { code: '' };
+
+  // Support JSON payloads: {"code":"..."}
+  if (value.startsWith('{') && value.endsWith('}')) {
+    try {
+      const parsedJson = JSON.parse(value);
+      const code = String(parsedJson?.code || '').trim();
+      return { code };
+    } catch {
+      // Ignore JSON parse failures and continue with URL/plain parsing.
+    }
+  }
+
+  // Support URL payloads: herculesgym://attendance?code=...
   try {
     const parsed = new URL(value);
-    const fromQuery = parsed.searchParams.get('code');
-    return (fromQuery || value).trim();
+    const fromQuery = String(parsed.searchParams.get('code') || '').trim();
+    return { code: fromQuery || value };
   } catch {
-    return value;
+    return { code: value };
   }
 }
 
@@ -41,17 +55,36 @@ export default function CheckInQrScreen() {
 
   const submitCode = useCallback(
     async (rawCode: string) => {
-      const code = extractQrCodeValue(rawCode);
+      const parsed = parseQrPayload(rawCode);
+      const code = parsed.code;
       if (!code) {
         return;
       }
       setIsSubmitting(true);
       try {
-        await api.qrCheckIn(code);
-        Alert.alert('Check-in successful', 'Your attendance has been marked via QR.');
+        const response = await api.qrScan(code);
+        const action = response?.action === 'checkout' ? 'checkout' : 'checkin';
+        let title = action === 'checkout' ? 'Check-out successful' : 'Check-in successful';
+        let message =
+          action === 'checkout'
+            ? 'You have been checked out via QR. Next check-in is available after 5 hours.'
+            : 'Your attendance has been marked via QR.';
+        if (action === 'checkin') {
+          title = 'Check-in successful';
+          message = 'Your attendance has been marked via QR.';
+        }
+        Alert.alert(title, message, [
+          {
+            text: 'OK',
+            onPress: () => router.replace('/(tabs)/attendance' as any),
+          },
+        ]);
         setCodeInput('');
       } catch (error: any) {
-        Alert.alert('Check-in failed', error.response?.data?.detail || 'Unable to check in using this QR code.');
+        Alert.alert(
+          'QR attendance failed',
+          error.response?.data?.detail || 'Unable to mark attendance using this QR code.',
+        );
       } finally {
         setIsSubmitting(false);
       }
@@ -61,17 +94,30 @@ export default function CheckInQrScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.text }]}>QR Check-In</Text>
-        <View style={{ width: 24 }} />
-      </View>
+      <LinearGradient
+        colors={[theme.primary, theme.secondary]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.hero}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#F2FBFF" />
+          </TouchableOpacity>
+          <Text style={styles.title}>QR Attendance</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <View style={styles.content}>
+          <Text style={styles.subtitle}>
+            {'Scan the same attendance QR. 1st scan checks in, next scan checks out. Re-check-in is allowed after 5 hours.'}
+          </Text>
+        </View>
+      </LinearGradient>
 
       <View style={styles.content}>
-        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Scan your gym QR code, or enter the code manually.
+        <Text style={[styles.subtitleInfo, { color: theme.textSecondary }]}>
+          {'Use the same QR for both check-in and check-out.'}
         </Text>
 
         <View style={[styles.scannerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -134,7 +180,7 @@ export default function CheckInQrScreen() {
             {isSubmitting ? (
               <ActivityIndicator color="#FFF" />
             ) : (
-              <Text style={styles.primaryButtonText}>Check In</Text>
+              <Text style={styles.primaryButtonText}>Scan QR</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -145,20 +191,33 @@ export default function CheckInQrScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  hero: {
+    marginHorizontal: 14,
+    marginTop: 8,
+    borderRadius: 26,
+    overflow: 'hidden',
+    paddingBottom: 10,
+    shadowColor: '#0A1422',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    elevation: 6,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 14,
   },
   backButton: { padding: 4 },
-  title: { fontSize: 20, fontWeight: '700' },
+  title: { fontSize: 20, fontWeight: '800', color: '#F3FCFF' },
   content: { paddingHorizontal: 20, gap: 14 },
-  subtitle: { fontSize: 14, lineHeight: 20 },
+  subtitle: { fontSize: 13, lineHeight: 19, color: '#D4EDFF' },
+  subtitleInfo: { fontSize: 14, lineHeight: 20, marginTop: 4 },
   scannerCard: {
     height: 280,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
     overflow: 'hidden',
     alignItems: 'center',

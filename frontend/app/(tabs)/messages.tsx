@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
@@ -106,7 +107,7 @@ export default function MessagesScreen() {
 
   const renderConversationItem = ({ item }: { item: Conversation }) => (
     <TouchableOpacity
-      style={[styles.conversationCard, { backgroundColor: theme.card }]}
+      style={styles.conversationRailRow}
       onPress={() => router.push(`/chat/${item.user_id}`)}
       onLongPress={() => {
         Alert.alert(
@@ -130,37 +131,43 @@ export default function MessagesScreen() {
         );
       }}
     >
-      <View style={[styles.avatar, { backgroundColor: theme.primary + '20' }]}>
-        <Text style={[styles.avatarText, { color: theme.primary }]}>
-          {item.user_name.charAt(0).toUpperCase()}
-        </Text>
-        {item.unread_count > 0 && (
-          <View style={[styles.unreadBadge, { backgroundColor: theme.error }]}>
-            <Text style={styles.unreadText}>{item.unread_count > 9 ? '9+' : item.unread_count}</Text>
-          </View>
-        )}
+      <View style={styles.conversationRail}>
+        <View style={[styles.conversationNode, { backgroundColor: item.unread_count > 0 ? theme.primary : theme.border }]} />
+        <View style={[styles.conversationLine, { backgroundColor: theme.border }]} />
       </View>
-      <View style={styles.conversationInfo}>
-        <View style={styles.conversationHeader}>
-          <Text style={[styles.conversationName, { color: theme.text }]}>{item.user_name}</Text>
-          <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor(item.user_role) + '20' }]}>
-            <Text style={[styles.roleText, { color: getRoleBadgeColor(item.user_role) }]}>
-              {localizeRole(item.user_role)}
-            </Text>
-          </View>
+      <View style={[styles.conversationCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View style={[styles.avatar, { backgroundColor: theme.primary + '20' }]}>
+          <Text style={[styles.avatarText, { color: theme.primary }]}>
+            {item.user_name.charAt(0).toUpperCase()}
+          </Text>
+          {item.unread_count > 0 && (
+            <View style={[styles.unreadBadge, { backgroundColor: theme.error }]}>
+              <Text style={styles.unreadText}>{item.unread_count > 9 ? '9+' : item.unread_count}</Text>
+            </View>
+          )}
         </View>
-        {item.last_message && (
-          <Text style={[styles.lastMessage, { color: theme.textSecondary }]} numberOfLines={1}>
-            {item.last_message}
-          </Text>
-        )}
-        {item.last_message_time && (
-          <Text style={[styles.messageTime, { color: theme.textSecondary }]}>
-            {formatDistanceToNow(toSystemDate(item.last_message_time), { addSuffix: true })}
-          </Text>
-        )}
+        <View style={styles.conversationInfo}>
+          <View style={styles.conversationHeader}>
+            <Text style={[styles.conversationName, { color: theme.text }]}>{item.user_name}</Text>
+            <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor(item.user_role) + '20' }]}>
+              <Text style={[styles.roleText, { color: getRoleBadgeColor(item.user_role) }]}>
+                {localizeRole(item.user_role)}
+              </Text>
+            </View>
+          </View>
+          {item.last_message && (
+            <Text style={[styles.lastMessage, { color: theme.textSecondary }]} numberOfLines={1}>
+              {item.last_message}
+            </Text>
+          )}
+          {item.last_message_time && (
+            <Text style={[styles.messageTime, { color: theme.textSecondary }]}>
+              {formatDistanceToNow(toSystemDate(item.last_message_time), { addSuffix: true })}
+            </Text>
+          )}
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
       </View>
-      <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
     </TouchableOpacity>
   );
 
@@ -174,26 +181,42 @@ export default function MessagesScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>{t('Messages')}</Text>
-        <TouchableOpacity
-          style={[styles.newChatButton, { backgroundColor: theme.primary }]}
-          onPress={() => router.push('/chat/new')}
-        >
-          <Ionicons name="create-outline" size={20} color="#FFF" />
-        </TouchableOpacity>
-      </View>
+      <View pointerEvents="none" style={styles.glassBlobTop} />
+      <View pointerEvents="none" style={styles.glassBlobBottom} />
 
-      {/* Info Banner */}
-      <View style={[styles.infoBanner, { backgroundColor: theme.card }]}>
-        <Ionicons name="information-circle" size={20} color={theme.primary} />
-        <Text style={[styles.infoText, { color: theme.textSecondary }]}>
-          {user?.role === 'member'
-            ? t('You can message admin, trainers, and members from your branch')
-            : user?.role === 'trainer'
-            ? t('You can message all members and trainers in your branch, and all admins')
-            : t('You can message all members and trainers')}
+      <LinearGradient
+        colors={[theme.primary, theme.secondary]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.heroPane}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>{t('Messages')}</Text>
+          <TouchableOpacity
+            style={styles.newChatButton}
+            onPress={() => router.push('/chat/new')}
+          >
+            <Ionicons name="create-outline" size={20} color="#EAF8FF" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Info Banner */}
+        <View style={styles.infoBanner}>
+          <Ionicons name="information-circle" size={20} color="#EAF8FF" />
+          <Text style={styles.infoText}>
+            {user?.role === 'member'
+              ? t('You can message admin, trainers, and members from your branch')
+              : user?.role === 'trainer'
+              ? t('You can message all members and trainers in your branch, and all admins')
+              : t('You can message all members and trainers')}
+          </Text>
+        </View>
+      </LinearGradient>
+
+      <View style={styles.streamHintWrap}>
+        <Text style={[styles.streamHint, { color: theme.textSecondary }]}>
+          {t('Long press a chat to delete conversation history')}
         </Text>
       </View>
 
@@ -229,6 +252,36 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  glassBlobTop: {
+    position: 'absolute',
+    top: 84,
+    right: -36,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    backgroundColor: 'rgba(122, 201, 255, 0.14)',
+  },
+  glassBlobBottom: {
+    position: 'absolute',
+    bottom: 150,
+    left: -46,
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    backgroundColor: 'rgba(255, 170, 230, 0.12)',
+  },
+  heroPane: {
+    marginHorizontal: 14,
+    marginTop: 8,
+    borderRadius: 28,
+    overflow: 'hidden',
+    paddingBottom: 12,
+    shadowColor: '#0B1626',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 6,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -238,12 +291,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 16,
   },
   title: {
+    color: '#F3FCFF',
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   newChatButton: {
     width: 40,
@@ -251,31 +305,72 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(8, 20, 38, 0.2)',
   },
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 20,
+    marginHorizontal: 18,
     padding: 12,
-    borderRadius: 12,
+    borderRadius: 14,
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   infoText: {
     flex: 1,
     fontSize: 12,
     lineHeight: 18,
+    color: '#E6F5FF',
+  },
+  streamHintWrap: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  streamHint: {
+    fontSize: 12,
   },
   listContent: {
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 120,
+  },
+  conversationRailRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginBottom: 12,
+  },
+  conversationRail: {
+    width: 18,
+    alignItems: 'center',
+  },
+  conversationNode: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 24,
+  },
+  conversationLine: {
+    width: 2,
+    flex: 1,
+    marginTop: 4,
   },
   conversationCard: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    shadowColor: '#0E1A2A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
   },
   avatar: {
     width: 50,

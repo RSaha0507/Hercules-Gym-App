@@ -10,6 +10,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +19,7 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { api, GYM_CENTERS, CenterType } from '../../src/services/api';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as ImagePicker from 'expo-image-picker';
 
 export default function CreateMemberScreen() {
   const { theme } = useTheme();
@@ -26,6 +28,7 @@ export default function CreateMemberScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [showStartDate, setShowStartDate] = useState(false);
   const [showEndDate, setShowEndDate] = useState(false);
+  const [showDobDate, setShowDobDate] = useState(false);
   
   // Default to trainer's center if trainer, otherwise first center
   const defaultCenter = user?.role === 'trainer' && user?.center ? user.center : 'Ranaghat';
@@ -36,6 +39,8 @@ export default function CreateMemberScreen() {
     phone: '',
     password: '',
     center: defaultCenter as CenterType,
+    date_of_birth: null as Date | null,
+    profile_image: '',
     gender: '',
     address: '',
     medical_notes: '',
@@ -48,6 +53,50 @@ export default function CreateMemberScreen() {
     start_date: new Date(),
     end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
   });
+
+  const formatDateDisplay = (value: Date | null) => {
+    if (!value) return 'dd/mm/yyyy';
+    const day = String(value.getDate()).padStart(2, '0');
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const year = value.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  const formatDatePayload = (value: Date) => {
+    const day = String(value.getDate()).padStart(2, '0');
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const year = value.getFullYear();
+    return `${year}-${month}-${day}T00:00:00`;
+  };
+
+  const pickProfilePhoto = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Error', 'Gallery permission is required to upload profile photo.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets.length) return;
+      const asset = result.assets[0];
+      if (!asset.base64) {
+        Alert.alert('Error', 'Could not process selected photo. Please try another image.');
+        return;
+      }
+
+      const mime = asset.mimeType || 'image/jpeg';
+      setFormData((prev) => ({ ...prev, profile_image: `data:${mime};base64,${asset.base64}` }));
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Failed to pick profile photo');
+    }
+  };
 
   const handleSubmit = async () => {
     if (!formData.full_name || !formData.email || !formData.phone || !formData.password || !formData.center) {
@@ -65,6 +114,11 @@ export default function CreateMemberScreen() {
       return;
     }
 
+    if (!formData.date_of_birth) {
+      Alert.alert('Error', 'Date of birth is required');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const data: any = {
@@ -73,6 +127,8 @@ export default function CreateMemberScreen() {
         phone: `+91${formData.phone}`,
         password: formData.password,
         center: formData.center,
+        date_of_birth: formatDatePayload(formData.date_of_birth),
+        profile_image: formData.profile_image || undefined,
         gender: formData.gender || null,
         address: formData.address || null,
         medical_notes: formData.medical_notes || null,
@@ -186,6 +242,40 @@ export default function CreateMemberScreen() {
               secureTextEntry
               required
             />
+
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: theme.text }]}>Profile Photo</Text>
+              <TouchableOpacity
+                style={[styles.photoPicker, { backgroundColor: theme.inputBg, borderColor: theme.border }]}
+                onPress={pickProfilePhoto}
+              >
+                {formData.profile_image ? (
+                  <Image source={{ uri: formData.profile_image }} style={styles.photoPreview} />
+                ) : (
+                  <View style={[styles.photoPlaceholder, { backgroundColor: theme.primary + '20' }]}>
+                    <Ionicons name="camera-outline" size={18} color={theme.primary} />
+                  </View>
+                )}
+                <Text style={[styles.photoLabel, { color: theme.text }]}>
+                  {formData.profile_image ? 'Change profile photo' : 'Upload profile photo'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: theme.text }]}>
+                Date of Birth <Text style={{ color: theme.error }}>*</Text>
+              </Text>
+              <TouchableOpacity
+                style={[styles.dateButton, { backgroundColor: theme.inputBg }]}
+                onPress={() => setShowDobDate(true)}
+              >
+                <Text style={{ color: formData.date_of_birth ? theme.text : theme.textSecondary }}>
+                  {formatDateDisplay(formData.date_of_birth)}
+                </Text>
+                <Ionicons name="calendar-outline" size={20} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
             
             {/* Center Selection */}
             <View style={styles.inputGroup}>
@@ -369,6 +459,17 @@ export default function CreateMemberScreen() {
           }}
         />
       )}
+      {showDobDate && (
+        <DateTimePicker
+          value={formData.date_of_birth || new Date(2000, 0, 1)}
+          mode="date"
+          maximumDate={new Date()}
+          onChange={(_, date) => {
+            setShowDobDate(false);
+            if (date) setFormData({ ...formData, date_of_birth: date });
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -418,6 +519,30 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
     fontSize: 16,
+  },
+  photoPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  photoPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoPreview: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  photoLabel: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   dateButton: {
     flexDirection: 'row',

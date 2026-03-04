@@ -17,9 +17,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
 
 const { width } = Dimensions.get('window');
@@ -45,6 +47,7 @@ interface CartItem {
 export default function MerchandiseScreen() {
   const { user } = useAuth();
   const { theme, isDark } = useTheme();
+  const { t } = useLanguage();
   const [merchandise, setMerchandise] = useState<MerchandiseItem[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -55,6 +58,8 @@ export default function MerchandiseScreen() {
   const [ordering, setOrdering] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [cartAnimation] = useState(new Animated.Value(1));
+  const [paymentProofImage, setPaymentProofImage] = useState<string | null>(null);
+  const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(null);
 
   const categories = ['All', 'T-Shirts', 'Hoodies', 'Accessories', 'Supplements'];
 
@@ -150,14 +155,20 @@ export default function MerchandiseScreen() {
 
   const handleProceed = async () => {
     if (cart.length === 0) return;
+    if (!paymentProofImage) {
+      Alert.alert(t('Upload screenshot'), t('Please upload payment screenshot to continue.'));
+      return;
+    }
 
     Alert.alert(
-      'Confirm Order',
-      `Total: ₹${getTotalAmount().toLocaleString()}\n\nYour order will be sent to the gym admin for processing.`,
+      t('Submit Shop Payment'),
+      t('Total: Rs.{amount}\n\nSubmit screenshot to admin for payment verification?', {
+        amount: getTotalAmount().toLocaleString(),
+      }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('Cancel'), style: 'cancel' },
         {
-          text: 'Place Order',
+          text: t('Submit'),
           onPress: async () => {
             setOrdering(true);
             try {
@@ -166,24 +177,53 @@ export default function MerchandiseScreen() {
                   merchandise_id: item.merchandise.id,
                   size: item.size,
                   quantity: item.quantity,
-                }))
+                })),
+                undefined,
+                'upi',
+                paymentProofImage,
               );
-              Alert.alert(
-                '🎉 Order Placed!',
-                'Your order has been submitted. You will be notified when it\'s ready for pickup at the gym.',
-                [{ text: 'Awesome!' }]
-              );
+              Alert.alert(t('Success'), t('Payment screenshot submitted. Awaiting admin confirmation.'), [{ text: 'OK' }]);
               setCart([]);
               setShowCart(false);
+              setPaymentProofImage(null);
+              setPaymentProofPreview(null);
             } catch (error: any) {
-              Alert.alert('Error', error.response?.data?.detail || 'Failed to place order');
+              Alert.alert(t('Error'), error.response?.data?.detail || t('Failed to submit payment proof. Please try again.'));
             } finally {
               setOrdering(false);
             }
           },
         },
-      ]
+      ],
     );
+  };
+
+  const handlePickPaymentProof = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t('Error'), t('Gallery permission is required to upload screenshot.'));
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.65,
+        base64: true,
+      });
+      if (result.canceled || !result.assets.length) return;
+      const asset = result.assets[0];
+      if (!asset.base64) {
+        Alert.alert(t('Error'), t('Could not process selected image. Please try another screenshot.'));
+        return;
+      }
+      const mime = asset.mimeType || 'image/jpeg';
+      setPaymentProofImage(`data:${mime};base64,${asset.base64}`);
+      setPaymentProofPreview(asset.uri);
+    } catch (error) {
+      console.log('Error selecting shop payment screenshot:', error);
+      Alert.alert(t('Error'), t('Failed to select screenshot'));
+    }
   };
 
   const filteredMerchandise = selectedCategory === 'All' 
@@ -194,18 +234,20 @@ export default function MerchandiseScreen() {
     <View>
       {/* Hero Banner */}
       <LinearGradient
-        colors={isDark ? ['#E63946', '#831018'] : ['#E63946', '#B91C1C']}
+        colors={isDark ? ['#1B2A44', '#2C4E7A'] : ['#D9F5FF', '#F4DFFF']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.heroBanner}
       >
+        <View style={styles.heroBlobOne} />
+        <View style={styles.heroBlobTwo} />
         <View style={styles.heroContent}>
-          <Text style={styles.heroTitle}>HERCULES</Text>
-          <Text style={styles.heroSubtitle}>GYM STORE</Text>
-          <Text style={styles.heroTagline}>Power Your Journey</Text>
+          <Text style={[styles.heroTitle, { color: isDark ? '#EAF4FF' : '#1A2D45' }]}>GLASS STORE</Text>
+          <Text style={[styles.heroSubtitle, { color: isDark ? '#C7DCF7' : '#304D69' }]}>HERCULES GYM</Text>
+          <Text style={[styles.heroTagline, { color: isDark ? '#A6C2E7' : '#48657E' }]}>Fluid shop experience</Text>
         </View>
         <View style={styles.heroIcon}>
-          <Ionicons name="fitness" size={80} color="rgba(255,255,255,0.2)" />
+          <Ionicons name="water-outline" size={80} color={isDark ? 'rgba(194,226,255,0.24)' : 'rgba(44,89,130,0.22)'} />
         </View>
       </LinearGradient>
 
@@ -261,7 +303,11 @@ export default function MerchandiseScreen() {
       <TouchableOpacity
         style={[
           styles.productCard,
-          { backgroundColor: theme.card },
+          {
+            backgroundColor: isDark ? 'rgba(25,31,48,0.84)' : 'rgba(255,255,255,0.9)',
+            borderColor: isDark ? 'rgba(143,187,232,0.2)' : 'rgba(66,124,166,0.16)',
+            transform: [{ rotate: index % 2 === 0 ? '-1.6deg' : '1.6deg' }, { translateY: index % 2 === 0 ? 0 : 6 }],
+          },
           index % 2 === 0 ? { marginRight: 8 } : { marginLeft: 8 },
         ]}
         onPress={() => {
@@ -342,7 +388,10 @@ export default function MerchandiseScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      <View pointerEvents="none" style={styles.glassBlobTop} />
+      <View pointerEvents="none" style={styles.glassBlobMid} />
+      <View pointerEvents="none" style={styles.glassBlobBottom} />
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.border }]}>
         <View>
@@ -598,10 +647,23 @@ export default function MerchandiseScreen() {
 
                 {/* Cart Footer */}
                 <View style={[styles.cartFooter, { backgroundColor: theme.card }]}>
+                  <TouchableOpacity
+                    style={[styles.proofPickerButton, { borderColor: theme.primary }]}
+                    onPress={handlePickPaymentProof}
+                    disabled={ordering}
+                  >
+                    <Ionicons name="image-outline" size={18} color={theme.primary} />
+                    <Text style={[styles.proofPickerText, { color: theme.primary }]}>
+                      {paymentProofImage ? t('Change screenshot') : t('Upload payment screenshot')}
+                    </Text>
+                  </TouchableOpacity>
+                  {paymentProofPreview ? (
+                    <Image source={{ uri: paymentProofPreview }} style={styles.proofPreview} resizeMode="cover" />
+                  ) : null}
                   <View style={styles.cartTotalRow}>
                     <Text style={[styles.cartTotalLabel, { color: theme.textSecondary }]}>Total Amount</Text>
                     <Text style={[styles.cartTotalAmount, { color: theme.text }]}>
-                      ₹{getTotalAmount().toLocaleString()}
+                      Rs.{getTotalAmount().toLocaleString()}
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -613,13 +675,13 @@ export default function MerchandiseScreen() {
                       <ActivityIndicator color="#FFF" />
                     ) : (
                       <>
-                        <Text style={styles.checkoutText}>Place Order</Text>
+                        <Text style={styles.checkoutText}>{t('Submit for Verification')}</Text>
                         <Ionicons name="arrow-forward" size={20} color="#FFF" />
                       </>
                     )}
                   </TouchableOpacity>
                   <Text style={[styles.pickupNote, { color: theme.textSecondary }]}>
-                    🏋️ Pickup at gym • Pay on collection
+                    {t('After admin confirmation, collect items at gym')}
                   </Text>
                 </View>
               </>
@@ -634,6 +696,33 @@ export default function MerchandiseScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  glassBlobTop: {
+    position: 'absolute',
+    top: 80,
+    left: -40,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    backgroundColor: 'rgba(102, 212, 255, 0.16)',
+  },
+  glassBlobMid: {
+    position: 'absolute',
+    top: 260,
+    right: -55,
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    backgroundColor: 'rgba(255, 170, 230, 0.14)',
+  },
+  glassBlobBottom: {
+    position: 'absolute',
+    bottom: 140,
+    left: 120,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(105, 170, 255, 0.10)',
   },
   loadingContainer: {
     flex: 1,
@@ -651,6 +740,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderBottomWidth: 1,
+    backgroundColor: 'transparent',
   },
   headerTitle: {
     fontSize: 24,
@@ -694,10 +784,30 @@ const styles = StyleSheet.create({
   heroBanner: {
     marginHorizontal: 16,
     marginTop: 16,
-    borderRadius: 20,
+    borderRadius: 28,
     padding: 24,
     flexDirection: 'row',
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.44)',
+  },
+  heroBlobOne: {
+    position: 'absolute',
+    right: -22,
+    top: -34,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  heroBlobTwo: {
+    position: 'absolute',
+    left: -32,
+    bottom: -48,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   heroContent: {
     flex: 1,
@@ -705,18 +815,15 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontSize: 28,
     fontWeight: '900',
-    color: '#FFF',
     letterSpacing: 2,
   },
   heroSubtitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.9)',
     marginTop: 2,
   },
   heroTagline: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.7)',
     marginTop: 8,
   },
   heroIcon: {
@@ -763,9 +870,15 @@ const styles = StyleSheet.create({
   },
   productCard: {
     width: CARD_WIDTH,
-    borderRadius: 16,
+    borderRadius: 20,
     marginBottom: 16,
     overflow: 'hidden',
+    borderWidth: 1,
+    shadowColor: '#0F1A2C',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 4,
   },
   imageContainer: {
     position: 'relative',
@@ -859,6 +972,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
   floatingCartLeft: {
     flexDirection: 'row',
@@ -1120,6 +1235,27 @@ const styles = StyleSheet.create({
     padding: 20,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+  },
+  proofPickerButton: {
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  proofPickerText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  proofPreview: {
+    width: '100%',
+    height: 120,
+    borderRadius: 10,
+    marginBottom: 12,
   },
   cartTotalRow: {
     flexDirection: 'row',

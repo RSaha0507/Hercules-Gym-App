@@ -1,6 +1,7 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useLanguage } from '../../src/context/LanguageContext';
@@ -9,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
   const { user } = useAuth();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
 
@@ -41,8 +42,16 @@ export default function TabLayout() {
     }
 
     return (
-      <View style={[styles.iconContainer, focused && { backgroundColor: theme.primary }]}>
-        <Ionicons name={iconName} size={20} color={focused ? '#FFFFFF' : theme.textSecondary} />
+      <View
+        style={[
+          styles.iconContainer,
+          {
+            borderColor: focused ? theme.primary : theme.border,
+            backgroundColor: focused ? theme.primary : 'rgba(255,255,255,0.06)',
+          },
+        ]}
+      >
+        <Ionicons name={iconName} size={19} color={focused ? '#FFFFFF' : theme.textSecondary} />
       </View>
     );
   };
@@ -51,34 +60,47 @@ export default function TabLayout() {
   const showApprovalsTab = user?.role === 'admin' || user?.role === 'trainer';
   const showMerchandiseTab = user?.role !== 'admin'; // Members and trainers can view/order
 
+  if (!user) {
+    return <Redirect href="/" />;
+  }
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
+        tabBarBackground: () => (
+          <BlurView
+            tint={isDark ? 'dark' : 'light'}
+            intensity={90}
+            style={styles.tabBarBlur}
+          />
+        ),
         tabBarStyle: {
-          backgroundColor: theme.surface,
+          backgroundColor: 'transparent',
           borderTopColor: 'transparent',
           borderTopWidth: 0,
           elevation: 0,
-          height: 72 + insets.bottom,
+          height: 76 + insets.bottom,
           paddingBottom: Math.max(insets.bottom, 8),
-          paddingTop: 8,
-          marginHorizontal: 12,
-          marginBottom: 8,
-          borderRadius: 28,
+          paddingTop: 9,
+          marginHorizontal: 14,
+          marginBottom: 10,
+          borderRadius: 30,
           position: 'absolute',
           shadowColor: '#111827',
-          shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 0.08,
-          shadowRadius: 16,
+          shadowOffset: { width: 0, height: 12 },
+          shadowOpacity: 0.16,
+          shadowRadius: 18,
+          borderWidth: 1,
+          borderColor: isDark ? 'rgba(140,180,220,0.24)' : 'rgba(25,95,140,0.14)',
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarHideOnKeyboard: true,
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: '600',
-          marginTop: -2,
+          marginTop: -1,
         },
       }}
     >
@@ -139,11 +161,17 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
+  tabBarBlur: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 30,
+    overflow: 'hidden',
+  },
   iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
   },
 });

@@ -35,17 +35,19 @@ interface WorkoutPlan {
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-function toExerciseLines(exercises: WorkoutExercise[] = []): string {
-  return exercises
-    .map((exercise) => {
-      const segments = [exercise.name, String(exercise.sets), String(exercise.reps)];
-      if (exercise.weight !== undefined && exercise.weight !== null) {
-        segments.push(String(exercise.weight));
-      }
-      return segments.join(',');
-    })
-    .join('\n');
+interface ExerciseInput {
+  id: string;
+  name: string;
+  sets: string;
+  reps: string;
 }
+
+const createExerciseInput = (): ExerciseInput => ({
+  id: `exercise-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  name: '',
+  sets: '',
+  reps: '',
+});
 
 export default function MemberWorkoutScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -58,13 +60,13 @@ export default function MemberWorkoutScreen() {
   const [planName, setPlanName] = useState('');
   const [dayOfWeek, setDayOfWeek] = useState('Monday');
   const [notes, setNotes] = useState('');
-  const [exerciseLines, setExerciseLines] = useState('');
+  const [exerciseItems, setExerciseItems] = useState<ExerciseInput[]>([createExerciseInput()]);
 
   const resetForm = () => {
     setPlanName('');
     setDayOfWeek('Monday');
     setNotes('');
-    setExerciseLines('');
+    setExerciseItems([createExerciseInput()]);
     setEditingPlanId(null);
   };
 
@@ -89,38 +91,47 @@ export default function MemberWorkoutScreen() {
     }, [loadPlans]),
   );
 
-  const parseExercises = (): WorkoutExercise[] => {
-    return exerciseLines
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [nameRaw, setsRaw, repsRaw, weightRaw] = line.split(',').map((part) => part.trim());
+  const buildExercises = (): WorkoutExercise[] => {
+    return exerciseItems
+      .map((item, idx) => {
+        const name = item.name.trim();
+        const sets = Number(item.sets || 0);
+        const reps = Number(item.reps || 0);
+        const hasAnyValue = name.length > 0 || item.sets.trim().length > 0 || item.reps.trim().length > 0;
+        if (!hasAnyValue) return null;
         return {
-          name: nameRaw || '',
-          sets: Number(setsRaw || 0),
-          reps: Number(repsRaw || 0),
-          weight: weightRaw ? Number(weightRaw) : undefined,
+          name: name || `Exercise ${idx + 1}`,
+          sets: Number.isFinite(sets) ? Math.max(0, sets) : 0,
+          reps: Number.isFinite(reps) ? Math.max(0, reps) : 0,
         };
       })
-      .filter((exercise) => exercise.name && exercise.sets > 0 && exercise.reps > 0);
+      .filter((exercise): exercise is WorkoutExercise => !!exercise);
+  };
+
+  const updateExercise = (exerciseId: string, key: keyof Omit<ExerciseInput, 'id'>, value: string) => {
+    setExerciseItems((prev) =>
+      prev.map((item) => (item.id === exerciseId ? { ...item, [key]: value } : item)),
+    );
+  };
+
+  const addExercise = () => {
+    setExerciseItems((prev) => [...prev, createExerciseInput()]);
+  };
+
+  const removeExercise = (exerciseId: string) => {
+    setExerciseItems((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((item) => item.id !== exerciseId);
+    });
   };
 
   const handleSavePlan = async () => {
-    const exercises = parseExercises();
-    if (!planName.trim()) {
-      Alert.alert('Validation', 'Plan name is required.');
-      return;
-    }
-    if (!exercises.length) {
-      Alert.alert('Validation', 'Add at least one valid exercise line.');
-      return;
-    }
+    const exercises = buildExercises();
 
     setSaving(true);
     try {
       const payload = {
-        name: planName.trim(),
+        name: planName.trim() || 'Workout Plan',
         member_id: id,
         day_of_week: dayOfWeek,
         notes: notes.trim() || undefined,
@@ -149,7 +160,13 @@ export default function MemberWorkoutScreen() {
     setPlanName(plan.name || '');
     setDayOfWeek(plan.day_of_week || 'Monday');
     setNotes(plan.notes || '');
-    setExerciseLines(toExerciseLines(plan.exercises || []));
+    const mappedExercises: ExerciseInput[] = (plan.exercises || []).map((exercise, index) => ({
+      id: `exercise-edit-${index}-${Date.now()}`,
+      name: exercise.name || '',
+      sets: exercise.sets ? String(exercise.sets) : '',
+      reps: exercise.reps ? String(exercise.reps) : '',
+    }));
+    setExerciseItems(mappedExercises.length > 0 ? mappedExercises : [createExerciseInput()]);
   };
 
   const handleDeletePlan = (planId: string) => {
@@ -216,18 +233,63 @@ export default function MemberWorkoutScreen() {
             })}
           </ScrollView>
 
-          <TextInput
-            style={[
-              styles.input,
-              styles.multiline,
-              { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border },
-            ]}
-            placeholder={'Exercises (one per line):\nBench Press,4,10,60\nIncline Press,3,12,20'}
-            placeholderTextColor={theme.textSecondary}
-            value={exerciseLines}
-            onChangeText={setExerciseLines}
-            multiline
-          />
+          <View style={styles.exerciseSection}>
+            <View style={styles.exerciseHeader}>
+              <Text style={[styles.label, { color: theme.textSecondary }]}>Exercises (optional)</Text>
+              <TouchableOpacity
+                style={[styles.addMoreButton, { borderColor: theme.primary }]}
+                onPress={addExercise}
+              >
+                <Ionicons name="add" size={14} color={theme.primary} />
+                <Text style={[styles.addMoreText, { color: theme.primary }]}>Add More</Text>
+              </TouchableOpacity>
+            </View>
+            {exerciseItems.map((exercise, index) => (
+              <View key={exercise.id} style={[styles.exerciseCard, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
+                <View style={styles.exerciseTitleRow}>
+                  <Text style={[styles.exerciseTitle, { color: theme.text }]}>Exercise {index + 1}</Text>
+                  {exerciseItems.length > 1 ? (
+                    <TouchableOpacity onPress={() => removeExercise(exercise.id)}>
+                      <Ionicons name="trash-outline" size={16} color={theme.error} />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+                <TextInput
+                  style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
+                  placeholder="Name of exercise"
+                  placeholderTextColor={theme.textSecondary}
+                  value={exercise.name}
+                  onChangeText={(value) => updateExercise(exercise.id, 'name', value)}
+                />
+                <View style={styles.exerciseStatsRow}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.exerciseStatInput,
+                      { backgroundColor: theme.background, color: theme.text, borderColor: theme.border },
+                    ]}
+                    placeholder="Sets"
+                    placeholderTextColor={theme.textSecondary}
+                    keyboardType="number-pad"
+                    value={exercise.sets}
+                    onChangeText={(value) => updateExercise(exercise.id, 'sets', value.replace(/[^0-9]/g, ''))}
+                  />
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.exerciseStatInput,
+                      { backgroundColor: theme.background, color: theme.text, borderColor: theme.border },
+                    ]}
+                    placeholder="Reps"
+                    placeholderTextColor={theme.textSecondary}
+                    keyboardType="number-pad"
+                    value={exercise.reps}
+                    onChangeText={(value) => updateExercise(exercise.id, 'reps', value.replace(/[^0-9]/g, ''))}
+                  />
+                </View>
+              </View>
+            ))}
+          </View>
 
           <TextInput
             style={[
@@ -349,6 +411,49 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
+  },
+  exerciseSection: {
+    gap: 8,
+  },
+  exerciseHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  addMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  addMoreText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  exerciseCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+    gap: 8,
+  },
+  exerciseTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  exerciseTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  exerciseStatsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  exerciseStatInput: {
+    flex: 1,
   },
   dayChips: {
     gap: 8,

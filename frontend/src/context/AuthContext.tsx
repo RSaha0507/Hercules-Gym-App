@@ -13,12 +13,14 @@ interface User {
   full_name: string;
   role: 'admin' | 'trainer' | 'member';
   center?: CenterType;
+  date_of_birth?: string;
   created_at: string;
   is_active: boolean;
   profile_image?: string;
   is_primary_admin: boolean;
   approval_status: 'pending' | 'approved' | 'rejected';
   push_token?: string;
+  achievements?: string[];
 }
 
 interface AuthContextType {
@@ -39,6 +41,8 @@ interface RegisterData {
   phone: string;
   role: 'admin' | 'trainer' | 'member';
   center?: CenterType;
+  date_of_birth?: string;
+  profile_image?: string;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -174,7 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return;
             }
             await clearAuthState();
-            router.replace('/(auth)/login');
+            router.replace('/');
           }
         })();
         return;
@@ -222,8 +226,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await clearAuthState();
+      setAuthState(null, null);
       router.replace('/(auth)/login');
+      AsyncStorage.multiRemove(['token', 'user']).catch((error) => {
+        console.log('Failed to clear auth state:', error);
+      });
     } catch (error) {
       console.log('Error logging out:', error);
     }

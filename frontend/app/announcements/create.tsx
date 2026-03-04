@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../src/context/ThemeContext';
-import { api } from '../../src/services/api';
+import { api, GYM_CENTERS, type CenterType } from '../../src/services/api';
 
 export default function CreateAnnouncementScreen() {
   const { theme } = useTheme();
@@ -23,15 +23,23 @@ export default function CreateAnnouncementScreen() {
     id?: string;
     title?: string;
     content?: string;
-    target?: 'all' | 'members' | 'trainers' | 'selected';
+    target?: 'all' | 'members' | 'trainers' | 'selected' | 'members_center';
+    target_center?: CenterType;
   }>();
   const announcementId = useMemo(() => (params.id ? String(params.id) : ''), [params.id]);
   const isEditMode = !!announcementId;
   const [isLoading, setIsLoading] = useState(false);
+  const initialTarget = (params.target ? String(params.target) : 'all') as
+    | 'all'
+    | 'members'
+    | 'trainers'
+    | 'selected'
+    | 'members_center';
   const [formData, setFormData] = useState({
     title: params.title ? String(params.title) : '',
     content: params.content ? String(params.content) : '',
-    target: (params.target ? String(params.target) : 'all') as 'all' | 'members' | 'trainers' | 'selected',
+    target: initialTarget,
+    target_center: params.target_center ? String(params.target_center) : undefined,
   });
 
   const handleSubmit = async () => {
@@ -42,11 +50,17 @@ export default function CreateAnnouncementScreen() {
 
     setIsLoading(true);
     try {
+      const payload = {
+        title: formData.title,
+        content: formData.content,
+        target: formData.target,
+        target_center: formData.target_center,
+      } as any;
       if (isEditMode) {
-        await api.updateAnnouncement(announcementId, formData);
+        await api.updateAnnouncement(announcementId, payload);
         Alert.alert('Success', 'Announcement updated successfully');
       } else {
-        await api.createAnnouncement(formData);
+        await api.createAnnouncement(payload);
         Alert.alert('Success', 'Announcement created successfully');
       }
       router.back();
@@ -57,7 +71,8 @@ export default function CreateAnnouncementScreen() {
           (item: any) =>
             item.title === formData.title &&
             item.content === formData.content &&
-            item.target === formData.target,
+            item.target === formData.target &&
+            item.target_center === formData.target_center,
         );
         if (found) {
           Alert.alert('Success', isEditMode ? 'Announcement updated successfully' : 'Announcement created successfully');
@@ -76,26 +91,71 @@ export default function CreateAnnouncementScreen() {
     }
   };
 
-  const TargetButton = ({ value, label, icon }: { value: typeof formData.target; label: string; icon: string }) => (
+  const TargetButton = ({
+    value,
+    label,
+    icon,
+  }: {
+    value: 'all' | 'members' | 'trainers';
+    label: string;
+    icon: string;
+  }) => (
     <TouchableOpacity
       style={[
         styles.targetButton,
         {
-          backgroundColor: formData.target === value ? theme.primary : theme.inputBg,
-          borderColor: formData.target === value ? theme.primary : theme.border,
+          backgroundColor:
+            value === 'members'
+              ? formData.target === 'members' || formData.target === 'members_center'
+                ? theme.primary
+                : theme.inputBg
+              : formData.target === value
+                ? theme.primary
+                : theme.inputBg,
+          borderColor:
+            value === 'members'
+              ? formData.target === 'members' || formData.target === 'members_center'
+                ? theme.primary
+                : theme.border
+              : formData.target === value
+                ? theme.primary
+                : theme.border,
         },
       ]}
-      onPress={() => setFormData({ ...formData, target: value })}
+      onPress={() =>
+        setFormData((prev) => ({
+          ...prev,
+          target: value,
+          target_center: value === 'members' ? prev.target_center : undefined,
+        }))
+      }
     >
       <Ionicons
         name={icon as any}
         size={20}
-        color={formData.target === value ? '#FFF' : theme.textSecondary}
+        color={
+          value === 'members'
+            ? formData.target === 'members' || formData.target === 'members_center'
+              ? '#FFF'
+              : theme.textSecondary
+            : formData.target === value
+              ? '#FFF'
+              : theme.textSecondary
+        }
       />
       <Text
         style={[
           styles.targetButtonText,
-          { color: formData.target === value ? '#FFF' : theme.text },
+          {
+            color:
+              value === 'members'
+                ? formData.target === 'members' || formData.target === 'members_center'
+                  ? '#FFF'
+                  : theme.text
+                : formData.target === value
+                  ? '#FFF'
+                  : theme.text,
+          },
         ]}
       >
         {label}
@@ -158,6 +218,69 @@ export default function CreateAnnouncementScreen() {
               <TargetButton value="members" label="Members" icon="person" />
               <TargetButton value="trainers" label="Trainers" icon="fitness" />
             </View>
+            {(formData.target === 'members' || formData.target === 'members_center') && (
+              <View style={styles.subTargetWrap}>
+                <TouchableOpacity
+                  style={[
+                    styles.subTargetChip,
+                    {
+                      backgroundColor:
+                        formData.target === 'members' && !formData.target_center ? `${theme.primary}22` : theme.inputBg,
+                      borderColor:
+                        formData.target === 'members' && !formData.target_center ? theme.primary : theme.border,
+                    },
+                  ]}
+                  onPress={() => setFormData((prev) => ({ ...prev, target: 'members', target_center: undefined }))}
+                >
+                  <Text
+                    style={[
+                      styles.subTargetText,
+                      {
+                        color:
+                          formData.target === 'members' && !formData.target_center ? theme.primary : theme.textSecondary,
+                      },
+                    ]}
+                  >
+                    All Members
+                  </Text>
+                </TouchableOpacity>
+                {GYM_CENTERS.map((center) => (
+                  <TouchableOpacity
+                    key={center}
+                    style={[
+                      styles.subTargetChip,
+                      {
+                        backgroundColor:
+                          formData.target === 'members_center' && formData.target_center === center
+                            ? `${theme.primary}22`
+                            : theme.inputBg,
+                        borderColor:
+                          formData.target === 'members_center' && formData.target_center === center
+                            ? theme.primary
+                            : theme.border,
+                      },
+                    ]}
+                    onPress={() =>
+                      setFormData((prev) => ({ ...prev, target: 'members_center', target_center: center }))
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.subTargetText,
+                        {
+                          color:
+                            formData.target === 'members_center' && formData.target_center === center
+                              ? theme.primary
+                              : theme.textSecondary,
+                        },
+                      ]}
+                    >
+                      {center}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
 
           {/* Preview */}
@@ -258,6 +381,22 @@ const styles = StyleSheet.create({
   targetButtonText: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  subTargetWrap: {
+    marginTop: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  subTargetChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  subTargetText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   previewContainer: {
     marginBottom: 24,

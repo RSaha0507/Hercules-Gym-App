@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
 import { toSystemDate } from '../../src/utils/time';
 import { format } from 'date-fns';
@@ -35,6 +36,7 @@ interface ApprovalRequest {
 export default function ApprovalsScreen() {
   const { user } = useAuth();
   const { theme, isDark } = useTheme();
+  const { t } = useLanguage();
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -112,9 +114,9 @@ export default function ApprovalsScreen() {
     try {
       await api.approveRequest(request.id);
       await loadRequests();
-      setSuccessTitle('Success');
+      setSuccessTitle(t('Success'));
       setIsErrorFeedback(false);
-      setSuccessMessage(`${request.user_name} has been approved successfully.`);
+      setSuccessMessage(t('{name} has been approved successfully.', { name: request.user_name }));
       setShowSuccessModal(true);
     } catch (error: any) {
       console.error('Approve error:', error);
@@ -127,11 +129,15 @@ export default function ApprovalsScreen() {
       const stillPending = latestRequests.some((r) => r.id === request.id);
 
       if (isAlreadyProcessed || !stillPending) {
-        setSuccessTitle('Synced');
+        setSuccessTitle(t('Synced'));
         setIsErrorFeedback(false);
-        setSuccessMessage(stillPending ? 'Request was already processed. The list is now up to date.' : `${request.user_name} has been approved successfully.`);
+        setSuccessMessage(
+          stillPending
+            ? t('Request was already processed. The list is now up to date.')
+            : t('{name} has been approved successfully.', { name: request.user_name }),
+        );
       } else {
-        setSuccessTitle('Action Failed');
+        setSuccessTitle(t('Action Failed'));
         setIsErrorFeedback(true);
         setSuccessMessage(detailText);
       }
@@ -153,9 +159,9 @@ export default function ApprovalsScreen() {
     try {
       await api.rejectRequest(request.id, rejectReason || undefined);
       await loadRequests();
-      setSuccessTitle('Success');
+      setSuccessTitle(t('Success'));
       setIsErrorFeedback(false);
-      setSuccessMessage(`${request.user_name}'s request has been rejected.`);
+      setSuccessMessage(t('{name} request has been rejected.', { name: request.user_name }));
       setShowSuccessModal(true);
     } catch (error: any) {
       console.error('Reject error:', error);
@@ -168,11 +174,15 @@ export default function ApprovalsScreen() {
       const stillPending = latestRequests.some((r) => r.id === request.id);
 
       if (isAlreadyProcessed || !stillPending) {
-        setSuccessTitle('Synced');
+        setSuccessTitle(t('Synced'));
         setIsErrorFeedback(false);
-        setSuccessMessage(stillPending ? 'Request was already processed. The list is now up to date.' : `${request.user_name}'s request has been rejected.`);
+        setSuccessMessage(
+          stillPending
+            ? t('Request was already processed. The list is now up to date.')
+            : t('{name} request has been rejected.', { name: request.user_name }),
+        );
       } else {
-        setSuccessTitle('Action Failed');
+        setSuccessTitle(t('Action Failed'));
         setIsErrorFeedback(true);
         setSuccessMessage(detailText);
       }
@@ -192,21 +202,21 @@ export default function ApprovalsScreen() {
           color: '#E63946',
           gradient: ['#E63946', '#831018'] as [string, string],
           icon: 'shield',
-          label: 'Admin',
+          label: t('Admin'),
         };
       case 'trainer':
         return {
           color: '#F59E0B',
           gradient: ['#F59E0B', '#D97706'] as [string, string],
           icon: 'fitness',
-          label: 'Trainer',
+          label: t('Trainer'),
         };
       default:
         return {
           color: '#3B82F6',
           gradient: ['#3B82F6', '#1D4ED8'] as [string, string],
           icon: 'person',
-          label: 'Member',
+          label: t('Member'),
         };
     }
   };
@@ -215,7 +225,7 @@ export default function ApprovalsScreen() {
     <View style={styles.headerContainer}>
       {/* Stats Card */}
       <LinearGradient
-        colors={isDark ? ['#1E3A5F', '#0F172A'] : ['#3B82F6', '#1D4ED8']}
+        colors={isDark ? [theme.primary, theme.secondary] : [theme.primary, theme.secondary]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.statsCard}
@@ -225,7 +235,7 @@ export default function ApprovalsScreen() {
         </View>
         <View style={styles.statsContent}>
           <Text style={styles.statsNumber}>{requests.length}</Text>
-          <Text style={styles.statsLabel}>Pending Approvals</Text>
+          <Text style={styles.statsLabel}>{t('Pending Approvals')}</Text>
         </View>
         <View style={styles.statsDecor}>
           <Ionicons name="checkmark-circle" size={80} color="rgba(255,255,255,0.1)" />
@@ -243,6 +253,22 @@ export default function ApprovalsScreen() {
             : `You can approve members registering for ${user?.center}.`}
         </Text>
       </View>
+
+      <View style={[styles.timelineLegend, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <Text style={[styles.timelineLegendTitle, { color: theme.text }]}>{t('Approval Flow')}</Text>
+        <View style={styles.timelineLegendRow}>
+          <View style={[styles.timelineLegendDot, { backgroundColor: theme.warning }]} />
+          <Text style={[styles.timelineLegendText, { color: theme.textSecondary }]}>{t('Requested')}</Text>
+        </View>
+        <View style={styles.timelineLegendRow}>
+          <View style={[styles.timelineLegendDot, { backgroundColor: theme.primary }]} />
+          <Text style={[styles.timelineLegendText, { color: theme.textSecondary }]}>{t('Under Review')}</Text>
+        </View>
+        <View style={styles.timelineLegendRow}>
+          <View style={[styles.timelineLegendDot, { backgroundColor: theme.success }]} />
+          <Text style={[styles.timelineLegendText, { color: theme.textSecondary }]}>{t('Approved')}</Text>
+        </View>
+      </View>
     </View>
   );
 
@@ -251,89 +277,88 @@ export default function ApprovalsScreen() {
     const isProcessing = processing === item.id;
 
     return (
-      <View style={[styles.requestCard, { backgroundColor: theme.card }]}>
-        {/* Role Indicator Strip */}
-        <LinearGradient
-          colors={roleConfig.gradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.roleStrip}
-        />
+      <View style={styles.requestRailRow}>
+        <View style={styles.requestRail}>
+          <View style={[styles.requestNode, { backgroundColor: roleConfig.color }]} />
+          <View style={[styles.requestLine, { backgroundColor: theme.border }]} />
+        </View>
 
-        {/* Card Content */}
-        <View style={styles.cardContent}>
-          {/* User Avatar & Info */}
-          <View style={styles.userRow}>
-            <LinearGradient colors={roleConfig.gradient} style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {item.user_name.charAt(0).toUpperCase()}
-              </Text>
-            </LinearGradient>
+        <View style={[styles.requestCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          {/* Card Content */}
+          <View style={styles.cardContent}>
+            {/* User Avatar & Info */}
+            <View style={styles.userRow}>
+              <LinearGradient colors={roleConfig.gradient} style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {item.user_name.charAt(0).toUpperCase()}
+                </Text>
+              </LinearGradient>
 
-            <View style={styles.userInfo}>
-              <Text style={[styles.userName, { color: theme.text }]}>{item.user_name}</Text>
-              <Text style={[styles.userEmail, { color: theme.textSecondary }]}>{item.user_email}</Text>
-            </View>
-          </View>
-
-          {/* Badges */}
-          <View style={styles.badgesRow}>
-            <View style={[styles.roleBadge, { backgroundColor: roleConfig.color + '20' }]}>
-              <Ionicons name={roleConfig.icon as any} size={14} color={roleConfig.color} />
-              <Text style={[styles.roleBadgeText, { color: roleConfig.color }]}>
-                {roleConfig.label}
-              </Text>
+              <View style={styles.userInfo}>
+                <Text style={[styles.userName, { color: theme.text }]}>{item.user_name}</Text>
+                <Text style={[styles.userEmail, { color: theme.textSecondary }]}>{item.user_email}</Text>
+              </View>
             </View>
 
-            {item.center && (
-              <View style={[styles.centerBadge, { backgroundColor: theme.secondary + '20' }]}>
-                <Ionicons name="location" size={14} color={theme.secondary} />
-                <Text style={[styles.centerBadgeText, { color: theme.secondary }]}>
-                  {item.center}
+            {/* Badges */}
+            <View style={styles.badgesRow}>
+              <View style={[styles.roleBadge, { backgroundColor: roleConfig.color + '20' }]}>
+                <Ionicons name={roleConfig.icon as any} size={14} color={roleConfig.color} />
+                <Text style={[styles.roleBadgeText, { color: roleConfig.color }]}>
+                  {roleConfig.label}
                 </Text>
               </View>
-            )}
-          </View>
 
-          {/* Time */}
-          <View style={styles.timeRow}>
-            <Ionicons name="time-outline" size={14} color={theme.textSecondary} />
-            <Text style={[styles.timeText, { color: theme.textSecondary }]}>
-              {format(toSystemDate(item.requested_at), 'MMM d, yyyy - h:mm a')}
-            </Text>
-          </View>
-
-          {/* Action Buttons */}
-          <View style={styles.actionsRow}>
-            <TouchableOpacity
-              style={[styles.rejectButton, { borderColor: theme.error }]}
-              onPress={() => handleRejectPress(item)}
-              disabled={isProcessing}
-            >
-              {isProcessing ? (
-                <ActivityIndicator size="small" color={theme.error} />
-              ) : (
-                <>
-                  <Ionicons name="close-circle" size={20} color={theme.error} />
-                  <Text style={[styles.rejectButtonText, { color: theme.error }]}>Reject</Text>
-                </>
+              {item.center && (
+                <View style={[styles.centerBadge, { backgroundColor: theme.secondary + '20' }]}>
+                  <Ionicons name="location" size={14} color={theme.secondary} />
+                  <Text style={[styles.centerBadgeText, { color: theme.secondary }]}>
+                    {item.center}
+                  </Text>
+                </View>
               )}
-            </TouchableOpacity>
+            </View>
 
-            <TouchableOpacity
-              style={[styles.approveButton, { backgroundColor: '#10B981' }]}
-              onPress={() => handleApprovePress(item)}
-              disabled={isProcessing}
-            >
-              {isProcessing ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <>
-                  <Ionicons name="checkmark-circle" size={20} color="#FFF" />
-                  <Text style={styles.approveButtonText}>Approve</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            {/* Time */}
+            <View style={styles.timeRow}>
+              <Ionicons name="time-outline" size={14} color={theme.textSecondary} />
+              <Text style={[styles.timeText, { color: theme.textSecondary }]}>
+                {format(toSystemDate(item.requested_at), 'MMM d, yyyy - h:mm a')}
+              </Text>
+            </View>
+
+            {/* Action Buttons */}
+            <View style={styles.actionsRow}>
+              <TouchableOpacity
+                style={[styles.rejectButton, { borderColor: theme.error }]}
+                onPress={() => handleRejectPress(item)}
+                disabled={isProcessing}
+              >
+                {isProcessing ? (
+                  <ActivityIndicator size="small" color={theme.error} />
+                ) : (
+                  <>
+                    <Ionicons name="close-circle" size={20} color={theme.error} />
+                    <Text style={[styles.rejectButtonText, { color: theme.error }]}>{t('Reject')}</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.approveButton, { backgroundColor: '#10B981' }]}
+                onPress={() => handleApprovePress(item)}
+                disabled={isProcessing}
+              >
+                {isProcessing ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={20} color="#FFF" />
+                    <Text style={styles.approveButtonText}>{t('Approve')}</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>
@@ -344,20 +369,30 @@ export default function ApprovalsScreen() {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.primary} />
-        <Text style={[styles.loadingText, { color: theme.textSecondary }]}>Loading approvals...</Text>
+        <Text style={[styles.loadingText, { color: theme.textSecondary }]}>{t('Loading approvals...')}</Text>
       </View>
     );
   }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Approvals</Text>
-        <TouchableOpacity style={[styles.refreshButton, { backgroundColor: theme.card }]} onPress={onRefresh}>
-          <Ionicons name="refresh" size={22} color={theme.primary} />
-        </TouchableOpacity>
-      </View>
+      <View pointerEvents="none" style={styles.glassBlobTop} />
+      <View pointerEvents="none" style={styles.glassBlobBottom} />
+
+      <LinearGradient
+        colors={[theme.primary, theme.secondary]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.heroPane}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.title}>{t('Approvals')}</Text>
+          <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
+            <Ionicons name="refresh" size={22} color="#EAF8FF" />
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
 
       <FlatList
         data={requests}
@@ -374,9 +409,9 @@ export default function ApprovalsScreen() {
             <View style={[styles.emptyIcon, { backgroundColor: theme.success + '20' }]}>
               <Ionicons name="checkmark-done-circle" size={80} color={theme.success} />
             </View>
-            <Text style={[styles.emptyTitle, { color: theme.text }]}>All Caught Up!</Text>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>{t('All Caught Up!')}</Text>
             <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
-              No pending approval requests
+              {t('No pending approval requests')}
             </Text>
           </View>
         }
@@ -389,22 +424,22 @@ export default function ApprovalsScreen() {
             <View style={[styles.modalIconContainer, { backgroundColor: '#10B981' + '20' }]}>
               <Ionicons name="checkmark-circle" size={48} color="#10B981" />
             </View>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Approve Registration?</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('Approve Registration?')}</Text>
             <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>
-              Welcome <Text style={{ fontWeight: '600', color: theme.text }}>{selectedRequest?.user_name}</Text> to Hercules Gym?
+              {t('Welcome {name} to Hercules Gym?', { name: selectedRequest?.user_name || '' })}
             </Text>
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.modalCancelButton, { borderColor: theme.border }]}
                 onPress={() => setShowApproveModal(false)}
               >
-                <Text style={[styles.modalCancelText, { color: theme.text }]}>Cancel</Text>
+                <Text style={[styles.modalCancelText, { color: theme.text }]}>{t('Cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalConfirmButton, { backgroundColor: '#10B981' }]}
                 onPress={confirmApprove}
               >
-                <Text style={styles.modalConfirmText}>Approve</Text>
+                <Text style={styles.modalConfirmText}>{t('Approve')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -418,16 +453,16 @@ export default function ApprovalsScreen() {
             <View style={[styles.modalIconContainer, { backgroundColor: theme.error + '20' }]}>
               <Ionicons name="close-circle" size={48} color={theme.error} />
             </View>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Reject Registration</Text>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t('Reject Registration')}</Text>
             <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>
-              Provide a reason (optional)
+              {t('Provide a reason (optional)')}
             </Text>
             <TextInput
               style={[
                 styles.reasonInput,
                 { backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border },
               ]}
-              placeholder="Enter reason for rejection..."
+              placeholder={t('Enter reason for rejection...')}
               placeholderTextColor={theme.textSecondary}
               value={rejectReason}
               onChangeText={setRejectReason}
@@ -439,13 +474,13 @@ export default function ApprovalsScreen() {
                 style={[styles.modalCancelButton, { borderColor: theme.border }]}
                 onPress={() => setShowRejectModal(false)}
               >
-                <Text style={[styles.modalCancelText, { color: theme.text }]}>Cancel</Text>
+                <Text style={[styles.modalCancelText, { color: theme.text }]}>{t('Cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalConfirmButton, { backgroundColor: theme.error }]}
                 onPress={confirmReject}
               >
-                <Text style={styles.modalConfirmText}>Reject</Text>
+                <Text style={styles.modalConfirmText}>{t('Reject')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -467,7 +502,7 @@ export default function ApprovalsScreen() {
               style={[styles.modalSingleButton, { backgroundColor: isErrorFeedback ? theme.error : theme.primary }]}
               onPress={() => setShowSuccessModal(false)}
             >
-              <Text style={styles.modalConfirmText}>OK</Text>
+              <Text style={styles.modalConfirmText}>{t('OK')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -479,6 +514,35 @@ export default function ApprovalsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  glassBlobTop: {
+    position: 'absolute',
+    top: 94,
+    right: -40,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    backgroundColor: 'rgba(126, 206, 255, 0.14)',
+  },
+  glassBlobBottom: {
+    position: 'absolute',
+    bottom: 160,
+    left: -48,
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    backgroundColor: 'rgba(255, 175, 234, 0.12)',
+  },
+  heroPane: {
+    marginHorizontal: 14,
+    marginTop: 8,
+    borderRadius: 28,
+    overflow: 'hidden',
+    shadowColor: '#0A1626',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    elevation: 6,
   },
   loadingContainer: {
     flex: 1,
@@ -493,12 +557,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 16,
   },
   title: {
+    color: '#F3FCFF',
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   refreshButton: {
     width: 44,
@@ -506,17 +571,23 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(8,20,38,0.2)',
   },
   headerContainer: {
     paddingHorizontal: 20,
     marginBottom: 20,
+    marginTop: 16,
   },
   statsCard: {
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 24,
     flexDirection: 'row',
     alignItems: 'center',
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
   },
   statsIcon: {
     marginRight: 16,
@@ -542,8 +613,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 12,
     padding: 16,
-    borderRadius: 16,
+    borderRadius: 18,
     marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#E7EBF4',
   },
   infoText: {
     flex: 1,
@@ -551,25 +624,71 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   listContent: {
-    paddingBottom: 20,
+    paddingBottom: 120,
     paddingHorizontal: 20,
   },
+  timelineLegend: {
+    marginTop: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+    gap: 8,
+  },
+  timelineLegendTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  timelineLegendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  timelineLegendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  timelineLegendText: {
+    fontSize: 12,
+  },
+  requestRailRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginBottom: 16,
+  },
+  requestRail: {
+    width: 18,
+    alignItems: 'center',
+  },
+  requestNode: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 24,
+  },
+  requestLine: {
+    width: 2,
+    flex: 1,
+    marginTop: 4,
+  },
   requestCard: {
+    flex: 1,
     borderRadius: 20,
     overflow: 'hidden',
-    marginBottom: 16,
+    borderWidth: 1,
     ...Platform.select({
       ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
+        shadowColor: '#0D1828',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.06,
+        shadowRadius: 10,
       },
       android: {
-        elevation: 4,
+        elevation: 3,
       },
       web: {
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        boxShadow: '0 6px 10px rgba(10, 22, 38, 0.08)',
       },
     }),
   },

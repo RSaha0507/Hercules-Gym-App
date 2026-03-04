@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
@@ -24,11 +25,41 @@ export default function EditProfileScreen() {
   const { theme } = useTheme();
   const toIndianPhoneDigits = (value: string) => value.replace(/\D/g, '').replace(/^91/, '').slice(0, 10);
   const [isLoading, setIsLoading] = useState(false);
+  const [profileImage, setProfileImage] = useState(user?.profile_image || '');
   const [formData, setFormData] = useState({
     full_name: user?.full_name || '',
     phone: toIndianPhoneDigits(user?.phone || ''),
     address: '',
   });
+
+  const pickProfilePhoto = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Error', 'Gallery permission is required to upload profile photo.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets.length) return;
+      const asset = result.assets[0];
+      if (!asset.base64) {
+        Alert.alert('Error', 'Could not process selected photo. Please try another image.');
+        return;
+      }
+
+      const mime = asset.mimeType || 'image/jpeg';
+      setProfileImage(`data:${mime};base64,${asset.base64}`);
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Failed to pick profile photo');
+    }
+  };
 
   const handleSave = async () => {
     if (!formData.full_name.trim()) {
@@ -46,6 +77,7 @@ export default function EditProfileScreen() {
       await api.updateProfile({
         full_name: formData.full_name,
         phone: `+91${formData.phone}`,
+        profile_image: profileImage || undefined,
       });
 
       await refreshUser();
@@ -79,15 +111,18 @@ export default function EditProfileScreen() {
           {/* Avatar */}
           <View style={styles.avatarContainer}>
             <View style={[styles.avatar, { backgroundColor: theme.primary + '20' }]}>
-              {user?.profile_image ? (
-                <Image source={{ uri: user.profile_image }} style={styles.avatarImage} />
+              {profileImage ? (
+                <Image source={{ uri: profileImage }} style={styles.avatarImage} />
               ) : (
                 <Text style={[styles.avatarText, { color: theme.primary }]}>
                   {user?.full_name?.charAt(0).toUpperCase()}
                 </Text>
               )}
             </View>
-            <TouchableOpacity style={[styles.changePhotoButton, { backgroundColor: theme.primary }]}>
+            <TouchableOpacity
+              style={[styles.changePhotoButton, { backgroundColor: theme.primary }]}
+              onPress={pickProfilePhoto}
+            >
               <Ionicons name="camera" size={16} color="#FFF" />
             </TouchableOpacity>
           </View>
