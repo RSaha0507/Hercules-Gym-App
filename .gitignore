@@ -83,3 +83,12 @@ agenthub/agents/youtube/db
 
 # Mobile development
 android-sdk/ 
+
+# Local project artifacts (not part of product source)
+/design-previews/
+/reports/
+/scripts/
+/docs/screenshots/screen-*.jpg
+/frontend/dist-test/
+/frontend/install.log
+/frontend/yarn.lock.bak
