@@ -5187,6 +5187,159 @@ async def data_deletion_page():
 async def account_deletion_page():
     return HTMLResponse(content=DATA_DELETION_PAGE_HTML)
 
+PRIVACY_POLICY_PAGE_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hercules Gym - Privacy Policy</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --text: #131313;
+      --muted: #5a5a5a;
+      --line: #d8d8d8;
+      --brand: #0b3d91;
+      --accent: #f6a800;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: linear-gradient(165deg, var(--bg), #edf1f5);
+      color: var(--text);
+      padding: 24px;
+    }
+    .card {
+      max-width: 900px;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.06);
+      overflow: hidden;
+    }
+    .head {
+      padding: 20px 24px;
+      background: linear-gradient(110deg, var(--brand), #0f5ec7);
+      color: #fff;
+      border-bottom: 4px solid var(--accent);
+    }
+    .head h1 {
+      margin: 0 0 6px;
+      font-size: 24px;
+      line-height: 1.25;
+    }
+    .head p {
+      margin: 0;
+      opacity: 0.95;
+    }
+    .body {
+      padding: 22px 24px 26px;
+      line-height: 1.6;
+      font-size: 15px;
+    }
+    h2 {
+      font-size: 18px;
+      margin: 20px 0 8px;
+      color: #102a54;
+    }
+    ul {
+      margin: 8px 0 0 20px;
+      padding: 0;
+    }
+    li { margin-bottom: 6px; }
+    .note {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border: 1px solid #d8e7ff;
+      border-radius: 10px;
+      background: #f7fbff;
+      color: #1b3762;
+    }
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 18px;
+    }
+    a { color: #0b53c1; }
+  </style>
+</head>
+<body>
+  <article class="card">
+    <header class="head">
+      <h1>Hercules Gym Privacy Policy</h1>
+      <p>Effective date: 04 March 2026</p>
+    </header>
+    <section class="body">
+      <p>
+        Hercules Gym App ("we", "our", "us") is used by admins, trainers, and members to manage gym activities such as profile management, attendance, workouts, diets, notifications, announcements, and payment records.
+      </p>
+
+      <h2>Data We Collect</h2>
+      <ul>
+        <li>Account details: name, email, phone number, role, branch/center.</li>
+        <li>Profile details: date of birth, profile photo, emergency/contact details when provided.</li>
+        <li>Gym operations data: attendance check-in/check-out logs, workout plans, diet plans, announcements, achievements, and notifications.</li>
+        <li>Payment records: membership and shop payment details, status, references, and uploaded proof screenshots when submitted.</li>
+        <li>Technical data for reliability and security (for example authentication, API logs, and error diagnostics).</li>
+      </ul>
+
+      <h2>How We Use Data</h2>
+      <ul>
+        <li>To provide core app services and role-based access control.</li>
+        <li>To manage approvals, attendance, reminders, and operational communication.</li>
+        <li>To maintain account security and prevent abuse.</li>
+        <li>To comply with legal and operational obligations.</li>
+      </ul>
+
+      <h2>Data Sharing</h2>
+      <ul>
+        <li>Data is visible only to authorized roles (admin/trainer/member) based on permission scope.</li>
+        <li>We do not sell personal data.</li>
+        <li>Limited service providers (for hosting/infrastructure) may process data on our behalf.</li>
+      </ul>
+
+      <h2>Retention</h2>
+      <ul>
+        <li>Active account data is retained while the account remains active.</li>
+        <li>Some records may be retained for legitimate operational, legal, fraud-prevention, or backup purposes.</li>
+      </ul>
+
+      <h2>Account and Data Deletion</h2>
+      <p>
+        Users can request account and associated data deletion at:
+        <a href="/data-deletion">/data-deletion</a>
+      </p>
+      <ul>
+        <li>Primary account/profile data is deleted or irreversibly anonymized after verification.</li>
+        <li>Certain records may be retained where required for legal, security, dispute, or compliance obligations.</li>
+      </ul>
+
+      <h2>Contact</h2>
+      <p>
+        For privacy questions or requests, contact gym administration/support through your registered branch.
+      </p>
+
+      <div class="note">
+        This policy may be updated from time to time. Material updates will be reflected on this page with a revised effective date.
+      </div>
+      <p class="muted">Hercules Gym App services - Fitness, Discipline, Progress.</p>
+    </section>
+  </article>
+</body>
+</html>
+"""
+
+@app.get("/privacy-policy", response_class=HTMLResponse)
+async def privacy_policy_page():
+    return HTMLResponse(content=PRIVACY_POLICY_PAGE_HTML)
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page_alias():
+    return HTMLResponse(content=PRIVACY_POLICY_PAGE_HTML)
+
 # Include router
 app.include_router(api_router)
 
