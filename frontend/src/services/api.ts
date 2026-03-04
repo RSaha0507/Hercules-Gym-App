@@ -110,10 +110,31 @@ class ApiService {
   }
 
   private throwFeatureUnavailable(error: any, featureName: string): never {
-    if (error?.response?.status !== 404) {
+    const status = Number(error?.response?.status || 0);
+    let detail = error?.response?.data?.detail;
+
+    if (status === 404) {
+      detail = `${featureName} is unavailable on the current backend deployment. Please redeploy the backend service and try again.`;
+    } else if (status === 401 || status === 403) {
+      const raw = typeof detail === 'string' ? detail.toLowerCase() : '';
+      if (!raw || raw.includes('validate credentials') || raw.includes('not authenticated')) {
+        detail = 'Session expired. Please login again.';
+      } else if (raw.includes('access denied') || raw.includes('access required')) {
+        detail = `You do not have permission to use ${featureName.toLowerCase()}.`;
+      }
+    } else if (status === 422) {
+      const issues = Array.isArray(error?.response?.data?.detail)
+        ? error.response.data.detail
+            .map((item: any) => item?.msg || item?.type || '')
+            .filter((item: string) => item.length > 0)
+            .slice(0, 2)
+        : [];
+      const issueText = issues.length > 0 ? ` ${issues.join('; ')}.` : '';
+      detail = `${featureName} request validation failed.${issueText}`.trim();
+    } else {
       throw error;
     }
-    const detail = `${featureName} is unavailable on the current backend deployment. Please redeploy the backend service and try again.`;
+
     const wrapped: any = new Error(detail);
     wrapped.response = {
       ...error.response,
@@ -185,16 +206,46 @@ class ApiService {
     }
   }
 
-  async resetForgotPassword(identifier: string, date_of_birth: string, new_password: string) {
+  async requestForgotPasswordOtp(phone: string) {
+    await this.ensureRouteAvailable('/auth/forgot-password/request-otp', 'Forgot password OTP');
+    try {
+      const response = await this.client.post('/auth/forgot-password/request-otp', { phone }, { timeout: 65000 });
+      return response.data;
+    } catch (error: any) {
+      const status = Number(error?.response?.status || 0);
+      const detail = String(error?.response?.data?.detail || '');
+
+      if (status === 404 && detail.toLowerCase().includes('account not found')) {
+        throw error;
+      }
+      if (error?.code === 'ECONNABORTED') {
+        const wrapped: any = new Error('Server is waking up. Please wait a few seconds and try again.');
+        wrapped.response = {
+          status: 408,
+          data: { detail: 'Server is waking up. Please wait a few seconds and try again.' },
+        };
+        throw wrapped;
+      }
+      this.throwFeatureUnavailable(error, 'Forgot password OTP');
+    }
+  }
+
+  async resetForgotPassword(phone: string, otp: string, new_password: string, confirm_password: string) {
     await this.ensureRouteAvailable('/auth/forgot-password/reset', 'Forgot password reset');
     try {
       const response = await this.client.post('/auth/forgot-password/reset', {
-        identifier,
-        date_of_birth,
+        phone,
+        otp,
         new_password,
+        confirm_password,
       });
       return response.data;
     } catch (error: any) {
+      const status = Number(error?.response?.status || 0);
+      const detail = String(error?.response?.data?.detail || '');
+      if (status === 404 && detail.toLowerCase().includes('account not found')) {
+        throw error;
+      }
       this.throwFeatureUnavailable(error, 'Forgot password reset');
     }
   }
@@ -249,6 +300,16 @@ class ApiService {
 
   async deleteMember(userId: string) {
     const response = await this.client.delete(`/members/${userId}`);
+    return response.data;
+  }
+
+  async deactivateMember(userId: string) {
+    const response = await this.client.put(`/members/${userId}/deactivate`);
+    return response.data;
+  }
+
+  async activateMember(userId: string) {
+    const response = await this.client.put(`/members/${userId}/activate`);
     return response.data;
   }
 
@@ -340,6 +401,11 @@ class ApiService {
 
   async qrCheckOut(code: string) {
     const response = await this.client.post('/attendance/qr-check-out', null, { params: { code } });
+    return response.data;
+  }
+
+  async qrScan(code: string) {
+    const response = await this.client.post('/attendance/qr-scan', null, { params: { code } });
     return response.data;
   }
 
