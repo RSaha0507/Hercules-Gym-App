@@ -12,6 +12,7 @@ from typing import List, Optional, Literal, Dict, Tuple, Callable, Awaitable, Ty
 import uuid
 from datetime import datetime, timedelta, timezone, time, date as date_cls
 from calendar import monthrange
+import secrets
 from passlib.context import CryptContext
 import bcrypt
 from jose import JWTError, jwt
@@ -19,9 +20,11 @@ import socketio
 from bson import ObjectId
 import httpx
 import asyncio
+import json
 from email_validator import validate_email, EmailNotValidError
 from pymongo.errors import AutoReconnect, ConnectionFailure, NetworkTimeout, ServerSelectionTimeoutError, PyMongoError
 import re
+from urllib.parse import urlencode, urlparse, parse_qs
 
 T = TypeVar("T")
 
@@ -111,6 +114,11 @@ ATTENDANCE_MAX_ACTIVE_HOURS = max(1, read_int_env("ATTENDANCE_MAX_ACTIVE_HOURS",
 ATTENDANCE_HISTORY_MONTHS_LIMIT = 5
 ATTENDANCE_RETENTION_DAYS = max(150, read_int_env("ATTENDANCE_RETENTION_DAYS", 180))
 ATTENDANCE_ENFORCE_QR_CHECKOUT = read_bool_env("ATTENDANCE_ENFORCE_QR_CHECKOUT", False)
+ATTENDANCE_RECHECKIN_COOLDOWN_HOURS = max(0, read_int_env("ATTENDANCE_RECHECKIN_COOLDOWN_HOURS", 5))
+PASSWORD_RESET_OTP_LENGTH = min(8, max(4, read_int_env("PASSWORD_RESET_OTP_LENGTH", 6)))
+PASSWORD_RESET_OTP_TTL_MINUTES = max(1, read_int_env("PASSWORD_RESET_OTP_TTL_MINUTES", 10))
+PASSWORD_RESET_OTP_RESEND_SECONDS = max(10, read_int_env("PASSWORD_RESET_OTP_RESEND_SECONDS", 45))
+PASSWORD_RESET_OTP_MAX_ATTEMPTS = max(1, read_int_env("PASSWORD_RESET_OTP_MAX_ATTEMPTS", 5))
 MEMBERSHIP_BASE_FEE = max(0.0, read_float_env("MEMBERSHIP_BASE_FEE", 700.0))
 MEMBERSHIP_WINDOW_DAYS = max(1, read_int_env("MEMBERSHIP_WINDOW_DAYS", 7))
 MEMBERSHIP_LATE_FEE_PER_DAY = max(0.0, read_float_env("MEMBERSHIP_LATE_FEE_PER_DAY", 5.0))
@@ -119,8 +127,10 @@ PAYMENT_PROOF_MAX_LENGTH = max(200000, read_int_env("PAYMENT_PROOF_MAX_LENGTH", 
 PROFILE_IMAGE_MAX_LENGTH = max(150000, read_int_env("PROFILE_IMAGE_MAX_LENGTH", 500000))
 INDIA_TIMEZONE = timezone(timedelta(hours=5, minutes=30))
 APP_SETTING_HERO_GALLERY_KEY = "hero_gallery"
+APP_SETTING_ATTENDANCE_QR_KEY = "attendance_qr"
 PASSWORD_MIN_LENGTH = max(8, read_int_env("PASSWORD_MIN_LENGTH", 8))
 HERO_IMAGE_URI_MAX_LENGTH = max(120000, read_int_env("HERO_IMAGE_URI_MAX_LENGTH", 650000))
+ATTENDANCE_SHARED_QR_CODE = (os.environ.get("ATTENDANCE_SHARED_QR_CODE") or "").strip()
 DEFAULT_HERO_GALLERY = [
     {
         "id": "hero-1",
@@ -236,10 +246,14 @@ class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
 
+class ForgotPasswordOtpRequest(BaseModel):
+    phone: str
+
 class ForgotPasswordResetRequest(BaseModel):
-    identifier: str
-    date_of_birth: str
+    phone: str
+    otp: str
     new_password: str
+    confirm_password: str
 
 class UserResponse(UserBase):
     id: str
@@ -307,7 +321,7 @@ class MembershipPlan(BaseModel):
     end_date: datetime
     amount: float
     is_active: bool = True
-    payment_status: Literal["paid", "pending", "overdue"] = "pending"
+    payment_status: Literal["paid", "pending", "overdue", "paused"] = "pending"
     next_payment_date: Optional[datetime] = None
     last_reminder_sent: Optional[datetime] = None
     last_payment_date: Optional[datetime] = None
@@ -963,7 +977,7 @@ def normalize_membership_plan(
     amount = max(0.0, amount)
 
     payment_status = normalized.get("payment_status")
-    if payment_status not in {"paid", "pending", "overdue"}:
+    if payment_status not in {"paid", "pending", "overdue", "paused"}:
         payment_status = "pending"
 
     normalized["start_date"] = start_date
@@ -977,6 +991,34 @@ def normalize_membership_plan(
 
     return normalized
 
+def build_default_membership_plan(
+    joined_at: Optional[object] = None,
+    *,
+    reference_now: Optional[datetime] = None,
+) -> Dict:
+    now = coerce_utc_naive_datetime(reference_now, datetime.utcnow()) or datetime.utcnow()
+    start_date = coerce_utc_naive_datetime(joined_at, now) or now
+    if start_date > now:
+        start_date = now
+
+    anchor_day = min(31, max(1, start_date.day))
+    first_due = add_months_utc(start_date, 1)
+    next_due = first_due.replace(day=min(anchor_day, monthrange(first_due.year, first_due.month)[1]))
+
+    base_plan = {
+        "plan_name": "Monthly Membership",
+        "start_date": start_date,
+        "end_date": add_months_utc(start_date, 1),
+        "amount": MEMBERSHIP_BASE_FEE,
+        "is_active": True,
+        "payment_status": "pending",
+        "next_payment_date": next_due,
+        "last_reminder_sent": None,
+        "last_payment_date": None,
+        "billing_anchor_day": anchor_day,
+    }
+    return normalize_membership_plan(base_plan, reference_now=now) or base_plan
+
 def get_membership_due_details(
     membership: Optional[Dict],
     *,
@@ -988,6 +1030,8 @@ def get_membership_due_details(
     now = reference_now or datetime.utcnow()
     normalized = normalize_membership_plan(membership, reference_now=now)
     if not normalized:
+        return None
+    if normalized.get("payment_status") == "paused":
         return None
 
     due_date_dt = coerce_utc_naive_datetime(normalized.get("next_payment_date"), now) or now
@@ -1061,6 +1105,33 @@ def next_membership_due_date(current_due_date: datetime, anchor_day: int) -> dat
     next_due = add_months_utc(current_due_date, 1)
     aligned_day = min(anchor_day, monthrange(next_due.year, next_due.month)[1])
     return next_due.replace(day=aligned_day)
+
+def reset_membership_cycle_from_reference(
+    membership: Optional[Dict],
+    *,
+    reference_now: Optional[datetime] = None,
+) -> Optional[Dict]:
+    if not membership:
+        return membership
+
+    now = coerce_utc_naive_datetime(reference_now, datetime.utcnow()) or datetime.utcnow()
+    normalized = normalize_membership_plan(membership, reference_now=now)
+    if not normalized:
+        return None
+
+    anchor_day = min(31, max(1, now.day))
+    first_due = add_months_utc(now, 1)
+    next_due = first_due.replace(day=min(anchor_day, monthrange(first_due.year, first_due.month)[1]))
+
+    normalized["start_date"] = now
+    normalized["end_date"] = add_months_utc(now, 1)
+    normalized["billing_anchor_day"] = anchor_day
+    normalized["next_payment_date"] = next_due
+    normalized["payment_status"] = "pending"
+    normalized["last_payment_date"] = None
+    normalized["last_reminder_sent"] = None
+    normalized.pop("deactivated_at", None)
+    return normalized
 
 def _is_same_center(user_a: Dict, user_b: Dict) -> bool:
     return bool(user_a.get("center")) and user_a.get("center") == user_b.get("center")
@@ -1313,6 +1384,22 @@ async def check_payment_reminders():
                 membership = normalize_membership_plan(profile.get("membership"), reference_now=now)
                 if not membership:
                     continue
+                user = await db.users.find_one(
+                    {"id": profile.get("user_id"), "role": "member"},
+                    {"id": 1, "is_active": 1, "approval_status": 1},
+                )
+                if not _is_user_active_and_approved(user):
+                    if membership.get("payment_status") != "paused":
+                        membership["payment_status"] = "paused"
+                        membership["last_reminder_sent"] = None
+                        membership["deactivated_at"] = now
+                        await db.member_profiles.update_one(
+                            {"user_id": profile["user_id"]},
+                            {"$set": {"membership": membership}},
+                        )
+                    continue
+                if membership.get("payment_status") == "paused":
+                    continue
 
                 details = get_membership_due_details(membership, reference_now=now)
                 if not details:
@@ -1341,10 +1428,6 @@ async def check_payment_reminders():
                             {"$set": {"membership": membership}},
                         )
                         continue
-
-                user = await db.users.find_one({"id": profile["user_id"], "is_active": True})
-                if not user:
-                    continue
 
                 title, body = build_membership_reminder_text(details)
                 await send_notification_to_user(
@@ -1475,10 +1558,10 @@ async def check_birthday_reminders():
 
 @api_router.post("/auth/register", response_model=Token)
 async def register(user: UserRegister, background_tasks: BackgroundTasks):
-    if not user.date_of_birth:
+    if user.role in ["member", "trainer"] and not user.date_of_birth:
         raise HTTPException(status_code=400, detail="Date of birth is required")
     normalized_phone = normalize_indian_phone(user.phone)
-    normalized_dob = normalize_date_of_birth(user.date_of_birth)
+    normalized_dob = normalize_date_of_birth(user.date_of_birth) if user.date_of_birth else None
     normalized_profile_image = normalize_profile_image(user.profile_image)
     resolved_email = await resolve_registration_email(
         user.email,
@@ -1556,6 +1639,7 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
             "member_id": member_id,
             "date_of_birth": normalized_dob,
             "assigned_trainers": [],
+            "membership": build_default_membership_plan(user_dict["created_at"]),
             "body_metrics": [],
             "progress_photos": []
         }
@@ -1779,32 +1863,142 @@ async def change_password(
     )
     return {"message": "Password changed successfully"}
 
-@api_router.post("/auth/forgot-password/reset")
-async def reset_forgotten_password(payload: ForgotPasswordResetRequest):
-    identifier = (payload.identifier or "").strip()
-    if not identifier:
-        raise HTTPException(status_code=400, detail="Email or phone is required")
+def generate_password_reset_otp() -> str:
+    digits = "0123456789"
+    return "".join(secrets.choice(digits) for _ in range(PASSWORD_RESET_OTP_LENGTH))
 
-    query = {}
-    if "@" in identifier:
-        query["email"] = normalize_and_validate_email(identifier)
-    else:
-        query["phone"] = normalize_indian_phone(identifier)
+def normalize_password_reset_otp(value: str) -> str:
+    normalized = "".join(ch for ch in (value or "").strip() if ch.isdigit())
+    if len(normalized) != PASSWORD_RESET_OTP_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"OTP must be {PASSWORD_RESET_OTP_LENGTH} digits",
+        )
+    return normalized
 
+@api_router.post("/auth/forgot-password/request-otp")
+async def request_forgotten_password_otp(payload: ForgotPasswordOtpRequest):
+    normalized_phone = normalize_indian_phone(payload.phone)
     user_doc = await run_with_mongo_retry(
-        lambda: db.users.find_one(query),
-        context="auth.forgot_password.find_user",
+        lambda: db.users.find_one(
+            {"phone": normalized_phone},
+            {"id": 1, "full_name": 1, "is_active": 1},
+        ),
+        context="auth.forgot_password.request_otp.find_user",
     )
     if not user_doc:
         raise HTTPException(status_code=404, detail="Account not found")
+    if not user_doc.get("is_active", True):
+        raise HTTPException(status_code=400, detail="Account is inactive")
 
-    stored_dob = normalize_date_of_birth(user_doc.get("date_of_birth"), strict=False)
-    if not stored_dob:
-        raise HTTPException(status_code=400, detail="Password reset is unavailable for this account")
+    now = datetime.utcnow()
+    existing_otp = await run_with_mongo_retry(
+        lambda: db.password_reset_otps.find_one({"phone": normalized_phone}),
+        context="auth.forgot_password.request_otp.find_existing",
+    )
+    if existing_otp:
+        resend_after = coerce_utc_naive_datetime(existing_otp.get("resend_after"), now)
+        if resend_after and resend_after > now:
+            wait_seconds = max(1, int((resend_after - now).total_seconds()))
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {wait_seconds} seconds before requesting a new OTP",
+            )
 
-    provided_dob = normalize_date_of_birth(payload.date_of_birth)
-    if provided_dob is None or stored_dob.date() != provided_dob.date():
-        raise HTTPException(status_code=400, detail="Recovery details do not match")
+    otp = generate_password_reset_otp()
+    expires_at = now + timedelta(minutes=PASSWORD_RESET_OTP_TTL_MINUTES)
+    resend_after = now + timedelta(seconds=PASSWORD_RESET_OTP_RESEND_SECONDS)
+
+    await run_with_mongo_retry(
+        lambda: db.password_reset_otps.update_one(
+            {"phone": normalized_phone},
+            {
+                "$set": {
+                    "phone": normalized_phone,
+                    "user_id": user_doc["id"],
+                    "otp_hash": get_password_hash(otp),
+                    "created_at": now,
+                    "expires_at": expires_at,
+                    "resend_after": resend_after,
+                    "attempt_count": 0,
+                    "used_at": None,
+                }
+            },
+            upsert=True,
+        ),
+        context="auth.forgot_password.request_otp.upsert_otp",
+    )
+
+    full_name = user_doc.get("full_name") or "Member"
+    await send_notification_to_user(
+        user_doc["id"],
+        "Password Reset OTP",
+        f"Hi {full_name}, your OTP is {otp}. It expires in {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.",
+        "security",
+        {
+            "action": "forgot_password_otp",
+            "phone": normalized_phone,
+        },
+    )
+
+    response = {"message": "OTP sent successfully"}
+    if not IS_PRODUCTION:
+        response["otp"] = otp
+    return response
+
+@api_router.post("/auth/forgot-password/reset")
+async def reset_forgotten_password(payload: ForgotPasswordResetRequest):
+    if payload.new_password != payload.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+
+    normalized_phone = normalize_indian_phone(payload.phone)
+    normalized_otp = normalize_password_reset_otp(payload.otp)
+    now = datetime.utcnow()
+
+    otp_record = await run_with_mongo_retry(
+        lambda: db.password_reset_otps.find_one({"phone": normalized_phone}),
+        context="auth.forgot_password.reset.find_otp",
+    )
+    if not otp_record:
+        raise HTTPException(status_code=400, detail="Request OTP first")
+
+    expires_at = coerce_utc_naive_datetime(otp_record.get("expires_at"), now)
+    if not expires_at or expires_at <= now:
+        await run_with_mongo_retry(
+            lambda: db.password_reset_otps.delete_one({"phone": normalized_phone}),
+            context="auth.forgot_password.reset.delete_expired_otp",
+        )
+        raise HTTPException(status_code=400, detail="OTP expired. Request a new OTP")
+
+    attempt_count = int(otp_record.get("attempt_count") or 0)
+    if attempt_count >= PASSWORD_RESET_OTP_MAX_ATTEMPTS:
+        raise HTTPException(status_code=400, detail="Maximum OTP attempts reached. Request a new OTP")
+
+    if not verify_password(normalized_otp, otp_record.get("otp_hash", "")):
+        attempt_count += 1
+        await run_with_mongo_retry(
+            lambda: db.password_reset_otps.update_one(
+                {"phone": normalized_phone},
+                {"$set": {"attempt_count": attempt_count, "last_attempt_at": now}},
+            ),
+            context="auth.forgot_password.reset.increment_attempt",
+        )
+
+        if attempt_count >= PASSWORD_RESET_OTP_MAX_ATTEMPTS:
+            raise HTTPException(status_code=400, detail="Maximum OTP attempts reached. Request a new OTP")
+
+        remaining_attempts = PASSWORD_RESET_OTP_MAX_ATTEMPTS - attempt_count
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid OTP. {remaining_attempts} attempt(s) remaining",
+        )
+
+    user_doc = await run_with_mongo_retry(
+        lambda: db.users.find_one({"phone": normalized_phone}),
+        context="auth.forgot_password.reset.find_user",
+    )
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="Account not found")
 
     validate_password_strength(payload.new_password)
     if verify_password(payload.new_password, user_doc.get("hashed_password", "")):
@@ -1816,32 +2010,35 @@ async def reset_forgotten_password(payload: ForgotPasswordResetRequest):
             {
                 "$set": {
                     "hashed_password": get_password_hash(payload.new_password),
-                    "password_updated_at": datetime.utcnow(),
+                    "password_updated_at": now,
                 }
             },
         ),
-        context="auth.forgot_password.update_hash",
+        context="auth.forgot_password.reset.update_hash",
+    )
+    await run_with_mongo_retry(
+        lambda: db.password_reset_otps.delete_one({"phone": normalized_phone}),
+        context="auth.forgot_password.reset.delete_otp",
     )
     return {"message": "Password reset successful"}
 
 # ==================== APPROVAL ROUTES ====================
 
+def build_pending_approvals_query(current_user: UserInDB) -> Dict[str, object]:
+    query: Dict[str, object] = {"status": "pending"}
+    if current_user.role == "trainer":
+        query["user_role"] = "member"
+        query["center"] = current_user.center
+    elif current_user.role == "admin" and not current_user.is_primary_admin:
+        query["user_role"] = "member"
+    return query
+
 @api_router.get("/approvals/pending")
 async def get_pending_approvals(current_user: UserInDB = Depends(get_current_user)):
     if current_user.role == "member":
         raise HTTPException(status_code=403, detail="Access denied")
-    
-    query = {"status": "pending"}
-    
-    if current_user.role == "trainer":
-        # Trainers can only see member requests for their center
-        query["user_role"] = "member"
-        query["center"] = current_user.center
-    elif current_user.role == "admin" and not current_user.is_primary_admin:
-        # Non-primary admins can see member requests
-        query["user_role"] = "member"
-    # Primary admin can see all
-    
+
+    query = build_pending_approvals_query(current_user)
     requests = await db.approval_requests.find(query).sort("requested_at", -1).to_list(100)
     return [sanitize_mongo_doc(r) for r in requests]
 
@@ -1865,13 +2062,15 @@ async def approve_request(request_id: str, current_user: UserInDB = Depends(get_
         if current_user.role == "trainer" and current_user.center != request["center"]:
             raise HTTPException(status_code=403, detail="Can only approve members from your center")
     
+    reviewed_at = datetime.utcnow()
+
     # Update approval request (idempotent/race-safe)
     update_result = await db.approval_requests.update_one(
         {"id": request_id, "status": "pending"},
         {"$set": {
             "status": "approved",
             "reviewed_by": current_user.id,
-            "reviewed_at": datetime.utcnow()
+            "reviewed_at": reviewed_at
         }}
     )
     if update_result.modified_count == 0:
@@ -1882,10 +2081,25 @@ async def approve_request(request_id: str, current_user: UserInDB = Depends(get_
     # Update user status
     await db.users.update_one(
         {"id": request["user_id"]},
-        {"$set": {"approval_status": "approved"}}
+        {"$set": {"approval_status": "approved", "updated_at": reviewed_at}}
     )
 
     if request["user_role"] == "member":
+        profile = await db.member_profiles.find_one({"user_id": request["user_id"]}, {"membership": 1})
+        membership = normalize_membership_plan(
+            profile.get("membership") if profile else None,
+            reference_now=reviewed_at,
+        )
+        if membership:
+            membership = reset_membership_cycle_from_reference(membership, reference_now=reviewed_at) or membership
+        else:
+            membership = build_default_membership_plan(reviewed_at, reference_now=reviewed_at)
+
+        await db.member_profiles.update_one(
+            {"user_id": request["user_id"]},
+            {"$set": {"membership": membership}},
+            upsert=True,
+        )
         await sync_member_assignments_for_member(request["user_id"])
     elif request["user_role"] == "trainer":
         await sync_member_assignments_for_center(request.get("center"))
@@ -2020,7 +2234,7 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
         "membership": normalize_membership_plan(
             (member.membership.model_dump() if hasattr(member.membership, "model_dump") else member.membership.dict())
             if member.membership
-            else None
+            else build_default_membership_plan(user_dict["created_at"])
         ),
         "body_metrics": [],
         "medical_notes": member.medical_notes,
@@ -2189,9 +2403,93 @@ async def update_member(
 
 @api_router.delete("/members/{user_id}")
 async def delete_member(user_id: str, current_user: UserInDB = Depends(require_admin)):
-    # Soft delete - just deactivate
-    await db.users.update_one({"id": user_id}, {"$set": {"is_active": False}})
+    existing_member = await db.users.find_one({"id": user_id, "role": "member"})
+    if not existing_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    deleted = {
+        "users": 0,
+        "member_profiles": 0,
+        "attendance": 0,
+        "workouts": 0,
+        "diets": 0,
+        "payments": 0,
+        "messages": 0,
+        "conversations": 0,
+        "notifications": 0,
+        "approval_requests": 0,
+    }
+
+    deleted["member_profiles"] = (await db.member_profiles.delete_many({"user_id": user_id})).deleted_count
+    deleted["attendance"] = (await db.attendance.delete_many({"user_id": user_id})).deleted_count
+    deleted["workouts"] = (await db.workouts.delete_many({"member_id": user_id})).deleted_count
+    deleted["diets"] = (await db.diets.delete_many({"member_id": user_id})).deleted_count
+    deleted["payments"] = (await db.payments.delete_many({"member_id": user_id})).deleted_count
+    deleted["messages"] = (
+        await db.messages.delete_many({"$or": [{"sender_id": user_id}, {"receiver_id": user_id}]})
+    ).deleted_count
+    deleted["conversations"] = (await db.conversations.delete_many({"participant_ids": user_id})).deleted_count
+    deleted["notifications"] = (await db.notifications.delete_many({"user_id": user_id})).deleted_count
+    deleted["approval_requests"] = (await db.approval_requests.delete_many({"user_id": user_id})).deleted_count
+    deleted["users"] = (await db.users.delete_many({"id": user_id, "role": "member"})).deleted_count
+
+    await sync_member_assignments_for_center(existing_member.get("center"))
+    return {"message": "Member deleted permanently", "deleted_records": deleted}
+
+@api_router.put("/members/{user_id}/deactivate")
+async def deactivate_member(user_id: str, current_user: UserInDB = Depends(require_admin)):
+    existing_member = await db.users.find_one({"id": user_id, "role": "member"})
+    if not existing_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    now = datetime.utcnow()
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"is_active": False, "updated_at": now}},
+    )
+
+    profile = await db.member_profiles.find_one({"user_id": user_id}, {"membership": 1})
+    if profile and profile.get("membership"):
+        membership = normalize_membership_plan(profile.get("membership"), reference_now=now)
+        if membership:
+            membership["payment_status"] = "paused"
+            membership["last_reminder_sent"] = None
+            membership["deactivated_at"] = now
+            await db.member_profiles.update_one(
+                {"user_id": user_id},
+                {"$set": {"membership": membership}},
+            )
+
     return {"message": "Member deactivated successfully"}
+
+@api_router.put("/members/{user_id}/activate")
+async def activate_member(user_id: str, current_user: UserInDB = Depends(require_admin)):
+    existing_member = await db.users.find_one({"id": user_id, "role": "member"})
+    if not existing_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    now = datetime.utcnow()
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"is_active": True, "updated_at": now}},
+    )
+
+    next_due_date = None
+    profile = await db.member_profiles.find_one({"user_id": user_id}, {"membership": 1})
+    if profile and profile.get("membership"):
+        membership = reset_membership_cycle_from_reference(profile.get("membership"), reference_now=now)
+        if membership:
+            next_due_date = membership.get("next_payment_date")
+            await db.member_profiles.update_one(
+                {"user_id": user_id},
+                {"$set": {"membership": membership}},
+            )
+
+    await sync_member_assignments_for_member(user_id)
+    return {
+        "message": "Member activated successfully",
+        "next_payment_date": next_due_date.isoformat() if isinstance(next_due_date, datetime) else None,
+    }
 
 @api_router.put("/members/{user_id}/center")
 async def change_member_center(
@@ -2454,22 +2752,104 @@ def to_utc_naive(value: datetime) -> datetime:
 def get_attendance_retention_cutoff(at: Optional[datetime] = None) -> datetime:
     return (at or datetime.utcnow()) - timedelta(days=ATTENDANCE_RETENTION_DAYS)
 
-def build_daily_qr_code(prefix: str, day: str) -> str:
-    day_compact = day.replace("-", "")
-    return f"HERCULES-{prefix}-{day_compact}-{uuid.uuid4().hex[:8].upper()}"
+def build_attendance_qr_payload(code: str) -> str:
+    query = urlencode({"code": code})
+    return f"herculesgym://attendance?{query}"
+
+def normalize_attendance_qr_input(raw_code: Optional[str]) -> str:
+    value = (raw_code or "").strip()
+    if not value:
+        return ""
+
+    if value.startswith("{") and value.endswith("}"):
+        try:
+            parsed_json = json.loads(value)
+            candidate = str(parsed_json.get("code") or "").strip()
+            if candidate:
+                return candidate
+        except Exception:
+            pass
+
+    try:
+        parsed = urlparse(value)
+        query = parse_qs(parsed.query or "")
+        candidate = ""
+        if query.get("code"):
+            candidate = str(query["code"][0]).strip()
+        elif parsed.path:
+            candidate = parsed.path.strip().lstrip("/")
+        if candidate:
+            return candidate
+    except Exception:
+        pass
+
+    return value
+
+def format_india_time(dt_value: datetime) -> str:
+    normalized = coerce_utc_naive_datetime(dt_value, datetime.utcnow()) or datetime.utcnow()
+    india_dt = normalized.replace(tzinfo=timezone.utc).astimezone(INDIA_TIMEZONE)
+    return india_dt.strftime("%d %b %Y, %I:%M %p IST")
+
+async def enforce_recheckin_cooldown(user_id: str, *, now: Optional[datetime] = None):
+    if ATTENDANCE_RECHECKIN_COOLDOWN_HOURS <= 0:
+        return
+
+    reference_now = now or datetime.utcnow()
+    latest_checkout_record = await db.attendance.find_one(
+        {"user_id": user_id, "check_out_time": {"$ne": None}},
+        sort=[("check_out_time", -1)],
+    )
+    if not latest_checkout_record:
+        return
+
+    last_checkout = coerce_utc_naive_datetime(latest_checkout_record.get("check_out_time"), reference_now)
+    if not last_checkout:
+        return
+
+    next_allowed = last_checkout + timedelta(hours=ATTENDANCE_RECHECKIN_COOLDOWN_HOURS)
+    if next_allowed > reference_now:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Re-check-in is available after {format_india_time(next_allowed)} "
+                f"({ATTENDANCE_RECHECKIN_COOLDOWN_HOURS}-hour cooldown after check-out)."
+            ),
+        )
+
+def build_shared_attendance_qr_code() -> str:
+    return f"HERCULES-QR-{uuid.uuid4().hex[:10].upper()}"
+
+async def ensure_shared_attendance_qr() -> Dict[str, str]:
+    settings = await db.app_settings.find_one({"key": APP_SETTING_ATTENDANCE_QR_KEY})
+    stored_code = (settings or {}).get("code")
+    shared_code = ATTENDANCE_SHARED_QR_CODE or stored_code or build_shared_attendance_qr_code()
+    payload = {
+        "key": APP_SETTING_ATTENDANCE_QR_KEY,
+        "code": shared_code,
+        "qr_value": build_attendance_qr_payload(shared_code),
+        "updated_at": datetime.utcnow(),
+    }
+    await db.app_settings.update_one(
+        {"key": APP_SETTING_ATTENDANCE_QR_KEY},
+        {"$set": payload, "$setOnInsert": {"created_at": datetime.utcnow()}},
+        upsert=True,
+    )
+    return payload
 
 async def ensure_daily_qr_codes(day: str) -> Dict[str, str]:
-    stored = await db.qr_codes.find_one({"date": day}) or {}
-    check_in_code = stored.get("check_in_code") or stored.get("code") or build_daily_qr_code("IN", day)
-    check_out_code = stored.get("check_out_code") or build_daily_qr_code("OUT", day)
-
+    # Legacy compatibility wrapper: returns the same shared QR code for all actions.
+    shared = await ensure_shared_attendance_qr()
+    shared_code = shared.get("code") or ""
+    shared_qr_value = shared.get("qr_value") or build_attendance_qr_payload(shared_code)
     payload = {
         "date": day,
-        "code": check_in_code,
-        "check_in_code": check_in_code,
-        "check_out_code": check_out_code,
+        "code": shared_code,
+        "check_in_code": shared_code,
+        "check_out_code": shared_code,
+        "qr_value": shared_qr_value,
+        "check_in_qr_value": shared_qr_value,
+        "check_out_qr_value": shared_qr_value,
     }
-    await db.qr_codes.update_one({"date": day}, {"$set": payload}, upsert=True)
     return payload
 
 async def finalize_expired_attendance_sessions() -> int:
@@ -2534,16 +2914,16 @@ async def check_in(attendance: AttendanceCreate, current_user: UserInDB = Depend
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Check if already checked in today
-    today_start = get_day_start_utc()
+    # Do not allow a new session while any prior session is still active.
     existing = await db.attendance.find_one({
         "user_id": attendance.user_id,
-        "check_in_time": {"$gte": today_start},
         "check_out_time": None
     })
     
     if existing:
-        raise HTTPException(status_code=400, detail="Already checked in today")
+        raise HTTPException(status_code=400, detail="Already checked in")
+
+    await enforce_recheckin_cooldown(attendance.user_id)
     
     record = AttendanceRecord(
         user_id=attendance.user_id,
@@ -2564,13 +2944,11 @@ async def check_out(user_id: str, current_user: UserInDB = Depends(get_current_u
     if current_user.role == "member" and user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Can only check out yourself")
     
-    # Find today's check-in
-    today_start = get_day_start_utc()
+    # Find active check-in (not limited to same-day so midnight-crossing sessions can be closed).
     record = await db.attendance.find_one({
         "user_id": user_id,
-        "check_in_time": {"$gte": today_start},
         "check_out_time": None
-    })
+    }, sort=[("check_in_time", -1)])
     
     if not record:
         raise HTTPException(status_code=400, detail="No active check-in found")
@@ -2583,18 +2961,23 @@ async def check_out(user_id: str, current_user: UserInDB = Depends(get_current_u
     ):
         raise HTTPException(status_code=400, detail="Please use QR check-out")
     
+    checkout_time = datetime.utcnow()
     await db.attendance.update_one(
         {"id": record["id"]},
         {
             "$set": {
-                "check_out_time": datetime.utcnow(),
+                "check_out_time": checkout_time,
                 "check_out_method": "self" if current_user.id == user_id else "manual",
                 "auto_checked_out": False,
             }
         }
     )
     
-    return {"message": "Checked out successfully"}
+    next_allowed = checkout_time + timedelta(hours=ATTENDANCE_RECHECKIN_COOLDOWN_HOURS)
+    return {
+        "message": "Checked out successfully",
+        "next_checkin_at": next_allowed.isoformat(),
+    }
 
 @api_router.get("/attendance/today")
 async def get_today_attendance(
@@ -2692,29 +3075,87 @@ async def get_attendance_history(
 
 @api_router.get("/attendance/qr-code")
 async def get_qr_code(current_user: UserInDB = Depends(require_admin)):
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    return await ensure_daily_qr_codes(today)
+    shared = await ensure_shared_attendance_qr()
+    return {
+        "code": shared.get("code"),
+        "qr_value": shared.get("qr_value"),
+    }
+
+@api_router.post("/attendance/qr-scan")
+async def qr_scan(code: str, current_user: UserInDB = Depends(get_current_user)):
+    await finalize_expired_attendance_sessions()
+
+    if current_user.role != "member":
+        raise HTTPException(status_code=403, detail="Only members can use QR attendance scan")
+
+    shared = await ensure_shared_attendance_qr()
+    expected_code = (shared.get("code") or "").strip()
+    scanned_code = normalize_attendance_qr_input(code)
+
+    if not expected_code or scanned_code != expected_code:
+        raise HTTPException(status_code=400, detail="Invalid QR code")
+
+    active_record = await db.attendance.find_one(
+        {"user_id": current_user.id, "check_out_time": None},
+        sort=[("check_in_time", -1)],
+    )
+    if active_record:
+        checkout_time = datetime.utcnow()
+        await db.attendance.update_one(
+            {"id": active_record["id"]},
+            {
+                "$set": {
+                    "check_out_time": checkout_time,
+                    "check_out_method": "qr",
+                    "auto_checked_out": False,
+                }
+            },
+        )
+        next_allowed = checkout_time + timedelta(hours=ATTENDANCE_RECHECKIN_COOLDOWN_HOURS)
+        return {
+            "action": "checkout",
+            "message": "QR Check-out successful",
+            "next_checkin_at": next_allowed.isoformat(),
+        }
+
+    await enforce_recheckin_cooldown(current_user.id)
+
+    record = AttendanceRecord(
+        user_id=current_user.id,
+        center=current_user.center or "Ranaghat",
+        method="qr",
+    )
+    await db.attendance.insert_one(record.dict())
+    return {
+        "action": "checkin",
+        "message": "QR Check-in successful",
+        "record": record.dict(),
+    }
 
 @api_router.post("/attendance/qr-check-in")
 async def qr_check_in(code: str, current_user: UserInDB = Depends(get_current_user)):
     await finalize_expired_attendance_sessions()
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    stored = await ensure_daily_qr_codes(today)
-    expected_code = stored.get("check_in_code") or stored.get("code")
+    if current_user.role != "member":
+        raise HTTPException(status_code=403, detail="Only members can use QR check-in")
+
+    shared = await ensure_shared_attendance_qr()
+    expected_code = (shared.get("code") or "").strip()
+    scanned_code = normalize_attendance_qr_input(code)
     
-    if not expected_code or expected_code != code:
+    if not expected_code or expected_code != scanned_code:
         raise HTTPException(status_code=400, detail="Invalid QR code")
     
-    # Check if already checked in
-    today_start = get_day_start_utc()
+    # Do not allow a new session while any prior session is still active.
     existing = await db.attendance.find_one({
         "user_id": current_user.id,
-        "check_in_time": {"$gte": today_start}
+        "check_out_time": None,
     })
     
     if existing:
-        raise HTTPException(status_code=400, detail="Already checked in today")
+        raise HTTPException(status_code=400, detail="Already checked in")
+
+    await enforce_recheckin_cooldown(current_user.id)
     
     record = AttendanceRecord(
         user_id=current_user.id,
@@ -2733,34 +3174,38 @@ async def qr_check_out(code: str, current_user: UserInDB = Depends(get_current_u
     if current_user.role != "member":
         raise HTTPException(status_code=403, detail="Only members can use QR check-out")
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    stored = await ensure_daily_qr_codes(today)
-    expected_code = stored.get("check_out_code")
-    if not expected_code or expected_code != code:
+    shared = await ensure_shared_attendance_qr()
+    expected_code = (shared.get("code") or "").strip()
+    scanned_code = normalize_attendance_qr_input(code)
+    if not expected_code or expected_code != scanned_code:
         raise HTTPException(status_code=400, detail="Invalid QR code")
 
-    today_start = get_day_start_utc()
     record = await db.attendance.find_one(
         {
             "user_id": current_user.id,
-            "check_in_time": {"$gte": today_start},
             "check_out_time": None,
-        }
+        },
+        sort=[("check_in_time", -1)],
     )
     if not record:
         raise HTTPException(status_code=400, detail="No active check-in found")
 
+    checkout_time = datetime.utcnow()
     await db.attendance.update_one(
         {"id": record["id"]},
         {
             "$set": {
-                "check_out_time": datetime.utcnow(),
+                "check_out_time": checkout_time,
                 "check_out_method": "qr",
                 "auto_checked_out": False,
             }
         },
     )
-    return {"message": "QR Check-out successful"}
+    next_allowed = checkout_time + timedelta(hours=ATTENDANCE_RECHECKIN_COOLDOWN_HOURS)
+    return {
+        "message": "QR Check-out successful",
+        "next_checkin_at": next_allowed.isoformat(),
+    }
 
 # ==================== NOTIFICATION ROUTES ====================
 
@@ -3580,7 +4025,16 @@ async def get_my_payment_summary(current_user: UserInDB = Depends(get_current_us
 
     profile = await db.member_profiles.find_one({"user_id": current_user.id})
     membership = normalize_membership_plan(profile.get("membership") if profile else None)
+    if profile and not membership:
+        membership = build_default_membership_plan(current_user.created_at)
+        await db.member_profiles.update_one(
+            {"user_id": current_user.id},
+            {"$set": {"membership": membership}},
+            upsert=True,
+        )
+        profile["membership"] = membership
     due_details = get_membership_due_details(membership) if membership else None
+    active_due_details = due_details if due_details and due_details.get("is_due_now") else None
 
     if profile and membership and membership != profile.get("membership"):
         await db.member_profiles.update_one(
@@ -3601,7 +4055,7 @@ async def get_my_payment_summary(current_user: UserInDB = Depends(get_current_us
     ).sort("payment_date", -1).to_list(5)
 
     return {
-        "membership_due": due_details,
+        "membership_due": active_due_details,
         "membership_plan": membership,
         "membership_history": [sanitize_mongo_doc(p) for p in membership_history],
         "shop_history": [sanitize_mongo_doc(p) for p in shop_history],
@@ -4053,6 +4507,8 @@ async def admin_dashboard(
         "membership.end_date": {"$lte": next_week, "$gte": now}
     }
 
+    pending_approval_query = build_pending_approvals_query(current_user)
+
     (
         total_members,
         active_members,
@@ -4069,7 +4525,7 @@ async def admin_dashboard(
         db.attendance.count_documents(attendance_query),
         db.payments.find(payment_query).to_list(1000),
         db.member_profiles.count_documents(expiring_query),
-        db.approval_requests.count_documents({"status": "pending"}),
+        db.approval_requests.count_documents(pending_approval_query),
         db.merchandise_orders.count_documents({"status": "pending"}),
     )
     monthly_revenue = sum(p["amount"] for p in payments)
@@ -4097,11 +4553,7 @@ async def trainer_dashboard(current_user: UserInDB = Depends(get_current_user)):
         "receiver_id": current_user.id,
         "read": False
     })
-    pending_approvals_task = db.approval_requests.count_documents({
-        "status": "pending",
-        "user_role": "member",
-        "center": current_user.center
-    })
+    pending_approvals_task = db.approval_requests.count_documents(build_pending_approvals_query(current_user))
 
     profiles, assigned_members, unread_messages, pending_approvals = await asyncio.gather(
         profiles_task,
@@ -4134,10 +4586,20 @@ async def member_dashboard(current_user: UserInDB = Depends(get_current_user)):
     profile = await db.member_profiles.find_one({"user_id": current_user.id})
     
     # Membership status
-    membership_valid = False
+    membership_valid = True
     days_remaining = 0
     payment_due = False
     payment_due_info = None
+    if profile:
+        if not profile.get("membership"):
+            default_membership = build_default_membership_plan(current_user.created_at)
+            await db.member_profiles.update_one(
+                {"user_id": current_user.id},
+                {"$set": {"membership": default_membership}},
+                upsert=True,
+            )
+            profile["membership"] = default_membership
+
     if profile and profile.get("membership"):
         membership = normalize_membership_plan(profile["membership"])
         if membership and membership != profile["membership"]:
@@ -4147,14 +4609,13 @@ async def member_dashboard(current_user: UserInDB = Depends(get_current_user)):
             )
             profile["membership"] = membership
 
-        end_date = profile["membership"].get("end_date")
-        if end_date:
-            end_date = coerce_utc_naive_datetime(end_date, datetime.utcnow()) or datetime.utcnow()
-            days_remaining = (end_date - datetime.utcnow()).days
-            membership_valid = days_remaining > 0
-
         payment_due_info = get_membership_due_details(profile["membership"])
         payment_due = bool(payment_due_info and payment_due_info["is_due_now"])
+        if payment_due_info:
+            days_remaining = int(payment_due_info.get("days_until_due") or 0)
+            membership_valid = not bool(payment_due_info.get("is_overdue"))
+        else:
+            membership_valid = True
     
     now = datetime.utcnow()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -4324,10 +4785,13 @@ async def startup_event():
     try:
         await db.users.create_index([("id", 1)], unique=True)
         await db.users.create_index([("email", 1)], unique=True)
+        await db.users.create_index([("phone", 1)])
         await db.users.create_index([("role", 1), ("center", 1)])
         await db.users.create_index([("date_of_birth", 1), ("is_active", 1), ("approval_status", 1)])
         await db.member_profiles.create_index([("user_id", 1)], unique=True)
         await db.member_profiles.create_index([("assigned_trainers", 1)])
+        await db.password_reset_otps.create_index([("phone", 1)], unique=True)
+        await db.password_reset_otps.create_index([("expires_at", 1)], expireAfterSeconds=0)
         await db.attendance.create_index([("user_id", 1), ("check_in_time", -1)])
         await db.attendance.create_index([("check_out_time", 1), ("check_in_time", 1)])
         await db.attendance.create_index([("center", 1), ("check_in_time", -1)])
