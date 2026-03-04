@@ -1232,6 +1232,25 @@ def normalize_indian_phone(phone: str) -> str:
 
     return f"{INDIA_PHONE_PREFIX}{digits}"
 
+def phone_lookup_values(normalized_phone: str) -> List[str]:
+    digits = "".join(ch for ch in (normalized_phone or "") if ch.isdigit())
+    ten_digits = digits[2:] if digits.startswith("91") and len(digits) >= 12 else digits[-10:]
+    candidates = [normalized_phone]
+    if ten_digits:
+        candidates.extend([
+            ten_digits,
+            f"91{ten_digits}",
+            f"{INDIA_PHONE_PREFIX}{ten_digits}",
+        ])
+    # Preserve order and remove duplicates.
+    deduped: List[str] = []
+    seen = set()
+    for item in candidates:
+        if item and item not in seen:
+            seen.add(item)
+            deduped.append(item)
+    return deduped
+
 async def can_users_chat(sender: Dict, receiver: Dict) -> Tuple[bool, str]:
     if sender.get("id") == receiver.get("id"):
         return False, "Cannot message yourself"
@@ -1923,9 +1942,10 @@ def normalize_password_reset_otp(value: str) -> str:
 @api_router.post("/auth/forgot-password/request-otp")
 async def request_forgotten_password_otp(payload: ForgotPasswordOtpRequest):
     normalized_phone = normalize_indian_phone(payload.phone)
+    phone_candidates = phone_lookup_values(normalized_phone)
     user_doc = await run_with_mongo_retry(
         lambda: db.users.find_one(
-            {"phone": normalized_phone},
+            {"phone": {"$in": phone_candidates}},
             {"id": 1, "full_name": 1, "is_active": 1},
         ),
         context="auth.forgot_password.request_otp.find_user",
@@ -2038,7 +2058,7 @@ async def reset_forgotten_password(payload: ForgotPasswordResetRequest):
         )
 
     user_doc = await run_with_mongo_retry(
-        lambda: db.users.find_one({"phone": normalized_phone}),
+        lambda: db.users.find_one({"phone": {"$in": phone_lookup_values(normalized_phone)}}),
         context="auth.forgot_password.reset.find_user",
     )
     if not user_doc:
