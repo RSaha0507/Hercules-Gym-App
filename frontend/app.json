@@ -19,7 +19,10 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000"
       },
-      "edgeToEdgeEnabled": false
+      "edgeToEdgeEnabled": false,
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "web": {
       "bundler": "metro",
@@ -47,6 +50,9 @@
         "projectId": "6367884f-d4e3-4294-9e8b-15aad81071d1"
       }
     },
-    "owner": "rounaks"
+    "owner": "rounaks",
+    "updates": {
+      "url": "https://u.expo.dev/6367884f-d4e3-4294-9e8b-15aad81071d1"
+    }
   }
 }

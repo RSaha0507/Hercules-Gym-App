@@ -265,6 +265,12 @@ class DataDeletionRequestResolve(BaseModel):
     status: Literal["in_review", "completed", "rejected"] = "completed"
     note: Optional[str] = None
 
+class SupportContactResponse(BaseModel):
+    primary_admin_name: str
+    primary_admin_phone: str
+    primary_admin_email: str
+    technical_support_phone: str
+
 class UserResponse(UserBase):
     id: str
     created_at: datetime
@@ -1860,6 +1866,42 @@ async def get_me(current_user: UserInDB = Depends(get_current_user)):
         approval_status=current_user.approval_status,
         push_token=current_user.push_token,
         achievements=current_user.achievements or [],
+    )
+
+@api_router.get("/support/contact", response_model=SupportContactResponse)
+async def get_support_contact(current_user: UserInDB = Depends(get_current_user)):
+    primary_admin_doc = await run_with_mongo_retry(
+        lambda: db.users.find_one(
+            {
+                "role": "admin",
+                "is_primary_admin": True,
+            },
+            {
+                "full_name": 1,
+                "phone": 1,
+                "email": 1,
+            },
+        ),
+        context="support.contact.find_primary_admin",
+    )
+
+    fallback_email = (os.environ.get("SUPPORT_FALLBACK_EMAIL") or "binod20may@gmail.com").strip()
+    fallback_phone = (os.environ.get("SUPPORT_FALLBACK_PHONE") or "").strip()
+    technical_support_phone = (os.environ.get("TECHNICAL_SUPPORT_PHONE") or "+91 8617422754").strip()
+
+    if primary_admin_doc:
+        return SupportContactResponse(
+            primary_admin_name=(primary_admin_doc.get("full_name") or "Primary Admin").strip(),
+            primary_admin_phone=(primary_admin_doc.get("phone") or fallback_phone).strip(),
+            primary_admin_email=(primary_admin_doc.get("email") or fallback_email).strip(),
+            technical_support_phone=technical_support_phone,
+        )
+
+    return SupportContactResponse(
+        primary_admin_name="Binod Kumar Gond",
+        primary_admin_phone=fallback_phone,
+        primary_admin_email=fallback_email,
+        technical_support_phone=technical_support_phone,
     )
 
 @api_router.put("/auth/push-token")

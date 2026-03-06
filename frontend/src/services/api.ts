@@ -430,6 +430,16 @@ class ApiService {
     return response.data;
   }
 
+  async getSupportContact() {
+    await this.ensureRouteAvailable('/support/contact', 'Help and support contact');
+    try {
+      const response = await this.client.get('/support/contact');
+      return response.data;
+    } catch (error: any) {
+      this.throwFeatureUnavailable(error, 'Help and support contact');
+    }
+  }
+
   // Messages
   async sendMessage(receiverId: string, content: string, messageType: string = 'text') {
     const response = await this.client.post('/messages', {

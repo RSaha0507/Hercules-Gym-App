@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -13,11 +13,28 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '../../src/context/ThemeContext';
+import { api } from '../../src/services/api';
+
+const TECHNICAL_SUPPORT_FALLBACK_PHONE = '+91 8617422754';
+const PRIMARY_ADMIN_FALLBACK_EMAIL = 'binod20may@gmail.com';
+
+type SupportContact = {
+  primary_admin_name: string;
+  primary_admin_phone: string;
+  primary_admin_email: string;
+  technical_support_phone: string;
+};
 
 export default function HelpSupportScreen() {
   const { theme } = useTheme();
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
+  const [supportContact, setSupportContact] = useState<SupportContact>({
+    primary_admin_name: 'Primary Admin',
+    primary_admin_phone: '',
+    primary_admin_email: PRIMARY_ADMIN_FALLBACK_EMAIL,
+    technical_support_phone: TECHNICAL_SUPPORT_FALLBACK_PHONE,
+  });
 
   const faqs = [
     {
@@ -42,24 +59,88 @@ export default function HelpSupportScreen() {
     },
   ];
 
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSupportContact = async () => {
+      try {
+        const response = await api.getSupportContact();
+        if (!mounted || !response) return;
+
+        setSupportContact({
+          primary_admin_name: (response.primary_admin_name || 'Primary Admin').trim(),
+          primary_admin_phone: String(response.primary_admin_phone || '').trim(),
+          primary_admin_email: String(response.primary_admin_email || PRIMARY_ADMIN_FALLBACK_EMAIL).trim(),
+          technical_support_phone: String(
+            response.technical_support_phone || TECHNICAL_SUPPORT_FALLBACK_PHONE
+          ).trim(),
+        });
+      } catch (error) {
+        console.log('Failed to load support contact:', error);
+      }
+    };
+
+    loadSupportContact();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const openExternalLink = async (url: string, fallbackMessage: string) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) {
+        Alert.alert('Error', fallbackMessage);
+        return;
+      }
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Error', fallbackMessage);
+    }
+  };
+
+  const primaryAdminDialPhone = supportContact.primary_admin_phone.replace(/[^\d+]/g, '');
+  const primaryAdminWhatsappPhone = supportContact.primary_admin_phone.replace(/\D/g, '');
+  const technicalSupportDialPhone = supportContact.technical_support_phone.replace(/[^\d+]/g, '');
+
   const contactOptions = [
     {
       icon: 'call',
       title: 'Call Us',
-      subtitle: '+91 98765 43210',
-      action: () => Linking.openURL('tel:+919876543210'),
+      subtitle: supportContact.primary_admin_phone || 'Primary admin phone unavailable',
+      action: () => {
+        if (!primaryAdminDialPhone) {
+          Alert.alert('Error', 'Primary admin phone number is not available yet.');
+          return;
+        }
+        openExternalLink(`tel:${primaryAdminDialPhone}`, 'Unable to place the call right now.');
+      },
     },
     {
       icon: 'mail',
       title: 'Email Us',
-      subtitle: 'support@herculesgym.com',
-      action: () => Linking.openURL('mailto:support@herculesgym.com'),
+      subtitle: supportContact.primary_admin_email,
+      action: () =>
+        openExternalLink(
+          `mailto:${supportContact.primary_admin_email}`,
+          'Unable to open email client right now.'
+        ),
     },
     {
       icon: 'logo-whatsapp',
       title: 'WhatsApp',
       subtitle: 'Quick support',
-      action: () => Linking.openURL('https://wa.me/919876543210'),
+      action: () => {
+        if (!primaryAdminWhatsappPhone) {
+          Alert.alert('Error', 'Primary admin WhatsApp number is not available yet.');
+          return;
+        }
+        openExternalLink(
+          `https://wa.me/${primaryAdminWhatsappPhone}`,
+          'Unable to open WhatsApp right now.'
+        );
+      },
     },
   ];
 
@@ -116,6 +197,33 @@ export default function HelpSupportScreen() {
               </Text>
             </TouchableOpacity>
           ))}
+        </View>
+
+        <View style={[styles.techSupportCard, { backgroundColor: theme.card }]}>
+          <View style={[styles.techSupportIcon, { backgroundColor: theme.primary + '20' }]}>
+            <Ionicons name="construct-outline" size={22} color={theme.primary} />
+          </View>
+          <View style={styles.techSupportContent}>
+            <Text style={[styles.techSupportTitle, { color: theme.text }]}>Technical Issues</Text>
+            <Text style={[styles.techSupportSubtitle, { color: theme.textSecondary }]}>
+              Call {supportContact.technical_support_phone || TECHNICAL_SUPPORT_FALLBACK_PHONE}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.techSupportButton, { backgroundColor: theme.primary }]}
+            onPress={() => {
+              if (!technicalSupportDialPhone) {
+                Alert.alert('Error', 'Technical support phone number is unavailable.');
+                return;
+              }
+              openExternalLink(
+                `tel:${technicalSupportDialPhone}`,
+                'Unable to place the technical support call right now.'
+              );
+            }}
+          >
+            <Text style={styles.techSupportButtonText}>Call Now</Text>
+          </TouchableOpacity>
         </View>
 
         {/* FAQs */}
@@ -252,6 +360,42 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
     textAlign: 'center',
+  },
+  techSupportCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 24,
+    gap: 12,
+  },
+  techSupportIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  techSupportContent: {
+    flex: 1,
+  },
+  techSupportTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  techSupportSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  techSupportButton: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  techSupportButtonText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
   faqItem: {
     padding: 16,
