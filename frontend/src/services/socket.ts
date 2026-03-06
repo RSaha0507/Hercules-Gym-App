@@ -64,6 +64,18 @@ class SocketService {
     }
   }
 
+  onNotification(callback: (notification: any) => void) {
+    if (this.socket && this.userId) {
+      this.socket.on(`notification_${this.userId}`, callback);
+    }
+  }
+
+  offNotification() {
+    if (this.socket && this.userId) {
+      this.socket.off(`notification_${this.userId}`);
+    }
+  }
+
   onTyping(callback: (data: { sender_id: string }) => void) {
     if (this.socket && this.userId) {
       this.socket.on(`typing_${this.userId}`, callback);

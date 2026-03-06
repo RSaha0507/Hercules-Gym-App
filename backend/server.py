@@ -21,6 +21,7 @@ from bson import ObjectId
 import httpx
 import asyncio
 import json
+import math
 from email_validator import validate_email, EmailNotValidError
 from pymongo.errors import AutoReconnect, ConnectionFailure, NetworkTimeout, ServerSelectionTimeoutError, PyMongoError
 import re
@@ -115,6 +116,9 @@ ATTENDANCE_HISTORY_MONTHS_LIMIT = 5
 ATTENDANCE_RETENTION_DAYS = max(150, read_int_env("ATTENDANCE_RETENTION_DAYS", 180))
 ATTENDANCE_ENFORCE_QR_CHECKOUT = read_bool_env("ATTENDANCE_ENFORCE_QR_CHECKOUT", False)
 ATTENDANCE_RECHECKIN_COOLDOWN_HOURS = max(0, read_int_env("ATTENDANCE_RECHECKIN_COOLDOWN_HOURS", 5))
+ATTENDANCE_QR_GEOFENCE_METERS = max(50.0, read_float_env("ATTENDANCE_QR_GEOFENCE_METERS", 180.0))
+ATTENDANCE_QR_MAX_GPS_ACCURACY_METERS = max(30.0, read_float_env("ATTENDANCE_QR_MAX_GPS_ACCURACY_METERS", 250.0))
+ATTENDANCE_QR_BLOCK_MOCK_LOCATION = read_bool_env("ATTENDANCE_QR_BLOCK_MOCK_LOCATION", True)
 PASSWORD_RESET_OTP_LENGTH = min(8, max(4, read_int_env("PASSWORD_RESET_OTP_LENGTH", 6)))
 PASSWORD_RESET_OTP_TTL_MINUTES = max(1, read_int_env("PASSWORD_RESET_OTP_TTL_MINUTES", 10))
 PASSWORD_RESET_OTP_RESEND_SECONDS = max(10, read_int_env("PASSWORD_RESET_OTP_RESEND_SECONDS", 45))
@@ -131,6 +135,30 @@ APP_SETTING_ATTENDANCE_QR_KEY = "attendance_qr"
 PASSWORD_MIN_LENGTH = max(8, read_int_env("PASSWORD_MIN_LENGTH", 8))
 HERO_IMAGE_URI_MAX_LENGTH = max(120000, read_int_env("HERO_IMAGE_URI_MAX_LENGTH", 650000))
 ATTENDANCE_SHARED_QR_CODE = (os.environ.get("ATTENDANCE_SHARED_QR_CODE") or "").strip()
+
+
+def _read_center_coordinate(center: str, coord_name: str, default: float) -> float:
+    env_key = f"CENTER_{center.upper()}_{coord_name}"
+    return read_float_env(env_key, default)
+
+
+# Approximate center coordinates; override via env vars:
+# CENTER_RANAGHAT_LAT/LNG, CENTER_CHAKDAH_LAT/LNG, CENTER_MADANPUR_LAT/LNG.
+GYM_CENTER_COORDINATES: Dict[str, Tuple[float, float]] = {
+    "Ranaghat": (
+        _read_center_coordinate("RANAGHAT", "LAT", 23.1728),
+        _read_center_coordinate("RANAGHAT", "LNG", 88.5664),
+    ),
+    "Chakdah": (
+        _read_center_coordinate("CHAKDAH", "LAT", 23.0765),
+        _read_center_coordinate("CHAKDAH", "LNG", 88.5370),
+    ),
+    "Madanpur": (
+        _read_center_coordinate("MADANPUR", "LAT", 23.0086),
+        _read_center_coordinate("MADANPUR", "LNG", 88.4863),
+    ),
+}
+
 DEFAULT_HERO_GALLERY = [
     {
         "id": "hero-1",
@@ -418,6 +446,13 @@ class AttendanceRecord(BaseModel):
 class AttendanceCreate(BaseModel):
     user_id: str
     method: Literal["qr", "manual", "self"] = "manual"
+
+class QrScanRequest(BaseModel):
+    code: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    accuracy_m: Optional[float] = None
+    is_mocked: Optional[bool] = None
 
 # Message Models
 class Message(BaseModel):
@@ -3025,6 +3060,102 @@ def normalize_attendance_qr_input(raw_code: Optional[str]) -> str:
 
     return value
 
+def to_float_or_none(value: Optional[object]) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+def haversine_distance_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    earth_radius_m = 6371000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_phi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return earth_radius_m * c
+
+def resolve_center_coordinates(center: Optional[str]) -> Optional[Tuple[float, float]]:
+    if not center:
+        return None
+    return GYM_CENTER_COORDINATES.get(center)
+
+def resolve_qr_scan_payload(
+    payload: Optional[QrScanRequest],
+    *,
+    code: Optional[str],
+    latitude: Optional[float],
+    longitude: Optional[float],
+    accuracy_m: Optional[float],
+    is_mocked: Optional[bool],
+) -> Tuple[str, Optional[float], Optional[float], Optional[float], Optional[bool]]:
+    resolved_code = normalize_attendance_qr_input(payload.code if payload else code)
+    resolved_lat = to_float_or_none(payload.latitude if payload and payload.latitude is not None else latitude)
+    resolved_lng = to_float_or_none(payload.longitude if payload and payload.longitude is not None else longitude)
+    resolved_accuracy = to_float_or_none(payload.accuracy_m if payload and payload.accuracy_m is not None else accuracy_m)
+    resolved_mocked = payload.is_mocked if payload and payload.is_mocked is not None else is_mocked
+    return resolved_code, resolved_lat, resolved_lng, resolved_accuracy, resolved_mocked
+
+def validate_qr_scan_member_location(
+    *,
+    member_center: Optional[str],
+    latitude: Optional[float],
+    longitude: Optional[float],
+    accuracy_m: Optional[float],
+    is_mocked: Optional[bool],
+):
+    if latitude is None or longitude is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Location is required for QR attendance scan.",
+        )
+
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        raise HTTPException(status_code=400, detail="Invalid location coordinates.")
+
+    if (
+        ATTENDANCE_QR_BLOCK_MOCK_LOCATION
+        and is_mocked is True
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Mock location is not allowed for QR attendance.",
+        )
+
+    if accuracy_m is not None and accuracy_m > ATTENDANCE_QR_MAX_GPS_ACCURACY_METERS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Location accuracy is too low. Move near the gym entrance and try again "
+                f"(accuracy <= {int(ATTENDANCE_QR_MAX_GPS_ACCURACY_METERS)}m required)."
+            ),
+        )
+
+    center_coordinates = resolve_center_coordinates(member_center)
+    if not center_coordinates:
+        raise HTTPException(status_code=400, detail="Member center coordinates are not configured.")
+
+    distance_m = haversine_distance_meters(
+        latitude,
+        longitude,
+        center_coordinates[0],
+        center_coordinates[1],
+    )
+    if distance_m > ATTENDANCE_QR_GEOFENCE_METERS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"QR scan allowed only inside gym perimeter. You are about {int(distance_m)}m away from "
+                f"{member_center} center."
+            ),
+        )
+
 def format_india_time(dt_value: datetime) -> str:
     normalized = coerce_utc_naive_datetime(dt_value, datetime.utcnow()) or datetime.utcnow()
     india_dt = normalized.replace(tzinfo=timezone.utc).astimezone(INDIA_TIMEZONE)
@@ -3322,18 +3453,41 @@ async def get_qr_code(current_user: UserInDB = Depends(require_admin)):
     }
 
 @api_router.post("/attendance/qr-scan")
-async def qr_scan(code: str, current_user: UserInDB = Depends(get_current_user)):
+async def qr_scan(
+    payload: Optional[QrScanRequest] = None,
+    code: Optional[str] = Query(None),
+    latitude: Optional[float] = Query(None),
+    longitude: Optional[float] = Query(None),
+    accuracy_m: Optional[float] = Query(None),
+    is_mocked: Optional[bool] = Query(None),
+    current_user: UserInDB = Depends(get_current_user),
+):
     await finalize_expired_attendance_sessions()
 
     if current_user.role != "member":
         raise HTTPException(status_code=403, detail="Only members can use QR attendance scan")
 
+    scanned_code, scan_latitude, scan_longitude, scan_accuracy, scan_is_mocked = resolve_qr_scan_payload(
+        payload,
+        code=code,
+        latitude=latitude,
+        longitude=longitude,
+        accuracy_m=accuracy_m,
+        is_mocked=is_mocked,
+    )
     shared = await ensure_shared_attendance_qr()
     expected_code = (shared.get("code") or "").strip()
-    scanned_code = normalize_attendance_qr_input(code)
 
     if not expected_code or scanned_code != expected_code:
         raise HTTPException(status_code=400, detail="Invalid QR code")
+
+    validate_qr_scan_member_location(
+        member_center=current_user.center,
+        latitude=scan_latitude,
+        longitude=scan_longitude,
+        accuracy_m=scan_accuracy,
+        is_mocked=scan_is_mocked,
+    )
 
     active_record = await db.attendance.find_one(
         {"user_id": current_user.id, "check_out_time": None},
@@ -3373,18 +3527,41 @@ async def qr_scan(code: str, current_user: UserInDB = Depends(get_current_user))
     }
 
 @api_router.post("/attendance/qr-check-in")
-async def qr_check_in(code: str, current_user: UserInDB = Depends(get_current_user)):
+async def qr_check_in(
+    payload: Optional[QrScanRequest] = None,
+    code: Optional[str] = Query(None),
+    latitude: Optional[float] = Query(None),
+    longitude: Optional[float] = Query(None),
+    accuracy_m: Optional[float] = Query(None),
+    is_mocked: Optional[bool] = Query(None),
+    current_user: UserInDB = Depends(get_current_user),
+):
     await finalize_expired_attendance_sessions()
 
     if current_user.role != "member":
         raise HTTPException(status_code=403, detail="Only members can use QR check-in")
 
+    scanned_code, scan_latitude, scan_longitude, scan_accuracy, scan_is_mocked = resolve_qr_scan_payload(
+        payload,
+        code=code,
+        latitude=latitude,
+        longitude=longitude,
+        accuracy_m=accuracy_m,
+        is_mocked=is_mocked,
+    )
     shared = await ensure_shared_attendance_qr()
     expected_code = (shared.get("code") or "").strip()
-    scanned_code = normalize_attendance_qr_input(code)
-    
+
     if not expected_code or expected_code != scanned_code:
         raise HTTPException(status_code=400, detail="Invalid QR code")
+
+    validate_qr_scan_member_location(
+        member_center=current_user.center,
+        latitude=scan_latitude,
+        longitude=scan_longitude,
+        accuracy_m=scan_accuracy,
+        is_mocked=scan_is_mocked,
+    )
     
     # Do not allow a new session while any prior session is still active.
     existing = await db.attendance.find_one({
@@ -3408,17 +3585,40 @@ async def qr_check_in(code: str, current_user: UserInDB = Depends(get_current_us
     return {"message": "QR Check-in successful", "record": record.dict()}
 
 @api_router.post("/attendance/qr-check-out")
-async def qr_check_out(code: str, current_user: UserInDB = Depends(get_current_user)):
+async def qr_check_out(
+    payload: Optional[QrScanRequest] = None,
+    code: Optional[str] = Query(None),
+    latitude: Optional[float] = Query(None),
+    longitude: Optional[float] = Query(None),
+    accuracy_m: Optional[float] = Query(None),
+    is_mocked: Optional[bool] = Query(None),
+    current_user: UserInDB = Depends(get_current_user),
+):
     await finalize_expired_attendance_sessions()
 
     if current_user.role != "member":
         raise HTTPException(status_code=403, detail="Only members can use QR check-out")
 
+    scanned_code, scan_latitude, scan_longitude, scan_accuracy, scan_is_mocked = resolve_qr_scan_payload(
+        payload,
+        code=code,
+        latitude=latitude,
+        longitude=longitude,
+        accuracy_m=accuracy_m,
+        is_mocked=is_mocked,
+    )
     shared = await ensure_shared_attendance_qr()
     expected_code = (shared.get("code") or "").strip()
-    scanned_code = normalize_attendance_qr_input(code)
     if not expected_code or expected_code != scanned_code:
         raise HTTPException(status_code=400, detail="Invalid QR code")
+
+    validate_qr_scan_member_location(
+        member_center=current_user.center,
+        latitude=scan_latitude,
+        longitude=scan_longitude,
+        accuracy_m=scan_accuracy,
+        is_mocked=scan_is_mocked,
+    )
 
     record = await db.attendance.find_one(
         {
@@ -3496,6 +3696,27 @@ async def send_message(message: MessageCreate, current_user: UserInDB = Depends(
     )
     
     await db.messages.insert_one(msg.dict())
+
+    # Persist in-app notification and trigger push delivery for receiver.
+    try:
+        if message.receiver_id != current_user.id:
+            preview = (message.content or "").strip()
+            if len(preview) > 80:
+                preview = f"{preview[:77]}..."
+            await send_notification_to_user(
+                message.receiver_id,
+                f"New message from {current_user.full_name}",
+                preview or "You received a new message.",
+                "general",
+                {
+                    "sender_id": current_user.id,
+                    "receiver_id": message.receiver_id,
+                    "message_id": msg.id,
+                    "type": "message",
+                },
+            )
+    except Exception as exc:
+        logger.error(f"Message notification failed for {msg.id}: {exc}")
 
     # Keep message delivery robust: persistence success should not fail due conversation/socket side-effects.
     try:
@@ -3766,42 +3987,62 @@ async def create_announcement(
     await db.announcements.insert_one(ann.dict())
 
     ann_payload = ann.dict()
+    recipient_ids: List[str] = []
+    if announcement.target == "all":
+        users = await db.users.find({"is_active": True}, {"id": 1}).to_list(5000)
+        recipient_ids = [u.get("id") for u in users if u.get("id")]
+    elif announcement.target == "members":
+        users = await db.users.find({"role": "member", "is_active": True}, {"id": 1}).to_list(2000)
+        recipient_ids = [u.get("id") for u in users if u.get("id")]
+    elif announcement.target == "members_center" and announcement.target_center:
+        users = await db.users.find(
+            {"role": "member", "center": announcement.target_center, "is_active": True},
+            {"id": 1},
+        ).to_list(2000)
+        recipient_ids = [u.get("id") for u in users if u.get("id")]
+    elif announcement.target == "trainers":
+        users = await db.users.find({"role": "trainer", "is_active": True}, {"id": 1}).to_list(2000)
+        recipient_ids = [u.get("id") for u in users if u.get("id")]
+    elif announcement.target == "center" and announcement.target_center:
+        users = await db.users.find(
+            {"center": announcement.target_center, "is_active": True},
+            {"id": 1},
+        ).to_list(5000)
+        recipient_ids = [u.get("id") for u in users if u.get("id")]
+    else:
+        recipient_ids = [user_id for user_id in target_users if user_id]
+
+    if current_user.id in recipient_ids:
+        recipient_ids = [uid for uid in recipient_ids if uid != current_user.id]
+
     try:
         if announcement.target == "all":
             await sio.emit("announcement", ann_payload)
-        elif announcement.target == "members":
-            members = await db.users.find({"role": "member", "is_active": True}).to_list(2000)
+        if recipient_ids:
             await asyncio.gather(
-                *[sio.emit(f"announcement_{member['id']}", ann_payload) for member in members],
-                return_exceptions=True,
-            )
-        elif announcement.target == "members_center" and announcement.target_center:
-            members = await db.users.find(
-                {"role": "member", "center": announcement.target_center, "is_active": True}
-            ).to_list(2000)
-            await asyncio.gather(
-                *[sio.emit(f"announcement_{member['id']}", ann_payload) for member in members],
-                return_exceptions=True,
-            )
-        elif announcement.target == "trainers":
-            trainers = await db.users.find({"role": "trainer", "is_active": True}).to_list(2000)
-            await asyncio.gather(
-                *[sio.emit(f"announcement_{trainer['id']}", ann_payload) for trainer in trainers],
-                return_exceptions=True,
-            )
-        elif announcement.target == "center" and announcement.target_center:
-            users = await db.users.find({"center": announcement.target_center, "is_active": True}).to_list(5000)
-            await asyncio.gather(
-                *[sio.emit(f"announcement_{user['id']}", ann_payload) for user in users],
-                return_exceptions=True,
-            )
-        else:
-            await asyncio.gather(
-                *[sio.emit(f"announcement_{user_id}", ann_payload) for user_id in announcement.target_users],
+                *[sio.emit(f"announcement_{user_id}", ann_payload) for user_id in recipient_ids],
                 return_exceptions=True,
             )
     except Exception as exc:
         logger.error(f"Announcement emit failed for {ann.id}: {exc}")
+
+    if recipient_ids:
+        preview_body = announcement.content.strip()
+        if len(preview_body) > 140:
+            preview_body = f"{preview_body[:137]}..."
+        await asyncio.gather(
+            *[
+                send_notification_to_user(
+                    user_id,
+                    f"Announcement: {announcement.title}",
+                    preview_body,
+                    "announcement",
+                    {"announcement_id": ann.id, "target": announcement.target},
+                )
+                for user_id in recipient_ids
+            ],
+            return_exceptions=True,
+        )
 
     return ann.dict()
 

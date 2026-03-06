@@ -331,6 +331,14 @@ const BN_TRANSLATIONS: Record<string, string> = {
   '1-7: Standard Fee Rs.700': '১-৭: স্ট্যান্ডার্ড ফি Rs.700',
   '8+: Rs.5/day late fee': '৮+: প্রতিদিন Rs.5 লেট ফি',
   'Total Rs.{amount}': 'মোট Rs.{amount}',
+  'New Message': '\u09a8\u09a4\u09c1\u09a8 \u09ac\u09be\u09b0\u09cd\u09a4\u09be',
+  'You have a new message.': '\u0986\u09aa\u09a8\u09be\u09b0 \u098f\u0995\u099f\u09bf \u09a8\u09a4\u09c1\u09a8 \u09ac\u09be\u09b0\u09cd\u09a4\u09be \u098f\u09b8\u09c7\u099b\u09c7\u0964',
+  'New Notification': '\u09a8\u09a4\u09c1\u09a8 \u09a8\u09cb\u099f\u09bf\u09ab\u09bf\u0995\u09c7\u09b6\u09a8',
+  'You have a new notification.': '\u0986\u09aa\u09a8\u09be\u09b0 \u098f\u0995\u099f\u09bf \u09a8\u09a4\u09c1\u09a8 \u09a8\u09cb\u099f\u09bf\u09ab\u09bf\u0995\u09c7\u09b6\u09a8 \u098f\u09b8\u09c7\u099b\u09c7\u0964',
+  'New Announcement': '\u09a8\u09a4\u09c1\u09a8 \u0998\u09cb\u09b7\u09a3\u09be',
+  'A new announcement is available.': '\u098f\u0995\u099f\u09bf \u09a8\u09a4\u09c1\u09a8 \u0998\u09cb\u09b7\u09a3\u09be \u09aa\u09be\u0993\u09df\u09be \u0997\u09c7\u099b\u09c7\u0964',
+  'Seen': '\u09a6\u09c7\u0996\u09be \u09b9\u09df\u09c7\u099b\u09c7',
+  'Open': '\u0996\u09c1\u09b2\u09c1\u09a8',
 };
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);

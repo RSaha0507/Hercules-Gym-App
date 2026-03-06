@@ -3,6 +3,12 @@ import { API_BASE_URL, BACKEND_URL } from '../config/backend';
 
 export const GYM_CENTERS = ['Ranaghat', 'Chakdah', 'Madanpur'] as const;
 export type CenterType = typeof GYM_CENTERS[number];
+type QrLocationPayload = {
+  latitude?: number;
+  longitude?: number;
+  accuracy_m?: number;
+  is_mocked?: boolean;
+};
 
 class ApiService {
   private client: AxiosInstance;
@@ -394,18 +400,18 @@ class ApiService {
     return response.data;
   }
 
-  async qrCheckIn(code: string) {
-    const response = await this.client.post('/attendance/qr-check-in', null, { params: { code } });
+  async qrCheckIn(code: string, location?: QrLocationPayload) {
+    const response = await this.client.post('/attendance/qr-check-in', { code, ...(location || {}) });
     return response.data;
   }
 
-  async qrCheckOut(code: string) {
-    const response = await this.client.post('/attendance/qr-check-out', null, { params: { code } });
+  async qrCheckOut(code: string, location?: QrLocationPayload) {
+    const response = await this.client.post('/attendance/qr-check-out', { code, ...(location || {}) });
     return response.data;
   }
 
-  async qrScan(code: string) {
-    const response = await this.client.post('/attendance/qr-scan', null, { params: { code } });
+  async qrScan(code: string, location?: QrLocationPayload) {
+    const response = await this.client.post('/attendance/qr-scan', { code, ...(location || {}) });
     return response.data;
   }
 

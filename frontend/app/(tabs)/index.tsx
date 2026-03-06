@@ -71,11 +71,29 @@ const HERO_IMAGE_MAX_DATA_URI_LENGTH = 620000;
 const HERO_IMAGE_MAX_DIMENSION = 1280;
 const HERO_IMAGE_MIN_COMPRESSION = 0.24;
 
+const toUnreadCount = (value: unknown) => {
+  if (typeof value !== 'number' || Number.isNaN(value) || value < 0) return 0;
+  return Math.floor(value);
+};
+
 interface HomeCacheSnapshot {
   cached_at: number;
   dashboard: DashboardData | null;
   announcements: any[];
   hero_gallery?: { id: string; title: string; uri: string }[];
+}
+
+interface HomeSeenState {
+  announcement_signature: string;
+  unread_messages: number;
+  unread_notifications: number;
+}
+
+interface HomeSignal {
+  type: 'announcement' | 'message' | 'notification';
+  title: string;
+  body: string;
+  signature: string;
 }
 
 const DEFAULT_HERO_GALLERY = [
@@ -121,10 +139,13 @@ export default function HomeScreen() {
   const [showHeroEditor, setShowHeroEditor] = useState(false);
   const [heroDraft, setHeroDraft] = useState(DEFAULT_HERO_GALLERY);
   const [savingHeroGallery, setSavingHeroGallery] = useState(false);
+  const [homeSignal, setHomeSignal] = useState<HomeSignal | null>(null);
+  const [isSeenStateReady, setIsSeenStateReady] = useState(false);
   const isFetchingRef = useRef(false);
   const dashboardRef = useRef<DashboardData | null>(null);
   const announcementsRef = useRef<any[]>([]);
   const heroGalleryRef = useRef(DEFAULT_HERO_GALLERY);
+  const seenStateRef = useRef<HomeSeenState | null>(null);
   const userRef = useRef(user);
   const updateUserRef = useRef(updateUser);
   const heroCarouselRef = useRef<ScrollView>(null);
@@ -132,6 +153,131 @@ export default function HomeScreen() {
   const userRole = user?.role;
   const userApprovalStatus = user?.approval_status;
   const homeCacheKey = userId ? `home:dashboard:${userId}:${selectedCenter || 'all'}` : null;
+  const homeSeenStateKey = userId ? `home:seen-state:${userId}` : null;
+
+  const getAnnouncementSignature = useCallback((list: any[]) => {
+    if (!Array.isArray(list) || list.length === 0) return '';
+    const latest = list[0] || {};
+    return String(latest.id || `${latest.created_at || ''}:${latest.title || ''}`);
+  }, []);
+
+  const buildSeenStateSnapshot = useCallback(
+    (nextDashboard: DashboardData | null, nextAnnouncements: any[]): HomeSeenState => ({
+      announcement_signature: getAnnouncementSignature(nextAnnouncements),
+      unread_messages: toUnreadCount(nextDashboard?.unread_messages),
+      unread_notifications: toUnreadCount(nextDashboard?.unread_notifications),
+    }),
+    [getAnnouncementSignature],
+  );
+
+  const persistSeenState = useCallback(
+    async (next: HomeSeenState) => {
+      seenStateRef.current = next;
+      if (!homeSeenStateKey) return;
+      try {
+        await AsyncStorage.setItem(homeSeenStateKey, JSON.stringify(next));
+      } catch (error) {
+        console.log('Error storing home seen state:', error);
+      }
+    },
+    [homeSeenStateKey],
+  );
+
+  const showHomeSignal = useCallback((nextSignal: HomeSignal) => {
+    setHomeSignal((prev) => (prev?.signature === nextSignal.signature ? prev : nextSignal));
+  }, []);
+
+  const evaluateHomeSignal = useCallback(
+    (nextDashboard: DashboardData | null, nextAnnouncements: any[]) => {
+      if (!isSeenStateReady) return;
+
+      const snapshot = buildSeenStateSnapshot(nextDashboard, nextAnnouncements);
+      const seenState = seenStateRef.current;
+      if (!seenState) {
+        void persistSeenState(snapshot);
+        return;
+      }
+
+      // Keep snapshot baseline in sync when unread counters move down after user has viewed content.
+      if (
+        snapshot.unread_messages < seenState.unread_messages ||
+        snapshot.unread_notifications < seenState.unread_notifications
+      ) {
+        void persistSeenState({
+          ...seenState,
+          unread_messages: snapshot.unread_messages,
+          unread_notifications: snapshot.unread_notifications,
+        });
+      }
+
+      if (snapshot.unread_messages > seenState.unread_messages) {
+        showHomeSignal({
+          type: 'message',
+          title: t('New Message'),
+          body: t('You have a new message.'),
+          signature: `message:${snapshot.unread_messages}`,
+        });
+        return;
+      }
+
+      if (snapshot.unread_notifications > seenState.unread_notifications) {
+        showHomeSignal({
+          type: 'notification',
+          title: t('New Notification'),
+          body: t('You have a new notification.'),
+          signature: `notification:${snapshot.unread_notifications}`,
+        });
+        return;
+      }
+
+      if (
+        snapshot.announcement_signature &&
+        snapshot.announcement_signature !== seenState.announcement_signature
+      ) {
+        const latestAnnouncement = Array.isArray(nextAnnouncements) ? nextAnnouncements[0] : null;
+        showHomeSignal({
+          type: 'announcement',
+          title: t('New Announcement'),
+          body: latestAnnouncement?.title || t('A new announcement is available.'),
+          signature: `announcement:${snapshot.announcement_signature}`,
+        });
+      }
+    },
+    [buildSeenStateSnapshot, isSeenStateReady, persistSeenState, showHomeSignal, t],
+  );
+
+  const markHomeSignalSeen = useCallback(async (signal?: HomeSignal | null) => {
+    const snapshot = buildSeenStateSnapshot(dashboardRef.current, announcementsRef.current);
+    const previous = seenStateRef.current;
+    if (signal?.type === 'announcement') {
+      snapshot.announcement_signature = signal.signature.replace(/^announcement:/, '') || snapshot.announcement_signature;
+    } else if (signal?.type === 'message') {
+      snapshot.unread_messages = Math.max(
+        snapshot.unread_messages,
+        (previous?.unread_messages || 0) + 1,
+      );
+    } else if (signal?.type === 'notification') {
+      snapshot.unread_notifications = Math.max(
+        snapshot.unread_notifications,
+        (previous?.unread_notifications || 0) + 1,
+      );
+    }
+    await persistSeenState(snapshot);
+    setHomeSignal(null);
+  }, [buildSeenStateSnapshot, persistSeenState]);
+
+  const openHomeSignal = useCallback(async () => {
+    const currentSignal = homeSignal;
+    if (!currentSignal) return;
+    await markHomeSignalSeen(currentSignal);
+    if (currentSignal.type === 'message') {
+      router.push('/(tabs)/messages');
+      return;
+    }
+    if (currentSignal.type === 'notification') {
+      router.push('/profile/notifications' as any);
+    }
+  }, [homeSignal, markHomeSignalSeen]);
 
   const localizeRole = (role?: string) => {
     if (role === 'admin') return t('Admin');
@@ -259,6 +405,45 @@ export default function HomeScreen() {
   }, [heroGallery]);
 
   useEffect(() => {
+    setHomeSignal(null);
+    setIsSeenStateReady(false);
+    seenStateRef.current = null;
+
+    if (!homeSeenStateKey) {
+      setIsSeenStateReady(true);
+      return;
+    }
+
+    let isMounted = true;
+    const loadSeenState = async () => {
+      try {
+        const raw = await AsyncStorage.getItem(homeSeenStateKey);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as Partial<HomeSeenState>;
+        const normalized: HomeSeenState = {
+          announcement_signature: String(parsed.announcement_signature || ''),
+          unread_messages: toUnreadCount(parsed.unread_messages),
+          unread_notifications: toUnreadCount(parsed.unread_notifications),
+        };
+        if (isMounted) {
+          seenStateRef.current = normalized;
+        }
+      } catch (error) {
+        console.log('Error loading home seen state:', error);
+      } finally {
+        if (isMounted) {
+          setIsSeenStateReady(true);
+        }
+      }
+    };
+
+    loadSeenState();
+    return () => {
+      isMounted = false;
+    };
+  }, [homeSeenStateKey]);
+
+  useEffect(() => {
     let isMounted = true;
 
     const restoreHomeCache = async () => {
@@ -367,6 +552,8 @@ export default function HomeScreen() {
           console.log('Error caching home data:', error);
         });
       }
+
+      evaluateHomeSignal(latestDashboard, latestAnnouncements);
     } catch (error) {
       console.log('Error loading dashboard:', error);
     } finally {
@@ -374,7 +561,7 @@ export default function HomeScreen() {
       setIsLoading(false);
       setRefreshing(false);
     }
-  }, [homeCacheKey, selectedCenter, userApprovalStatus, userRole]);
+  }, [evaluateHomeSignal, homeCacheKey, selectedCenter, userApprovalStatus, userRole]);
 
   useEffect(() => {
     loadData();
@@ -384,13 +571,48 @@ export default function HomeScreen() {
       socketService.connect(userId);
       socketService.onAnnouncement((announcement) => {
         setAnnouncements((prev) => [announcement, ...prev.slice(0, HOME_ANNOUNCEMENTS_LIMIT - 1)]);
+        showHomeSignal({
+          type: 'announcement',
+          title: t('New Announcement'),
+          body: announcement?.title || t('A new announcement is available.'),
+          signature: `announcement:${announcement?.id || announcement?.created_at || Date.now()}`,
+        });
+      });
+      socketService.onMessage((message) => {
+        const preview =
+          typeof message?.content === 'string' && message.content.trim().length > 0
+            ? message.content.trim()
+            : t('You have a new message.');
+        showHomeSignal({
+          type: 'message',
+          title: t('New Message'),
+          body: preview,
+          signature: `message:${message?.id || message?.created_at || Date.now()}`,
+        });
+      });
+      socketService.onNotification((notification) => {
+        const rawType = String(notification?.data?.type || '').toLowerCase();
+        if (rawType === 'message') return;
+        showHomeSignal({
+          type: 'notification',
+          title: notification?.title || t('New Notification'),
+          body: notification?.body || t('You have a new notification.'),
+          signature: `notification:${notification?.id || notification?.created_at || Date.now()}`,
+        });
       });
     }
 
     return () => {
       socketService.offAnnouncement();
+      socketService.offMessage();
+      socketService.offNotification();
     };
-  }, [loadData, userId]);
+  }, [loadData, showHomeSignal, t, userId]);
+
+  useEffect(() => {
+    if (!isSeenStateReady) return;
+    evaluateHomeSignal(dashboard, announcements);
+  }, [announcements, dashboard, evaluateHomeSignal, isSeenStateReady]);
 
   useFocusEffect(
     useCallback(() => {
@@ -763,6 +985,42 @@ export default function HomeScreen() {
               <ActivityIndicator size="small" color="#E8F9FF" />
             </View>
           )}
+          {homeSignal && (
+            <View style={styles.heroSignalCard}>
+              <View style={styles.heroSignalHeader}>
+                <View style={styles.heroSignalIconWrap}>
+                  <Ionicons
+                    name={
+                      homeSignal.type === 'message'
+                        ? 'chatbubble-ellipses-outline'
+                        : homeSignal.type === 'notification'
+                          ? 'notifications-outline'
+                          : 'megaphone-outline'
+                    }
+                    size={17}
+                    color="#E8F9FF"
+                  />
+                </View>
+                <View style={styles.heroSignalContent}>
+                  <Text style={styles.heroSignalTitle}>{homeSignal.title}</Text>
+                  <Text numberOfLines={2} style={styles.heroSignalBody}>
+                    {homeSignal.body}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => void markHomeSignalSeen(homeSignal)}
+                  style={styles.heroSignalCloseButton}
+                >
+                  <Ionicons name="close" size={18} color="#E8F9FF" />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity style={styles.heroSignalActionButton} onPress={() => void openHomeSignal()}>
+                <Text style={styles.heroSignalActionText}>
+                  {homeSignal.type === 'announcement' ? t('Seen') : t('Open')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <View
             style={styles.heroCarouselWrap}
             onLayout={(event) => {
@@ -1096,6 +1354,66 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginLeft: 20,
     marginBottom: 8,
+  },
+  heroSignalCard: {
+    marginHorizontal: 20,
+    marginBottom: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.24)',
+    backgroundColor: 'rgba(8, 21, 37, 0.3)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  heroSignalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  heroSignalIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  heroSignalContent: {
+    flex: 1,
+    gap: 2,
+  },
+  heroSignalTitle: {
+    color: '#F2FBFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  heroSignalBody: {
+    color: '#CCE4F5',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  heroSignalCloseButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroSignalActionButton: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  heroSignalActionText: {
+    color: '#E8F9FF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   greeting: {
     color: '#E5F5FF',

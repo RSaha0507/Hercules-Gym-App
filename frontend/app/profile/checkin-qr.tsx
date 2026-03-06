@@ -4,7 +4,6 @@ import {
   Alert,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -13,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 import { useTheme } from '../../src/context/ThemeContext';
 import { api } from '../../src/services/api';
 
@@ -44,14 +44,39 @@ function parseQrPayload(raw: string): { code: string } {
 export default function CheckInQrScreen() {
   const { theme } = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
-  const [codeInput, setCodeInput] = useState('');
+  const [locationPermission, requestLocationPermission] = Location.useForegroundPermissions();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [scanLocked, setScanLocked] = useState(false);
+  const [isResolvingLocation, setIsResolvingLocation] = useState(false);
 
   const canScan = useMemo(
-    () => !!permission?.granted && !scanLocked && !isSubmitting,
-    [permission?.granted, scanLocked, isSubmitting],
+    () => !!permission?.granted && !scanLocked && !isSubmitting && !isResolvingLocation,
+    [permission?.granted, scanLocked, isSubmitting, isResolvingLocation],
   );
+
+  const resolveScanLocation = useCallback(async () => {
+    let granted = !!locationPermission?.granted;
+
+    if (!granted) {
+      const requested = await requestLocationPermission();
+      granted = !!requested?.granted;
+    }
+
+    if (!granted) {
+      throw new Error('Location permission is required for secure QR attendance.');
+    }
+
+    const location = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+
+    return {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+      accuracy_m: typeof location.coords.accuracy === 'number' ? location.coords.accuracy : undefined,
+      is_mocked: Boolean((location as any)?.mocked || (location.coords as any)?.mocked),
+    };
+  }, [locationPermission?.granted, requestLocationPermission]);
 
   const submitCode = useCallback(
     async (rawCode: string) => {
@@ -61,8 +86,12 @@ export default function CheckInQrScreen() {
         return;
       }
       setIsSubmitting(true);
+      setIsResolvingLocation(true);
       try {
-        const response = await api.qrScan(code);
+        const scanLocation = await resolveScanLocation();
+        setIsResolvingLocation(false);
+
+        const response = await api.qrScan(code, scanLocation);
         const action = response?.action === 'checkout' ? 'checkout' : 'checkin';
         let title = action === 'checkout' ? 'Check-out successful' : 'Check-in successful';
         let message =
@@ -79,17 +108,17 @@ export default function CheckInQrScreen() {
             onPress: () => router.replace('/(tabs)/attendance' as any),
           },
         ]);
-        setCodeInput('');
       } catch (error: any) {
+        setIsResolvingLocation(false);
         Alert.alert(
           'QR attendance failed',
-          error.response?.data?.detail || 'Unable to mark attendance using this QR code.',
+          error.response?.data?.detail || error.message || 'Unable to mark attendance using this QR code.',
         );
       } finally {
         setIsSubmitting(false);
       }
     },
-    [],
+    [resolveScanLocation],
   );
 
   return (
@@ -117,7 +146,7 @@ export default function CheckInQrScreen() {
 
       <View style={styles.content}>
         <Text style={[styles.subtitleInfo, { color: theme.textSecondary }]}>
-          {'Use the same QR for both check-in and check-out.'}
+          {'Use the same QR for both check-in and check-out. Scan works only inside your gym center perimeter.'}
         </Text>
 
         <View style={[styles.scannerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -155,35 +184,21 @@ export default function CheckInQrScreen() {
             </View>
           )}
         </View>
-
-        <View style={styles.manualWrap}>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: theme.inputBg,
-                color: theme.text,
-                borderColor: theme.border,
-              },
-            ]}
-            placeholder="Enter QR code"
-            placeholderTextColor={theme.textSecondary}
-            value={codeInput}
-            onChangeText={setCodeInput}
-            autoCapitalize="none"
-          />
+        <View style={[styles.securityHintCard, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
+          <Ionicons name="shield-checkmark-outline" size={18} color={theme.primary} />
+          <Text style={[styles.securityHintText, { color: theme.textSecondary }]}>
+            Security check: GPS location and anti-mock checks are required for QR attendance.
+          </Text>
+        </View>
+        {!locationPermission?.granted && (
           <TouchableOpacity
             style={[styles.primaryButton, { backgroundColor: theme.primary }]}
-            disabled={isSubmitting || !codeInput.trim()}
-            onPress={() => submitCode(codeInput)}
+            onPress={requestLocationPermission}
+            disabled={isResolvingLocation}
           >
-            {isSubmitting ? (
-              <ActivityIndicator color="#FFF" />
-            ) : (
-              <Text style={styles.primaryButtonText}>Scan QR</Text>
-            )}
+            <Text style={styles.primaryButtonText}>Allow Location</Text>
           </TouchableOpacity>
-        </View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -235,13 +250,20 @@ const styles = StyleSheet.create({
   },
   cameraWrap: { width: '100%', height: '100%' },
   camera: { flex: 1 },
-  manualWrap: { gap: 10 },
-  input: {
+  securityHintCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     borderWidth: 1,
     borderRadius: 12,
-    paddingHorizontal: 14,
-    height: 48,
-    fontSize: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 2,
+  },
+  securityHintText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
   },
   primaryButton: {
     height: 48,

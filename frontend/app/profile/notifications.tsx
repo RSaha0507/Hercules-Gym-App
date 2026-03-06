@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,22 +11,29 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useAuth } from '../../src/context/AuthContext';
 
 export default function NotificationsScreen() {
   const { theme } = useTheme();
-  
-  const [settings, setSettings] = useState({
-    pushEnabled: true,
-    announcements: true,
-    messages: true,
-    workoutReminders: true,
-    paymentReminders: true,
-    promotions: false,
-  });
+  const { notificationSettings, updateNotificationSetting } = useAuth();
+  const [pendingKey, setPendingKey] = useState<keyof typeof notificationSettings | null>(null);
 
-  const toggleSetting = (key: keyof typeof settings) => {
-    setSettings({ ...settings, [key]: !settings[key] });
+  const settings = notificationSettings;
+
+  const toggleSetting = async (key: keyof typeof settings) => {
+    if (pendingKey) return;
+    try {
+      setPendingKey(key);
+      await updateNotificationSetting(key, !settings[key]);
+    } finally {
+      setPendingKey(null);
+    }
   };
+
+  const isChildToggleDisabled = useMemo(
+    () => !settings.pushEnabled || pendingKey !== null,
+    [pendingKey, settings.pushEnabled],
+  );
 
   const NotificationItem = ({ 
     icon, 
@@ -49,7 +56,8 @@ export default function NotificationsScreen() {
       </View>
       <Switch
         value={settings[settingKey]}
-        onValueChange={() => toggleSetting(settingKey)}
+        onValueChange={() => void toggleSetting(settingKey)}
+        disabled={settingKey !== 'pushEnabled' ? isChildToggleDisabled : pendingKey !== null}
         trackColor={{ false: theme.border, true: theme.primary + '60' }}
         thumbColor={settings[settingKey] ? theme.primary : '#f4f3f4'}
       />
@@ -83,7 +91,8 @@ export default function NotificationsScreen() {
           </View>
           <Switch
             value={settings.pushEnabled}
-            onValueChange={() => toggleSetting('pushEnabled')}
+            onValueChange={() => void toggleSetting('pushEnabled')}
+            disabled={pendingKey !== null}
             trackColor={{ false: theme.border, true: theme.primary + '60' }}
             thumbColor={settings.pushEnabled ? theme.primary : '#f4f3f4'}
           />

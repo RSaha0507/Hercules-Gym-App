@@ -5,6 +5,7 @@ import { api, CenterType } from '../services/api';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
 interface User {
   id: string;
@@ -27,11 +28,16 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
+  notificationSettings: NotificationSettings;
   login: (identifier: string, password: string) => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   updateUser: (user: User) => void;
   refreshUser: () => Promise<void>;
+  updateNotificationSetting: <K extends keyof NotificationSettings>(
+    key: K,
+    value: NotificationSettings[K]
+  ) => Promise<void>;
 }
 
 interface RegisterData {
@@ -45,7 +51,26 @@ interface RegisterData {
   profile_image?: string;
 }
 
+export interface NotificationSettings {
+  pushEnabled: boolean;
+  announcements: boolean;
+  messages: boolean;
+  workoutReminders: boolean;
+  paymentReminders: boolean;
+  promotions: boolean;
+}
+
+const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  pushEnabled: true,
+  announcements: true,
+  messages: true,
+  workoutReminders: true,
+  paymentReminders: true,
+  promotions: false,
+};
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const NOTIFICATION_SETTINGS_STORAGE_KEY = 'notification_settings';
 
 // Configure notifications
 Notifications.setNotificationHandler({
@@ -62,13 +87,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
 
   useEffect(() => {
-    loadStoredAuth();
+    (async () => {
+      await loadNotificationSettings();
+      await loadStoredAuth();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const mergeNotificationSettings = (value?: Partial<NotificationSettings> | null): NotificationSettings => ({
+    ...DEFAULT_NOTIFICATION_SETTINGS,
+    ...(value || {}),
+  });
+
+  const loadNotificationSettings = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(NOTIFICATION_SETTINGS_STORAGE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as Partial<NotificationSettings>;
+      setNotificationSettings(mergeNotificationSettings(parsed));
+    } catch (error) {
+      console.log('Failed to load notification settings:', error);
+    }
+  };
+
+  const persistNotificationSettings = async (nextSettings: NotificationSettings) => {
+    setNotificationSettings(nextSettings);
+    try {
+      await AsyncStorage.setItem(NOTIFICATION_SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
+    } catch (error) {
+      console.log('Failed to persist notification settings:', error);
+    }
+  };
+
+  const resolveExpoProjectId = () =>
+    Constants.easConfig?.projectId ||
+    (Constants.expoConfig as any)?.extra?.eas?.projectId ||
+    process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
+
+  const clearPushTokenInBackend = async () => {
+    try {
+      await api.updatePushToken('');
+      setUser((prev) => (prev ? { ...prev, push_token: '' } : prev));
+    } catch (error) {
+      console.log('Failed to clear push token in backend:', error);
+    }
+  };
+
   const registerForPushNotifications = async () => {
+    if (!notificationSettings.pushEnabled) {
+      return;
+    }
+
     if (!Device.isDevice) {
       console.log('Push notifications require a physical device');
       return;
@@ -88,12 +160,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const pushToken = await Notifications.getExpoPushTokenAsync({
-        projectId: 'hercules-gym', // Replace with your project ID
-      });
+      const projectId = resolveExpoProjectId();
+      if (!projectId) {
+        console.log('EAS projectId not found for push registration');
+        return;
+      }
+
+      const pushToken = await Notifications.getExpoPushTokenAsync({ projectId });
 
       // Update push token in backend
       await api.updatePushToken(pushToken.data);
+      setUser((prev) => (prev ? { ...prev, push_token: pushToken.data } : prev));
       console.log('Push token registered:', pushToken.data);
 
       // Android-specific channel setup
@@ -110,7 +187,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateNotificationSetting = async <K extends keyof NotificationSettings>(
+    key: K,
+    value: NotificationSettings[K],
+  ) => {
+    const nextSettings = {
+      ...notificationSettings,
+      [key]: value,
+    };
+    await persistNotificationSettings(nextSettings);
+
+    if (key === 'pushEnabled') {
+      if (value) {
+        registerForPushNotifications().catch((error) => {
+          console.log('Push re-registration failed:', error);
+        });
+      } else {
+        await clearPushTokenInBackend();
+      }
+    }
+  };
+
   const registerPushInBackground = () => {
+    if (!notificationSettings.pushEnabled) {
+      return;
+    }
     registerForPushNotifications().catch((error) => {
       console.log('Background push registration failed:', error);
     });
@@ -163,6 +264,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const parsedUser = JSON.parse(storedUser) as User;
         setAuthState(storedToken, parsedUser);
         setIsLoading(false);
+        registerPushInBackground();
 
         // Refresh auth in background so app opens instantly from cached auth.
         (async () => {
@@ -170,7 +272,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const response = await api.getMe();
             setUser(response);
             await AsyncStorage.setItem('user', JSON.stringify(response));
-            registerPushInBackground();
           } catch (error) {
             console.log('Stored session refresh failed:', error);
             if (isTransientApiError(error)) {
@@ -226,6 +327,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
+      await clearPushTokenInBackend();
       setAuthState(null, null);
       router.replace('/(auth)/login');
       AsyncStorage.multiRemove(['token', 'user']).catch((error) => {
@@ -252,7 +354,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, logout, updateUser, refreshUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isLoading,
+        notificationSettings,
+        login,
+        register,
+        logout,
+        updateUser,
+        refreshUser,
+        updateNotificationSetting,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
