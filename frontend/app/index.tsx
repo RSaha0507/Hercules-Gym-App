@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Image } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useAuth } from '../src/context/AuthContext';
@@ -19,7 +19,10 @@ export default function Index() {
     <LinearGradient colors={gradientColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.container}>
       <View style={styles.overlay} />
       <View style={styles.content}>
-        <Image source={require('../assets/images/hercules-logo.png')} style={styles.logoImage} resizeMode="contain" />
+        <View style={styles.logoGlyphWrap}>
+          <Text style={styles.logoGlyphH}>H</Text>
+          <Text style={styles.logoGlyphG}>G</Text>
+        </View>
         <Text style={styles.title}>HERCULES GYM</Text>
         <Text style={styles.subtitle}>CHANGE YOUR BODY, CHANGE YOUR MIND</Text>
 
@@ -63,10 +66,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
   },
-  logoImage: {
-    width: 170,
-    height: 170,
-    marginBottom: 4,
+  logoGlyphWrap: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 2,
+  },
+  logoGlyphH: {
+    fontSize: 86,
+    color: '#F8FAFC',
+    fontWeight: '900',
+    fontStyle: 'italic',
+    letterSpacing: 1.2,
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowOffset: { width: 0, height: 3 },
+    textShadowRadius: 8,
+  },
+  logoGlyphG: {
+    fontSize: 86,
+    color: '#E11D48',
+    fontWeight: '900',
+    fontStyle: 'italic',
+    marginLeft: -6,
+    letterSpacing: 1.2,
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowOffset: { width: 0, height: 3 },
+    textShadowRadius: 8,
   },
   title: {
     fontSize: 30,
