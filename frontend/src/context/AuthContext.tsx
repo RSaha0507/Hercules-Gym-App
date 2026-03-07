@@ -71,6 +71,7 @@ const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const NOTIFICATION_SETTINGS_STORAGE_KEY = 'notification_settings';
+const MAX_STORED_USER_SIZE_BYTES = 250_000;
 
 // Configure notifications
 Notifications.setNotificationHandler({
@@ -217,6 +218,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const sanitizeUserForStorage = (userData: User): User => {
+    if (!userData?.profile_image) {
+      return userData;
+    }
+    // Avoid persisting large base64 blobs in AsyncStorage which can destabilize startup on some devices.
+    if (
+      typeof userData.profile_image === 'string' &&
+      userData.profile_image.startsWith('data:') &&
+      userData.profile_image.length > 4096
+    ) {
+      return { ...userData, profile_image: '' };
+    }
+    return userData;
+  };
+
   const setAuthState = (accessToken: string | null, userData: User | null) => {
     setToken(accessToken);
     setUser(userData);
@@ -224,11 +240,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const persistAuthState = async (accessToken: string, userData: User) => {
-    setAuthState(accessToken, userData);
+    const safeUser = sanitizeUserForStorage(userData);
+    setAuthState(accessToken, safeUser);
     try {
       await AsyncStorage.multiSet([
         ['token', accessToken],
-        ['user', JSON.stringify(userData)],
+        ['user', JSON.stringify(safeUser)],
       ]);
     } catch (error) {
       console.log('Failed to persist auth state:', error);
@@ -261,7 +278,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ]);
       
       if (storedToken && storedUser) {
-        const parsedUser = JSON.parse(storedUser) as User;
+        if (storedUser.length > MAX_STORED_USER_SIZE_BYTES) {
+          console.log('Stored user payload too large; clearing auth cache');
+          await clearAuthState();
+          setIsLoading(false);
+          api.ping().catch(() => null);
+          return;
+        }
+
+        let parsedUser: User;
+        try {
+          parsedUser = sanitizeUserForStorage(JSON.parse(storedUser) as User);
+        } catch (parseError) {
+          console.log('Stored user payload invalid JSON; clearing auth cache', parseError);
+          await clearAuthState();
+          setIsLoading(false);
+          api.ping().catch(() => null);
+          return;
+        }
+
         setAuthState(storedToken, parsedUser);
         setIsLoading(false);
         registerPushInBackground();
@@ -279,7 +314,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return;
             }
             await clearAuthState();
-            router.replace('/');
           }
         })();
         return;
@@ -339,15 +373,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const updateUser = (updatedUser: User) => {
-    setUser(updatedUser);
-    AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+    const safeUser = sanitizeUserForStorage(updatedUser);
+    setUser(safeUser);
+    AsyncStorage.setItem('user', JSON.stringify(safeUser));
   };
 
   const refreshUser = async () => {
     try {
       const response = await api.getMe();
-      setUser(response);
-      await AsyncStorage.setItem('user', JSON.stringify(response));
+      const safeUser = sanitizeUserForStorage(response);
+      setUser(safeUser);
+      await AsyncStorage.setItem('user', JSON.stringify(safeUser));
     } catch (error) {
       console.log('Error refreshing user:', error);
     }
