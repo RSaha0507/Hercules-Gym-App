@@ -234,6 +234,16 @@ export default function RegisterScreen() {
             </TouchableOpacity>
           </View>
 
+          {isDark && (
+            <View style={styles.darkLogoContainer}>
+              <Image
+                source={require('../../assets/images/hercules-logo.png')}
+                style={styles.darkLogo}
+                resizeMode="contain"
+              />
+            </View>
+          )}
+
           <View style={styles.titleContainer}>
             <Text style={[styles.title, { color: theme.text }]}>{t('Create Account')}</Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
@@ -457,6 +467,14 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     marginBottom: 24,
+  },
+  darkLogoContainer: {
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  darkLogo: {
+    width: 112,
+    height: 112,
   },
   title: {
     fontSize: 28,
