@@ -70,7 +70,11 @@ export default function LoginScreen() {
 
           <View style={styles.logoContainer}>
             <Image
-              source={require('../../assets/images/hercules-logo.png')}
+              source={
+                isDark
+                  ? require('../../assets/images/hercules-logo-removebg-preview.png')
+                  : require('../../assets/images/hercules-logo.png')
+              }
               style={styles.logo}
               resizeMode="contain"
             />

@@ -19,7 +19,7 @@ export default function Index() {
     <LinearGradient colors={gradientColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.container}>
       <View style={styles.overlay} />
       <View style={styles.content}>
-        <Image source={require('../assets/images/hercules-logo.png')} style={styles.logoImage} resizeMode="contain" />
+        <Image source={require('../assets/images/hercules-logo-removebg-preview.png')} style={styles.logoImage} resizeMode="contain" />
         <Text style={styles.title}>HERCULES GYM</Text>
         <Text style={styles.subtitle}>CHANGE YOUR BODY, CHANGE YOUR MIND</Text>
 

@@ -237,7 +237,7 @@ export default function RegisterScreen() {
           {isDark && (
             <View style={styles.darkLogoContainer}>
               <Image
-                source={require('../../assets/images/hercules-logo.png')}
+                source={require('../../assets/images/hercules-logo-removebg-preview.png')}
                 style={styles.darkLogo}
                 resizeMode="contain"
               />
