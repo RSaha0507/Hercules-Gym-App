@@ -3,9 +3,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 import uuid
-from .database import db
-from .auth import get_current_user
-from .models import UserInDB
+from database import db
+from auth import get_current_user
+from models import UserInDB
 
 router = APIRouter(prefix="/workout-logs", tags=["Workouts"])
 

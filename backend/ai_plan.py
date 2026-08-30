@@ -5,9 +5,9 @@ import os
 import json
 import re
 from datetime import datetime
-from .database import db
-from .auth import get_current_user
-from .models import UserInDB
+from database import db
+from auth import get_current_user
+from models import UserInDB
 
 router = APIRouter(prefix="/ai", tags=["AI"])
 
