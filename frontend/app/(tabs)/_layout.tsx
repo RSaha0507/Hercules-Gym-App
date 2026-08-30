@@ -149,8 +149,27 @@ export default function TabLayout() {
           tabBarIcon: ({ focused }) => getTabBarIcon('messages', focused),
         }}
       />
+      
       <Tabs.Screen
-        name="profile"
+        name="ai-plan"
+        options={{
+          title: t('AI Plan'),
+          href: user?.role === 'member' ? '/(tabs)/ai-plan' : null,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="bulb" size={size} color={color} />
+          ),
+        }}
+      />\n
+      <Tabs.Screen
+        name="log-workout"
+        options={{
+          title: t('Log Workout'),
+          href: user?.role === 'member' ? '/(tabs)/log-workout' : null,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="barbell" size={size} color={color} />
+          ),
+        }}
+      />\n      <Tabs.Screen\n        name="profile"
         options={{
           title: t('Profile'),
           tabBarIcon: ({ focused }) => getTabBarIcon('profile', focused),

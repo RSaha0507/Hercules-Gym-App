@@ -713,4 +713,8 @@ class ApiService {
   }
 }
 
-export const api = new ApiService();
+
+  async generateAiPlan(payload: { goal: string; level: string; weight: string }) {
+    const response = await this.client.post('/generate-ai-plan', payload);
+    return response.data;
+  }\n}\n\nexport const api = new ApiService();

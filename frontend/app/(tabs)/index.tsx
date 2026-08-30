@@ -705,7 +705,7 @@ export default function HomeScreen() {
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <View style={styles.pendingContainer}>
           <Image
-            source={require('../../assets/images/hercules-logo.png')}
+            source={require('../../assets/images/hercules-logo-removebg-preview.png')}
             style={styles.pendingLogo}
             resizeMode="contain"
           />
@@ -967,7 +967,7 @@ export default function HomeScreen() {
               </View>
             </View>
             <Image
-              source={require('../../assets/images/hercules-logo.png')}
+              source={require('../../assets/images/hercules-logo-removebg-preview.png')}
               style={styles.headerLogo}
               resizeMode="contain"
             />

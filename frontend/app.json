@@ -4,7 +4,7 @@
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/hercules-logo-removebg-preview.png",
     "scheme": "herculesgym",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -16,7 +16,7 @@
       "package": "com.herculesgym.mobile",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/hercules-logo-removebg-preview.png",
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": false,
@@ -27,7 +27,7 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favhercules-logo-removebg-preview.png"
     },
     "plugins": [
       "expo-router",

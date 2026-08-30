@@ -58,7 +58,7 @@ export default function MerchandiseScreen() {
   const [ordering, setOrdering] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [cartAnimation] = useState(new Animated.Value(1));
-  const [paymentProofImage, setPaymentProofImage] = useState<string | null>(null);
+  const ["" // no proof needed setPaymentProofImage] = useState<string | null>(null);
   const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(null);
 
   const categories = ['All', 'T-Shirts', 'Hoodies', 'Accessories', 'Supplements'];
@@ -159,6 +159,7 @@ export default function MerchandiseScreen() {
       Alert.alert(t('Upload screenshot'), t('Please upload payment screenshot to continue.'));
       return;
     }
+    
 
     Alert.alert(
       t('Submit Shop Payment'),
@@ -675,13 +676,13 @@ export default function MerchandiseScreen() {
                       <ActivityIndicator color="#FFF" />
                     ) : (
                       <>
-                        <Text style={styles.checkoutText}>{t('Submit for Verification')}</Text>
+                        <Text style={styles.checkoutText}>{t('Submit Payment')}</Text>
                         <Ionicons name="arrow-forward" size={20} color="#FFF" />
                       </>
                     )}
                   </TouchableOpacity>
                   <Text style={[styles.pickupNote, { color: theme.textSecondary }]}>
-                    {t('After admin confirmation, collect items at gym')}
+                    {t('Please upload screenshot before checkout')}
                   </Text>
                 </View>
               </>

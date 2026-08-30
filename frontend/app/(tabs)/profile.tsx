@@ -18,6 +18,8 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
 import { formatDateDDMMYYYY, toSystemDate } from '../../src/utils/time';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Skeleton } from '../../src/components/Skeleton';
 
 interface PaymentRecord {
   id: string;
@@ -43,6 +45,7 @@ export default function ProfileScreen() {
   const { theme, isDark, toggleTheme } = useTheme();
   const { t, languageLabel } = useLanguage();
   const [memberProfile, setMemberProfile] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [memberAchievements, setMemberAchievements] = useState<string[]>([]);
   const [membershipDue, setMembershipDue] = useState<MembershipDueInfo | null>(null);
   const [membershipHistory, setMembershipHistory] = useState<PaymentRecord[]>([]);
@@ -60,18 +63,38 @@ export default function ProfileScreen() {
 
   const loadProfile = useCallback(async () => {
     if (user?.role === 'member' && user?.id) {
+      setIsLoading(true);
       try {
+        // Offline-First: Check cache first
+        const cachedProfile = await AsyncStorage.getItem('member_profile_cache_' + user.id);
+        if (cachedProfile) {
+          const parsed = JSON.parse(cachedProfile);
+          setMemberProfile(parsed.profile);
+          setMemberAchievements(parsed.achievements || []);
+          setIsLoading(false); // Render cache immediately
+        }
+
         const [data, paymentSummary] = await Promise.all([
           api.getMember(user.id),
           api.getMyPaymentSummary(),
         ]);
+        
+        // Update state with fresh data
         setMemberProfile(data.profile);
         setMemberAchievements(data.user?.achievements || []);
         setMembershipDue(paymentSummary.membership_due || null);
         setMembershipHistory(paymentSummary.membership_history || []);
         setShopHistory(paymentSummary.shop_history || []);
+        
+        // Save to cache for offline use
+        await AsyncStorage.setItem('member_profile_cache_' + user.id, JSON.stringify({
+          profile: data.profile,
+          achievements: data.user?.achievements
+        }));
       } catch (error) {
         console.log('Error loading profile:', error);
+      } finally {
+        setIsLoading(false);
       }
       return;
     }
@@ -193,7 +216,14 @@ export default function ProfileScreen() {
         </LinearGradient>
 
         {/* Membership Status for Members */}
-        {user?.role === 'member' && memberProfile?.membership && (
+        {user?.role === 'member' && isLoading && !memberProfile && (
+          <View style={[styles.membershipCard, { backgroundColor: theme.card, padding: 16 }]}>
+            <Skeleton width="40%" height={20} style={{ marginBottom: 12 }} />
+            <Skeleton width="100%" height={15} style={{ marginBottom: 8 }} />
+            <Skeleton width="100%" height={15} />
+          </View>
+        )}
+        {user?.role === 'member' && !isLoading && memberProfile?.membership && (
           <View style={[styles.membershipCard, { 
             backgroundColor: theme.card,
             borderLeftColor: memberProfile.membership.is_active ? theme.success : theme.error,
@@ -237,7 +267,16 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {(user?.role === 'member' || user?.role === 'trainer') && (
+        {(user?.role === 'member' || user?.role === 'trainer') && isLoading && !memberProfile && (
+          <View style={[styles.sectionCard, { backgroundColor: theme.card, padding: 16 }]}>
+            <Skeleton width="30%" height={20} style={{ marginBottom: 16 }} />
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+               <Skeleton width={60} height={60} borderRadius={30} />
+               <Skeleton width={60} height={60} borderRadius={30} />
+            </View>
+          </View>
+        )}
+        {(user?.role === 'member' || user?.role === 'trainer') && !isLoading && (
           <View style={[styles.sectionCard, { backgroundColor: theme.card }]}>
             <View style={styles.sectionCardHeader}>
               <Ionicons name="trophy-outline" size={18} color={theme.primary} />

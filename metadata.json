@@ -1,0 +1,6 @@
+{
+  "name": "Hercules Gym App",
+  "description": "Comprehensive multi-center gym management application with QR attendance, workout & diet plans, merchandise shop, and admin controls.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

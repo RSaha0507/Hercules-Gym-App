@@ -17,6 +17,7 @@ from passlib.context import CryptContext
 import bcrypt
 from jose import JWTError, jwt
 import socketio
+from ai_plan import router as ai_router\nfrom workout_logger import router as workout_logs_router
 from bson import ObjectId
 import httpx
 import asyncio
@@ -214,7 +215,10 @@ app = FastAPI(title="Hercules Gym Management API")
 
 # Socket.IO setup
 socket_cors_origins = parse_origins(os.environ.get("SOCKET_CORS_ORIGINS", os.environ.get("CORS_ORIGINS", "*")))
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins=socket_cors_origins)
+redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+# Using Redis Manager allows horizontally scaling Socket.IO across multiple servers
+sio_manager = socketio.AsyncRedisManager(redis_url)
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins=socket_cors_origins, client_manager=sio_manager)
 socket_app = socketio.ASGIApp(sio, app)
 
 # Create router with /api prefix
@@ -847,14 +851,24 @@ def sanitize_mongo_doc(doc):
         del doc["_id"]
     return doc
 
+import re
 def normalize_payment_proof_image(value: Optional[str]) -> str:
     raw = (value or "").strip()
     if not raw:
         raise HTTPException(status_code=400, detail="Payment screenshot is required")
     if len(raw) > PAYMENT_PROOF_MAX_LENGTH:
         raise HTTPException(status_code=400, detail="Payment screenshot is too large")
-    if not (raw.startswith("data:image/") or raw.startswith("http://") or raw.startswith("https://")):
-        raise HTTPException(status_code=400, detail="Payment screenshot must be an image data URI or image URL")
+        
+    # Strict validation for image MIME types
+    valid_data_uri_pattern = r'^data:image/(jpeg|png|webp|jpg);base64,[A-Za-z0-9+/=]+$'
+    valid_url_pattern = r'^https?://[A-Za-z0-9\-\._~:/?#\[\]@!$&'()*+,;=]+$'
+    
+    is_valid_uri = re.match(valid_data_uri_pattern, raw)
+    is_valid_url = re.match(valid_url_pattern, raw)
+    
+    if not (is_valid_uri or is_valid_url):
+        raise HTTPException(status_code=400, detail="Invalid image format. Only JPEG, PNG, and WebP images are allowed.")
+    
     return raw
 
 def normalize_profile_image(value: Optional[str], *, required: bool = False) -> Optional[str]:
@@ -4691,37 +4705,45 @@ async def verify_payment_submission(
 
     now = datetime.utcnow()
     note = (payload.note or "").strip() or None
-    await db.payments.update_one(
-        {"id": payment_id},
-        {
-            "$set": {
-                "status": payload.status,
-                "verified_by": current_user.id,
-                "verified_at": now,
-                "verification_note": note,
-                "updated_at": now,
-            }
-        },
-    )
+    # Using MongoDB Transactions to ensure data consistency between payments and member_profiles
+    async with client.start_session() as session:
+        async with session.start_transaction():
+            await db.payments.update_one(
+                {"id": payment_id},
+                {
+                    "$set": {
+                        "status": payload.status,
+                        "verified_by": current_user.id,
+                        "verified_at": now,
+                        "verification_note": note,
+                        "updated_at": now,
+                    }
+                },
+                session=session
+            )
 
-    member_id = payment.get("member_id")
-    member_user = await db.users.find_one({"id": member_id}) if member_id else None
+            member_id = payment.get("member_id")
+            member_user = await db.users.find_one({"id": member_id}, session=session) if member_id else None
 
-    if payment.get("payment_type") == "membership" and member_id:
-        profile = await db.member_profiles.find_one({"user_id": member_id})
-        membership = normalize_membership_plan(profile.get("membership") if profile else None)
-        if membership:
-            if payload.status == "completed":
-                due_reference = coerce_utc_naive_datetime(payment.get("membership_due_date")) or (
-                    coerce_utc_naive_datetime(membership.get("next_payment_date"), now) or now
-                )
-                anchor_day = membership.get("billing_anchor_day", due_reference.day)
-                next_due_date = next_membership_due_date(due_reference, anchor_day)
-                membership["next_payment_date"] = next_due_date
-                membership["payment_status"] = "pending"
-                membership["last_payment_date"] = now
-                membership["last_reminder_sent"] = None
-                await db.member_profiles.update_one({"user_id": member_id}, {"$set": {"membership": membership}})
+            if payment.get("payment_type") == "membership" and member_id:
+                profile = await db.member_profiles.find_one({"user_id": member_id}, session=session)
+                membership = normalize_membership_plan(profile.get("membership") if profile else None)
+                if membership:
+                    if payload.status == "completed":
+                        due_reference = coerce_utc_naive_datetime(payment.get("membership_due_date")) or (
+                            coerce_utc_naive_datetime(membership.get("next_payment_date"), now) or now
+                        )
+                        anchor_day = membership.get("billing_anchor_day", due_reference.day)
+                        next_due_date = next_membership_due_date(due_reference, anchor_day)
+                        membership["next_payment_date"] = next_due_date
+                        membership["payment_status"] = "pending"
+                        membership["last_payment_date"] = now
+                        membership["last_reminder_sent"] = None
+                        await db.member_profiles.update_one(
+                            {"user_id": member_id}, 
+                            {"$set": {"membership": membership}},
+                            session=session
+                        )
                 await send_notification_to_user(
                     member_id,
                     "Membership Payment Successful",
@@ -5638,6 +5660,7 @@ else:
 if IS_PRODUCTION and cors_origins_env == "*":
     logger.warning("CORS_ORIGINS is set to '*'. Restrict this in production.")
 
+app.include_router(ai_router)\napp.include_router(workout_logs_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=cors_allow_credentials,
@@ -5745,3 +5768,51 @@ async def shutdown_db_client():
 
 # Export socket app for uvicorn
 app = socket_app
+
+class AIPlanRequest(BaseModel):
+    goal: str
+    level: str
+    weight: str
+
+@api_router.post("/generate-ai-plan")
+async def generate_ai_plan(payload: AIPlanRequest, current_user: UserInDB = Depends(get_current_user)):
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="AI service not configured")
+        
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        
+        prompt = f"""
+        Act as an elite personal trainer and nutritionist.
+        User Profile:
+        - Weight: {payload.weight} kg
+        - Goal: {payload.goal}
+        - Experience Level: {payload.level}
+        
+        Generate a JSON object containing two keys: "workout_plan" and "diet_plan".
+        "workout_plan" should be a 4-week summary and schedule.
+        "diet_plan" should be a daily meal plan (breakfast, lunch, dinner, snacks).
+        Return ONLY valid JSON without markdown formatting.
+        """
+        
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        # Parse the JSON response
+        import json
+        text = response.text
+        if text.startswith("```json"):
+            text = text[7:-3]
+        data = json.loads(text)
+        
+        # Save to MongoDB
+        await db.member_profiles.update_one(
+            {"user_id": current_user.id},
+            {"$set": {"ai_plan": data}}
+        )
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
