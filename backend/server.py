@@ -17,8 +17,6 @@ from passlib.context import CryptContext
 import bcrypt
 from jose import JWTError, jwt
 import socketio
-from ai_plan import router as ai_router
-from workout_logger import router as workout_logs_router
 from bson import ObjectId
 import httpx
 import asyncio
@@ -5660,6 +5658,135 @@ else:
 
 if IS_PRODUCTION and cors_origins_env == "*":
     logger.warning("CORS_ORIGINS is set to '*'. Restrict this in production.")
+
+
+
+from google import genai
+import os
+import json
+import re
+from datetime import datetime
+
+ai_router = APIRouter(prefix="/ai", tags=["AI"])
+
+def sanitize_input(text: str, max_length: int = 100) -> str:
+    # Remove any characters that aren't alphanumeric, spaces, or basic punctuation
+    sanitized = re.sub(r"[^a-zA-Z0-9\s.,\-\'\"]", "", str(text))
+    return sanitized[:max_length].strip()
+
+@ai_router.post("/generate-plan")
+async def generate_plan(payload: dict, current_user: UserInDB = Depends(get_current_user)):
+    goal = payload.get("goal")
+    level = payload.get("level")
+    weight = payload.get("weight")
+    
+    if not all([goal, level, weight]):
+        raise HTTPException(status_code=400, detail="Missing inputs")
+
+    # 1. Prompt Injection Mitigation (Input Sanitization)
+    sanitized_goal = sanitize_input(goal, max_length=150)
+    sanitized_level = sanitize_input(level, max_length=50)
+    sanitized_weight = sanitize_input(weight, max_length=10)
+    
+    if len(sanitized_goal) < 2 or len(sanitized_level) < 2:
+        raise HTTPException(status_code=400, detail="Invalid inputs provided")
+
+    # 2. Rate Limiting (Max 5 per day)
+    now = datetime.utcnow()
+    today_str = now.strftime("%Y-%m-%d")
+    
+    profile = await db.member_profiles.find_one({"user_id": current_user.id})
+    if profile:
+        rate_limit_data = profile.get("ai_rate_limit", {})
+        if rate_limit_data.get("date") == today_str:
+            if rate_limit_data.get("count", 0) >= 5:
+                raise HTTPException(status_code=429, detail="Daily AI plan generation limit reached. Please try again tomorrow.")
+            new_count = rate_limit_data.get("count", 0) + 1
+        else:
+            new_count = 1
+    else:
+        new_count = 1
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="AI service not configured")
+        
+    client = genai.Client(api_key=api_key)
+    
+    prompt = f"""
+    Act as an elite personal trainer and nutritionist.
+    User Profile:
+    - Weight: {sanitized_weight} kg
+    - Goal: {sanitized_goal}
+    - Experience Level: {sanitized_level}
+    
+    Generate a JSON object containing two keys: "workout_plan" and "diet_plan".
+    "workout_plan" should be a 4-week summary and schedule.
+    "diet_plan" should be a daily meal plan (breakfast, lunch, dinner, snacks).
+    Return ONLY valid JSON without markdown formatting.
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+            ),
+        )
+        data = json.loads(response.text)
+        
+        # Save to MongoDB and update rate limit
+        await db.member_profiles.update_one(
+            {"user_id": current_user.id},
+            {
+                "$set": {
+                    "ai_plan": data,
+                    "ai_rate_limit": {"date": today_str, "count": new_count}
+                }
+            },
+            upsert=True
+        )
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+from pydantic import BaseModel
+from datetime import datetime
+import uuid
+
+workout_logs_router = APIRouter(prefix="/workout-logs", tags=["Workouts"])
+
+class WorkoutLogItem(BaseModel):
+    exercise: str
+    sets: int
+    reps: int
+    weight: float
+
+class WorkoutLogCreate(BaseModel):
+    items: List[WorkoutLogItem]
+
+@workout_logs_router.post("")
+async def create_workout_log(log: WorkoutLogCreate, current_user: UserInDB = Depends(get_current_user)):
+    now = datetime.utcnow()
+    doc = {
+        "id": uuid.uuid4().hex,
+        "user_id": current_user.id,
+        "date": now,
+        "items": [item.dict() for item in log.items]
+    }
+    await db.workout_logs.insert_one(doc)
+    return {"status": "success", "id": doc["id"]}
+
+@workout_logs_router.get("")
+async def get_workout_logs(current_user: UserInDB = Depends(get_current_user)):
+    cursor = db.workout_logs.find({"user_id": current_user.id}).sort("date", -1)
+    logs = await cursor.to_list(length=100)
+    for log in logs:
+        log["_id"] = str(log["_id"])
+    return logs
+
 
 app.include_router(ai_router)
 app.include_router(workout_logs_router)
