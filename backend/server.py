@@ -17,7 +17,8 @@ from passlib.context import CryptContext
 import bcrypt
 from jose import JWTError, jwt
 import socketio
-from ai_plan import router as ai_router\nfrom workout_logger import router as workout_logs_router
+from ai_plan import router as ai_router
+from workout_logger import router as workout_logs_router
 from bson import ObjectId
 import httpx
 import asyncio
@@ -5660,7 +5661,8 @@ else:
 if IS_PRODUCTION and cors_origins_env == "*":
     logger.warning("CORS_ORIGINS is set to '*'. Restrict this in production.")
 
-app.include_router(ai_router)\napp.include_router(workout_logs_router)
+app.include_router(ai_router)
+app.include_router(workout_logs_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=cors_allow_credentials,
