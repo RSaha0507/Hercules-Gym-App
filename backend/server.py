@@ -862,7 +862,7 @@ def normalize_payment_proof_image(value: Optional[str]) -> str:
         
     # Strict validation for image MIME types
     valid_data_uri_pattern = r'^data:image/(jpeg|png|webp|jpg);base64,[A-Za-z0-9+/=]+$'
-    valid_url_pattern = r'^https?://[A-Za-z0-9\-\._~:/?#\[\]@!$&'()*+,;=]+$'
+    valid_url_pattern = r"^https?://[A-Za-z0-9\-\._~:/?#\[\]@!$&\'()*+,;=]+$"
     
     is_valid_uri = re.match(valid_data_uri_pattern, raw)
     is_valid_url = re.match(valid_url_pattern, raw)
