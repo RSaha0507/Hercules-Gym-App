@@ -485,7 +485,7 @@ class Notification(BaseModel):
     user_id: str
     title: str
     body: str
-    notification_type: Literal["approval", "payment", "merchandise", "announcement", "birthday", "general"] = "general"
+    notification_type: Literal["approval", "payment", "merchandise", "announcement", "birthday", "general", "security"] = "general"
     data: dict = {}
     created_at: datetime = Field(default_factory=datetime.utcnow)
     read: bool = False
@@ -1451,13 +1451,19 @@ async def send_push_notification(push_token: str, title: str, body: str, data: d
 
 async def send_notification_to_user(user_id: str, title: str, body: str, notification_type: str = "general", data: dict = {}):
     """Create notification record and send push notification"""
-    notification = Notification(
-        user_id=user_id,
-        title=title,
-        body=body,
-        notification_type=notification_type,
-        data=data
-    )
+    valid_types = {"approval", "payment", "merchandise", "announcement", "birthday", "general", "security"}
+    safe_type = notification_type if notification_type in valid_types else "general"
+    try:
+        notification = Notification(
+            user_id=user_id,
+            title=title,
+            body=body,
+            notification_type=safe_type,
+            data=data
+        )
+    except Exception as val_err:
+        logger.warning(f"Could not build notification model for user {user_id}: {val_err}")
+        return
 
     try:
         await db.notifications.insert_one(notification.dict())
@@ -2044,86 +2050,43 @@ def normalize_password_reset_otp(value: str) -> str:
     return normalized
 
 async def send_password_reset_email(to_email: str, to_name: str, otp: str) -> dict:
-    """Send Password Reset OTP via EmailJS / SMTP or log locally"""
-    # 1. Try EmailJS if configured
-    emailjs_service_id = os.environ.get("EMAILJS_SERVICE_ID")
-    emailjs_template_id = os.environ.get("EMAILJS_TEMPLATE_ID")
-    emailjs_public_key = os.environ.get("EMAILJS_PUBLIC_KEY") or os.environ.get("EMAILJS_USER_ID")
-    emailjs_private_key = os.environ.get("EMAILJS_PRIVATE_KEY")
-    
-    if emailjs_service_id and emailjs_template_id and emailjs_public_key:
+    """Send Password Reset OTP via Resend or log locally"""
+    # 1. Try Resend HTTP API if configured (Zero blocked ports, ideal for Render/Cloud)
+    resend_api_key = os.environ.get("RESEND_API_KEY")
+    resend_from = os.environ.get("RESEND_FROM", "Hercules Gym <onboarding@resend.dev>")
+    if resend_api_key:
         try:
             async with httpx.AsyncClient(timeout=10.0) as http_client:
-                payload = {
-                    "service_id": emailjs_service_id,
-                    "template_id": emailjs_template_id,
-                    "user_id": emailjs_public_key,
-                    "template_params": {
-                        "to_email": to_email,
-                        "to_name": to_name or "Member",
-                        "otp": otp,
-                        "expiry_minutes": PASSWORD_RESET_OTP_TTL_MINUTES,
-                        "message": f"Your Hercules Gym password reset OTP is {otp}. Valid for {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.",
-                    }
-                }
-                if emailjs_private_key:
-                    payload["accessToken"] = emailjs_private_key
-                
-                resp = await http_client.post("https://api.emailjs.com/api/v1.0/email/send", json=payload)
-                if resp.status_code in (200, 201):
-                    logger.info(f"EmailJS OTP successfully delivered to {to_email}")
-                    return {"status": "sent", "provider": "emailjs"}
-                else:
-                    logger.warning(f"EmailJS returned status {resp.status_code}: {resp.text}")
-        except Exception as exc:
-            logger.error(f"Failed to send EmailJS OTP: {exc}")
-
-    # 2. Try SMTP if configured (e.g. Gmail / Outlook / Custom SMTP)
-    smtp_host = os.environ.get("SMTP_HOST")
-    smtp_port = read_int_env("SMTP_PORT", 587)
-    smtp_user = os.environ.get("SMTP_USER")
-    smtp_pass = os.environ.get("SMTP_PASS")
-    smtp_from = os.environ.get("SMTP_FROM", smtp_user or "noreply@herculesgym.com")
-
-    if smtp_host and smtp_user and smtp_pass:
-        try:
-            import smtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
-            import asyncio
-
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = f"Hercules Gym - Password Reset OTP: {otp}"
-            msg["From"] = smtp_from
-            msg["To"] = to_email
-
-            text_content = f"Hi {to_name},\n\nYour password reset OTP is: {otp}\nThis OTP is valid for {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.\nIf you did not request this, please ignore this email.\n\nHercules Gym"
-            html_content = f"""
-            <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px;">
-                <h2 style="color: #e11d48; margin-top: 0;">Hercules Gym</h2>
-                <p style="font-size: 16px; color: #1e293b;">Hi <strong>{to_name}</strong>,</p>
-                <p style="font-size: 14px; color: #475569;">You requested a password reset for your account. Use the OTP below to complete the reset:</p>
-                <div style="background: #f1f5f9; padding: 18px; border-radius: 12px; text-align: center; margin: 24px 0;">
-                    <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0f172a;">{otp}</span>
+                html_body = f"""
+                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px;">
+                    <h2 style="color: #e11d48; margin-top: 0;">Hercules Gym</h2>
+                    <p style="font-size: 16px; color: #1e293b;">Hi <strong>{to_name}</strong>,</p>
+                    <p style="font-size: 14px; color: #475569;">You requested a password reset for your account. Use the OTP below to complete the reset:</p>
+                    <div style="background: #f1f5f9; padding: 18px; border-radius: 12px; text-align: center; margin: 24px 0;">
+                        <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0f172a;">{otp}</span>
+                    </div>
+                    <p style="font-size: 13px; color: #64748b;">This OTP is valid for <strong>{PASSWORD_RESET_OTP_TTL_MINUTES} minutes</strong>. Do not share it with anyone.</p>
+                    <p style="font-size: 12px; color: #94a3b8; margin-top: 32px;">Hercules Gym • Ranaghat • Chakdah • Madanpur</p>
                 </div>
-                <p style="font-size: 13px; color: #64748b;">This OTP is valid for <strong>{PASSWORD_RESET_OTP_TTL_MINUTES} minutes</strong>. Do not share it with anyone.</p>
-                <p style="font-size: 12px; color: #94a3b8; margin-top: 32px;">Hercules Gym • Ranaghat • Chakdah • Madanpur</p>
-            </div>
-            """
-            msg.attach(MIMEText(text_content, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
-
-            def _send():
-                with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-                    server.starttls()
-                    server.login(smtp_user, smtp_pass)
-                    server.sendmail(smtp_from, [to_email], msg.as_string())
-            await asyncio.to_thread(_send)
-            logger.info(f"SMTP OTP successfully delivered to {to_email}")
-            return {"status": "sent", "provider": "smtp"}
+                """
+                resp = await http_client.post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
+                    json={
+                        "from": resend_from,
+                        "to": [to_email],
+                        "subject": f"Hercules Gym - Password Reset OTP: {otp}",
+                        "html": html_body,
+                    },
+                )
+                if resp.status_code in (200, 201):
+                    logger.info(f"Resend OTP successfully delivered to {to_email}")
+                    return {"status": "sent", "provider": "resend"}
+                else:
+                    logger.warning(f"Resend API returned status {resp.status_code}: {resp.text}")
         except Exception as exc:
-            logger.error(f"Failed to send SMTP OTP: {exc}")
-
+            logger.error(f"Failed to send Resend OTP: {exc}")
+    
     # Fallback log
     logger.info(f"[PASSWORD RESET OTP] Target: {to_email} ({to_name}) | OTP: {otp}")
     return {"status": "logged", "provider": "local"}
@@ -2212,20 +2175,23 @@ async def request_forgotten_password_otp(payload: ForgotPasswordOtpRequest):
         context="auth.forgot_password.request_otp.upsert_otp",
     )
 
-    # 1. Send via Email (EmailJS / SMTP)
+    # 1. Send via Email (Resend / EmailJS / SMTP)
     email_res = await send_password_reset_email(user_email, full_name, otp)
 
-    # 2. Also send in-app notification
-    await send_notification_to_user(
-        user_doc["id"],
-        "Password Reset OTP",
-        f"Hi {full_name}, your password reset OTP is {otp}. It expires in {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.",
-        "security",
-        {
-            "action": "forgot_password_otp",
-            "email": user_email,
-        },
-    )
+    # 2. Also send in-app notification safely
+    try:
+        await send_notification_to_user(
+            user_doc["id"],
+            "Password Reset OTP",
+            f"Hi {full_name}, your password reset OTP is {otp}. It expires in {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.",
+            "security",
+            {
+                "action": "forgot_password_otp",
+                "email": user_email,
+            },
+        )
+    except Exception as notif_err:
+        logger.warning(f"In-app notification skipped for password reset OTP: {notif_err}")
 
     response = {
         "message": f"OTP sent to {user_email}",
