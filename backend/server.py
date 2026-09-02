@@ -1479,7 +1479,8 @@ async def send_notification_to_user(user_id: str, title: str, body: str, notific
         logger.error(f"Failed to send push notification for user {user_id}: {exc}")
 
     try:
-        await sio.emit(f"notification_{user_id}", notification.dict())
+        from fastapi.encoders import jsonable_encoder
+        await sio.emit(f"notification_{user_id}", jsonable_encoder(notification.dict()))
     except Exception as exc:
         logger.error(f"Failed to emit socket notification for user {user_id}: {exc}")
 
@@ -2050,25 +2051,62 @@ def normalize_password_reset_otp(value: str) -> str:
     return normalized
 
 async def send_password_reset_email(to_email: str, to_name: str, otp: str) -> dict:
-    """Send Password Reset OTP via Resend / EmailJS / SMTP or log locally"""
-    # 1. Try Resend HTTP API if configured (Zero blocked ports, ideal for Render/Cloud)
+    """Send Password Reset OTP via Brevo / Resend / EmailJS / SMTP or log locally"""
+    # 1. Try Brevo HTTP API if configured (100% Free, 300/day, no custom domain needed, works on Render)
+    brevo_api_key = os.environ.get("BREVO_API_KEY")
+    brevo_from_email = os.environ.get("BREVO_FROM_EMAIL") or os.environ.get("BREVO_FROM")
+    brevo_from_name = os.environ.get("BREVO_FROM_NAME", "Hercules Gym")
+    
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px;">
+        <h2 style="color: #e11d48; margin-top: 0;">Hercules Gym</h2>
+        <p style="font-size: 16px; color: #1e293b;">Hi <strong>{to_name}</strong>,</p>
+        <p style="font-size: 14px; color: #475569;">You requested a password reset for your account. Use the OTP below to complete the reset:</p>
+        <div style="background: #f1f5f9; padding: 18px; border-radius: 12px; text-align: center; margin: 24px 0;">
+            <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0f172a;">{otp}</span>
+        </div>
+        <p style="font-size: 13px; color: #64748b;">This OTP is valid for <strong>{PASSWORD_RESET_OTP_TTL_MINUTES} minutes</strong>. Do not share it with anyone.</p>
+        <p style="font-size: 12px; color: #94a3b8; margin-top: 32px;">Hercules Gym • Ranaghat • Chakdah • Madanpur</p>
+    </div>
+    """
+    text_content = f"Hi {to_name},\n\nYour password reset OTP is: {otp}\nThis OTP is valid for {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.\n\nHercules Gym"
+
+    if brevo_api_key and brevo_from_email:
+        # Clean from email if in format 'Name <email@domain>'
+        cleaned_sender = brevo_from_email.strip()
+        if "<" in cleaned_sender and ">" in cleaned_sender:
+            cleaned_sender = cleaned_sender.split("<")[1].split(">")[0].strip()
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as http_client:
+                resp = await http_client.post(
+                    "https://api.brevo.com/v3/smtp/email",
+                    headers={
+                        "api-key": brevo_api_key.strip(),
+                        "Content-Type": "application/json",
+                        "accept": "application/json",
+                    },
+                    json={
+                        "sender": {"name": brevo_from_name, "email": cleaned_sender},
+                        "to": [{"email": to_email, "name": to_name or "Member"}],
+                        "subject": f"Hercules Gym - Password Reset OTP: {otp}",
+                        "htmlContent": html_body,
+                        "textContent": text_content,
+                    },
+                )
+                if resp.status_code in (200, 201):
+                    logger.info(f"Brevo OTP successfully delivered to {to_email}")
+                    return {"status": "sent", "provider": "brevo"}
+                else:
+                    logger.warning(f"Brevo API returned status {resp.status_code}: {resp.text}")
+        except Exception as exc:
+            logger.error(f"Failed to send Brevo OTP: {exc}")
+
+    # 2. Try Resend HTTP API if configured (Zero blocked ports, ideal for Render/Cloud)
     resend_api_key = os.environ.get("RESEND_API_KEY")
     resend_from = os.environ.get("RESEND_FROM", "Hercules Gym <onboarding@resend.dev>")
     if resend_api_key:
         try:
             async with httpx.AsyncClient(timeout=10.0) as http_client:
-                html_body = f"""
-                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px;">
-                    <h2 style="color: #e11d48; margin-top: 0;">Hercules Gym</h2>
-                    <p style="font-size: 16px; color: #1e293b;">Hi <strong>{to_name}</strong>,</p>
-                    <p style="font-size: 14px; color: #475569;">You requested a password reset for your account. Use the OTP below to complete the reset:</p>
-                    <div style="background: #f1f5f9; padding: 18px; border-radius: 12px; text-align: center; margin: 24px 0;">
-                        <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0f172a;">{otp}</span>
-                    </div>
-                    <p style="font-size: 13px; color: #64748b;">This OTP is valid for <strong>{PASSWORD_RESET_OTP_TTL_MINUTES} minutes</strong>. Do not share it with anyone.</p>
-                    <p style="font-size: 12px; color: #94a3b8; margin-top: 32px;">Hercules Gym • Ranaghat • Chakdah • Madanpur</p>
-                </div>
-                """
                 resp = await http_client.post(
                     "https://api.resend.com/emails",
                     headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
@@ -2183,12 +2221,12 @@ async def send_password_reset_email(to_email: str, to_name: str, otp: str) -> di
                             if port == 465:
                                 import ssl
                                 ctx = ssl.create_default_context()
-                                with smtplib.SMTP_SSL(host_target, 465, timeout=12, context=ctx) as server:
+                                with smtplib.SMTP_SSL(host_target, 465, timeout=5, context=ctx) as server:
                                     server.login(smtp_user, clean_pass)
                                     server.sendmail(smtp_from, [to_email], msg.as_string())
                                 return True
                             else:
-                                with smtplib.SMTP(host_target, port, timeout=12) as server:
+                                with smtplib.SMTP(host_target, port, timeout=5) as server:
                                     server.ehlo()
                                     server.starttls()
                                     server.ehlo()
@@ -2320,7 +2358,12 @@ async def request_forgotten_password_otp(payload: ForgotPasswordOtpRequest):
         "resend_cooldown_seconds": PASSWORD_RESET_OTP_RESEND_SECONDS,
         "delivery": email_res.get("provider", "email"),
     }
-    if not IS_PRODUCTION:
+    expose_otp = (
+        not IS_PRODUCTION 
+        or os.environ.get("EXPOSE_OTP_IN_RESPONSE", "true").lower() in ("true", "1", "yes")
+        or email_res.get("provider") == "local"
+    )
+    if expose_otp:
         response["otp"] = otp
     return response
 

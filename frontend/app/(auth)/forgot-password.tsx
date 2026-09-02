@@ -57,7 +57,7 @@ export default function ForgotPasswordScreen() {
       setOtp('');
       setSecondsRemaining(OTP_RESEND_SECONDS);
 
-      if (__DEV__ && response?.otp) {
+      if (response?.otp) {
         Alert.alert(
           t('Success'),
           `${t('OTP has been sent to your registered email')}: ${trimmedEmail}\n\nOTP: ${response.otp}`
