@@ -2050,7 +2050,7 @@ def normalize_password_reset_otp(value: str) -> str:
     return normalized
 
 async def send_password_reset_email(to_email: str, to_name: str, otp: str) -> dict:
-    """Send Password Reset OTP via Resend or log locally"""
+    """Send Password Reset OTP via Resend / EmailJS / SMTP or log locally"""
     # 1. Try Resend HTTP API if configured (Zero blocked ports, ideal for Render/Cloud)
     resend_api_key = os.environ.get("RESEND_API_KEY")
     resend_from = os.environ.get("RESEND_FROM", "Hercules Gym <onboarding@resend.dev>")
@@ -2086,7 +2086,128 @@ async def send_password_reset_email(to_email: str, to_name: str, otp: str) -> di
                     logger.warning(f"Resend API returned status {resp.status_code}: {resp.text}")
         except Exception as exc:
             logger.error(f"Failed to send Resend OTP: {exc}")
+
+    # 2. Try EmailJS if configured
+    emailjs_service_id = os.environ.get("EMAILJS_SERVICE_ID")
+    emailjs_template_id = os.environ.get("EMAILJS_TEMPLATE_ID")
+    emailjs_public_key = os.environ.get("EMAILJS_PUBLIC_KEY") or os.environ.get("EMAILJS_USER_ID")
+    emailjs_private_key = os.environ.get("EMAILJS_PRIVATE_KEY")
     
+    if emailjs_service_id and emailjs_template_id and emailjs_public_key:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as http_client:
+                payload = {
+                    "service_id": emailjs_service_id,
+                    "template_id": emailjs_template_id,
+                    "user_id": emailjs_public_key,
+                    "template_params": {
+                        "to_email": to_email,
+                        "to_name": to_name or "Member",
+                        "otp": otp,
+                        "expiry_minutes": PASSWORD_RESET_OTP_TTL_MINUTES,
+                        "message": f"Your Hercules Gym password reset OTP is {otp}. Valid for {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.",
+                    }
+                }
+                if emailjs_private_key:
+                    payload["accessToken"] = emailjs_private_key
+                
+                resp = await http_client.post("https://api.emailjs.com/api/v1.0/email/send", json=payload)
+                if resp.status_code in (200, 201):
+                    logger.info(f"EmailJS OTP successfully delivered to {to_email}")
+                    return {"status": "sent", "provider": "emailjs"}
+                else:
+                    logger.warning(f"EmailJS returned status {resp.status_code}: {resp.text}")
+        except Exception as exc:
+            logger.error(f"Failed to send EmailJS OTP: {exc}")
+
+    # 3. Try SMTP if configured (with IPv4 fallback to bypass Render container IPv6 network unreachable)
+    smtp_host = os.environ.get("SMTP_HOST")
+    smtp_port = read_int_env("SMTP_PORT", 587)
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASS")
+    smtp_from = os.environ.get("SMTP_FROM", smtp_user or "noreply@herculesgym.com")
+
+    if smtp_host and smtp_user and smtp_pass:
+        try:
+            import smtplib
+            import socket
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            import asyncio
+
+            clean_pass = smtp_pass.replace(" ", "").strip()
+
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"Hercules Gym - Password Reset OTP: {otp}"
+            msg["From"] = smtp_from
+            msg["To"] = to_email
+
+            text_content = f"Hi {to_name},\n\nYour password reset OTP is: {otp}\nThis OTP is valid for {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.\nIf you did not request this, please ignore this email.\n\nHercules Gym"
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px;">
+                <h2 style="color: #e11d48; margin-top: 0;">Hercules Gym</h2>
+                <p style="font-size: 16px; color: #1e293b;">Hi <strong>{to_name}</strong>,</p>
+                <p style="font-size: 14px; color: #475569;">You requested a password reset for your account. Use the OTP below to complete the reset:</p>
+                <div style="background: #f1f5f9; padding: 18px; border-radius: 12px; text-align: center; margin: 24px 0;">
+                    <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0f172a;">{otp}</span>
+                </div>
+                <p style="font-size: 13px; color: #64748b;">This OTP is valid for <strong>{PASSWORD_RESET_OTP_TTL_MINUTES} minutes</strong>. Do not share it with anyone.</p>
+                <p style="font-size: 12px; color: #94a3b8; margin-top: 32px;">Hercules Gym • Ranaghat • Chakdah • Madanpur</p>
+            </div>
+            """
+            msg.attach(MIMEText(text_content, "plain"))
+            msg.attach(MIMEText(html_content, "html"))
+
+            def _send_smtp():
+                ports_to_try = [smtp_port]
+                if smtp_port == 587 and 465 not in ports_to_try:
+                    ports_to_try.append(465)
+                elif smtp_port == 465 and 587 not in ports_to_try:
+                    ports_to_try.append(587)
+
+                # Resolve IPv4 to avoid [Errno 101] Network is unreachable on Render
+                resolved_ip = None
+                try:
+                    resolved_ip = socket.gethostbyname(smtp_host)
+                except Exception:
+                    resolved_ip = smtp_host
+
+                last_err = None
+                for port in ports_to_try:
+                    hosts_to_test = [smtp_host]
+                    if resolved_ip and resolved_ip != smtp_host:
+                        hosts_to_test.append(resolved_ip)
+
+                    for host_target in hosts_to_test:
+                        try:
+                            if port == 465:
+                                import ssl
+                                ctx = ssl.create_default_context()
+                                with smtplib.SMTP_SSL(host_target, 465, timeout=12, context=ctx) as server:
+                                    server.login(smtp_user, clean_pass)
+                                    server.sendmail(smtp_from, [to_email], msg.as_string())
+                                return True
+                            else:
+                                with smtplib.SMTP(host_target, port, timeout=12) as server:
+                                    server.ehlo()
+                                    server.starttls()
+                                    server.ehlo()
+                                    server.login(smtp_user, clean_pass)
+                                    server.sendmail(smtp_from, [to_email], msg.as_string())
+                                return True
+                        except Exception as e:
+                            last_err = e
+                            continue
+                if last_err:
+                    raise last_err
+                return False
+
+            await asyncio.to_thread(_send_smtp)
+            logger.info(f"SMTP OTP successfully delivered to {to_email}")
+            return {"status": "sent", "provider": "smtp"}
+        except Exception as exc:
+            logger.error(f"Failed to send SMTP OTP: {exc}")
+
     # Fallback log
     logger.info(f"[PASSWORD RESET OTP] Target: {to_email} ({to_name}) | OTP: {otp}")
     return {"status": "logged", "provider": "local"}
