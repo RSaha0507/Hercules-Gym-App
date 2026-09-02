@@ -760,10 +760,51 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.statsGrid}>
-        <StatCard icon="people" label={t('Total Members')} value={dashboard?.total_members || 0} color={theme.primary} onPress={() => router.push('/(tabs)/members')} />
-        <StatCard icon="checkmark-circle" label={t('Active')} value={dashboard?.active_members || 0} color={theme.success} onPress={() => router.push('/(tabs)/members')} />
-        <StatCard icon="fitness" label={t('Trainers')} value={dashboard?.total_trainers || 0} color={theme.secondary} onPress={() => router.push('/trainers' as any)} />
-        <StatCard icon="calendar-outline" label={t("Today's Attendance")} value={dashboard?.today_attendance || 0} color={theme.warning} />
+        <StatCard
+          icon="people"
+          label={t('Total Members')}
+          value={dashboard?.total_members || 0}
+          color={theme.primary}
+          onPress={() =>
+            router.push(
+              selectedCenter
+                ? `/(tabs)/members?center=${encodeURIComponent(selectedCenter)}`
+                : '/(tabs)/members'
+            )
+          }
+        />
+        <StatCard
+          icon="checkmark-circle"
+          label={t('Active')}
+          value={dashboard?.active_members || 0}
+          color={theme.success}
+          onPress={() =>
+            router.push(
+              selectedCenter
+                ? `/(tabs)/members?center=${encodeURIComponent(selectedCenter)}&status=active`
+                : '/(tabs)/members?status=active'
+            )
+          }
+        />
+        <StatCard
+          icon="fitness"
+          label={t('Trainers')}
+          value={dashboard?.total_trainers || 0}
+          color={theme.secondary}
+          onPress={() =>
+            router.push(
+              selectedCenter
+                ? `/trainers?center=${encodeURIComponent(selectedCenter)}` as any
+                : '/trainers' as any
+            )
+          }
+        />
+        <StatCard
+          icon="calendar-outline"
+          label={t("Today's Attendance")}
+          value={dashboard?.today_attendance || 0}
+          color={theme.warning}
+        />
       </View>
 
       {/* Alert Cards */}

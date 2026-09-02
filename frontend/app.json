@@ -27,14 +27,14 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favhercules-logo-removebg-preview.png"
+      "favicon": "./assets/images/hercules-logo-removebg-preview.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-image.png",
+          "image": "./assets/images/hercules-logo-removebg-preview.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#000000"

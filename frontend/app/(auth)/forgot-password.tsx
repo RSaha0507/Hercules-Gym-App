@@ -19,12 +19,12 @@ import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
 import { evaluatePasswordStrength } from '../../src/utils/password';
 
-const OTP_RESEND_SECONDS = 45;
+const OTP_RESEND_SECONDS = 30;
 
 export default function ForgotPasswordScreen() {
   const { theme } = useTheme();
   const { t } = useLanguage();
-  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -43,26 +43,30 @@ export default function ForgotPasswordScreen() {
     return () => clearTimeout(timer);
   }, [secondsRemaining]);
 
-  const formatIndianPhoneDigits = (text: string) => text.replace(/\D/g, '').slice(0, 10);
-
   const handleSendOtp = async () => {
-    const phoneDigits = formatIndianPhoneDigits(phone);
-    if (phoneDigits.length !== 10) {
-      Alert.alert(t('Error'), t('Phone must be exactly 10 digits'));
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !trimmedEmail.includes('@') || !trimmedEmail.includes('.')) {
+      Alert.alert(t('Error'), t('Please enter a valid registered email address'));
       return;
     }
 
     setIsSendingOtp(true);
     try {
-      const response = await api.requestForgotPasswordOtp(`+91${phoneDigits}`);
+      const response = await api.requestForgotPasswordOtp(trimmedEmail);
       setOtpRequested(true);
       setOtp('');
       setSecondsRemaining(OTP_RESEND_SECONDS);
 
       if (__DEV__ && response?.otp) {
-        Alert.alert(t('Success'), `${t('OTP sent to your registered phone')}\nOTP: ${response.otp}`);
+        Alert.alert(
+          t('Success'),
+          `${t('OTP has been sent to your registered email')}: ${trimmedEmail}\n\nOTP: ${response.otp}`
+        );
       } else {
-        Alert.alert(t('Success'), t('OTP sent to your registered phone'));
+        Alert.alert(
+          t('Success'),
+          `${t('OTP has been sent to your registered email')}: ${trimmedEmail}. Please check your inbox and spam folder.`
+        );
       }
     } catch (error: any) {
       Alert.alert(t('Error'), error?.response?.data?.detail || t('Failed to send OTP'));
@@ -72,8 +76,8 @@ export default function ForgotPasswordScreen() {
   };
 
   const handleResetPassword = async () => {
-    const phoneDigits = formatIndianPhoneDigits(phone);
-    if (phoneDigits.length !== 10 || !otp.trim() || !newPassword || !confirmPassword) {
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !otp.trim() || !newPassword || !confirmPassword) {
       Alert.alert(t('Error'), t('Please fill in all fields'));
       return;
     }
@@ -91,10 +95,12 @@ export default function ForgotPasswordScreen() {
 
     setIsResetting(true);
     try {
-      await api.resetForgotPassword(`+91${phoneDigits}`, otp.trim(), newPassword, confirmPassword);
-      Alert.alert(t('Success'), t('Password reset successful. Please login with your new password.'), [
-        { text: t('OK'), onPress: () => router.replace('/(auth)/login') },
-      ]);
+      await api.resetForgotPassword(trimmedEmail, otp.trim(), newPassword, confirmPassword);
+      Alert.alert(
+        t('Success'),
+        t('Password reset successful. Please sign in with your new password.'),
+        [{ text: t('OK'), onPress: () => router.replace('/(auth)/login') }]
+      );
     } catch (error: any) {
       Alert.alert(t('Error'), error?.response?.data?.detail || t('Failed to reset password'));
     } finally {
@@ -121,21 +127,21 @@ export default function ForgotPasswordScreen() {
 
           <Text style={[styles.title, { color: theme.text }]}>{t('Forgot Password')}</Text>
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-            {t('Verify with phone OTP and set a new secure password')}
+            {t('Enter your registered email to receive a secure password reset OTP')}
           </Text>
 
           <View style={styles.form}>
             <View style={[styles.inputContainer, { backgroundColor: theme.inputBg }]}>
-              <Ionicons name="call-outline" size={20} color={theme.textSecondary} />
-              <Text style={[styles.phonePrefix, { color: theme.textSecondary }]}>+91</Text>
+              <Ionicons name="mail-outline" size={20} color={theme.textSecondary} />
               <TextInput
                 style={[styles.input, { color: theme.text }]}
-                placeholder={t('10-digit mobile number')}
+                placeholder={t('Registered email address')}
                 placeholderTextColor={theme.textSecondary}
-                value={phone}
-                onChangeText={(text) => setPhone(formatIndianPhoneDigits(text))}
-                keyboardType="phone-pad"
-                maxLength={10}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
               />
             </View>
 
@@ -151,7 +157,7 @@ export default function ForgotPasswordScreen() {
                 <ActivityIndicator color="#FFF" />
               ) : (
                 <Text style={styles.otpButtonText}>
-                  {otpRequested ? t('Resend OTP') : t('Send OTP')}
+                  {otpRequested ? (secondsRemaining > 0 ? `${t('Resend OTP')} (${secondsRemaining}s)` : t('Resend OTP')) : t('Send OTP to Email')}
                 </Text>
               )}
             </TouchableOpacity>
@@ -170,12 +176,12 @@ export default function ForgotPasswordScreen() {
                   <Ionicons name="key-outline" size={20} color={theme.textSecondary} />
                   <TextInput
                     style={[styles.input, { color: theme.text }]}
-                    placeholder={t('Enter OTP')}
+                    placeholder={t('Enter 6-digit OTP')}
                     placeholderTextColor={theme.textSecondary}
                     value={otp}
-                    onChangeText={(text) => setOtp(text.replace(/\D/g, '').slice(0, 8))}
+                    onChangeText={(text) => setOtp(text.replace(/\D/g, '').slice(0, 6))}
                     keyboardType="number-pad"
-                    maxLength={8}
+                    maxLength={6}
                   />
                 </View>
 

@@ -1,8 +1,8 @@
-import axios, { AxiosInstance } from 'axios';
-import { API_BASE_URL, BACKEND_URL } from '../config/backend';
+import axios, { AxiosInstance } from "axios";
+import { API_BASE_URL, BACKEND_URL } from "../config/backend";
 
-export const GYM_CENTERS = ['Ranaghat', 'Chakdah', 'Madanpur'] as const;
-export type CenterType = typeof GYM_CENTERS[number];
+export const GYM_CENTERS = ["Ranaghat", "Chakdah", "Madanpur"] as const;
+export type CenterType = (typeof GYM_CENTERS)[number];
 type QrLocationPayload = {
   latitude?: number;
   longitude?: number;
@@ -22,7 +22,7 @@ class ApiService {
       baseURL: API_BASE_URL,
       timeout: 25000,
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
     });
 
@@ -36,23 +36,28 @@ class ApiService {
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
-        const config = error?.config as (typeof error.config & { _retryCount?: number }) | undefined;
+        const config = error?.config as
+          (typeof error.config & { _retryCount?: number }) | undefined;
         if (!config) {
           return Promise.reject(error);
         }
 
-        const method = String(config.method || 'get').toLowerCase();
-        const url = String(config.url || '');
+        const method = String(config.method || "get").toLowerCase();
+        const url = String(config.url || "");
         const status = error?.response?.status as number | undefined;
         const isNetworkError = !error?.response;
-        const isTimeout = error?.code === 'ECONNABORTED';
-        const retryableStatus = status ? [408, 425, 429, 500, 502, 503, 504].includes(status) : false;
-        const isSafeMethod = method === 'get';
+        const isTimeout = error?.code === "ECONNABORTED";
+        const retryableStatus = status
+          ? [408, 425, 429, 500, 502, 503, 504].includes(status)
+          : false;
+        const isSafeMethod = method === "get";
         const isSafeAuthRequest =
-          method === 'post' &&
-          ['/auth/login', '/auth/register'].some((path) => url.includes(path));
+          method === "post" &&
+          ["/auth/login", "/auth/register"].some((path) => url.includes(path));
 
-        const canRetry = (isNetworkError || isTimeout || retryableStatus) && (isSafeMethod || isSafeAuthRequest);
+        const canRetry =
+          (isNetworkError || isTimeout || retryableStatus) &&
+          (isSafeMethod || isSafeAuthRequest);
         if (!canRetry) {
           return Promise.reject(error);
         }
@@ -83,7 +88,9 @@ class ApiService {
     }
 
     try {
-      const response = await axios.get(`${BACKEND_URL}/openapi.json`, { timeout: 15000 });
+      const response = await axios.get(`${BACKEND_URL}/openapi.json`, {
+        timeout: 15000,
+      });
       const routes = new Set<string>(Object.keys(response.data?.paths || {}));
       this.availableRoutes = routes;
       this.availableRoutesFetchedAt = Date.now();
@@ -95,12 +102,15 @@ class ApiService {
   }
 
   private normalizeApiRoute(path: string) {
-    if (path.startsWith('/api/')) return path;
-    if (path.startsWith('/')) return `/api${path}`;
+    if (path.startsWith("/api/")) return path;
+    if (path.startsWith("/")) return `/api${path}`;
     return `/api/${path}`;
   }
 
-  private async ensureRouteAvailable(path: string, featureName: string): Promise<void> {
+  private async ensureRouteAvailable(
+    path: string,
+    featureName: string,
+  ): Promise<void> {
     const routes = await this.loadAvailableRoutes();
     if (!routes) return;
     const normalizedPath = this.normalizeApiRoute(path);
@@ -122,20 +132,27 @@ class ApiService {
     if (status === 404) {
       detail = `${featureName} is unavailable on the current backend deployment. Please redeploy the backend service and try again.`;
     } else if (status === 401 || status === 403) {
-      const raw = typeof detail === 'string' ? detail.toLowerCase() : '';
-      if (!raw || raw.includes('validate credentials') || raw.includes('not authenticated')) {
-        detail = 'Session expired. Please login again.';
-      } else if (raw.includes('access denied') || raw.includes('access required')) {
+      const raw = typeof detail === "string" ? detail.toLowerCase() : "";
+      if (
+        !raw ||
+        raw.includes("validate credentials") ||
+        raw.includes("not authenticated")
+      ) {
+        detail = "Session expired. Please login again.";
+      } else if (
+        raw.includes("access denied") ||
+        raw.includes("access required")
+      ) {
         detail = `You do not have permission to use ${featureName.toLowerCase()}.`;
       }
     } else if (status === 422) {
       const issues = Array.isArray(error?.response?.data?.detail)
         ? error.response.data.detail
-            .map((item: any) => item?.msg || item?.type || '')
+            .map((item: any) => item?.msg || item?.type || "")
             .filter((item: string) => item.length > 0)
             .slice(0, 2)
         : [];
-      const issueText = issues.length > 0 ? ` ${issues.join('; ')}.` : '';
+      const issueText = issues.length > 0 ? ` ${issues.join("; ")}.` : "";
       detail = `${featureName} request validation failed.${issueText}`.trim();
     } else {
       throw error;
@@ -153,7 +170,7 @@ class ApiService {
   }
 
   async ping() {
-    const response = await this.client.get('/health', { timeout: 12000 });
+    const response = await this.client.get("/health", { timeout: 12000 });
     return response.data;
   }
 
@@ -161,12 +178,12 @@ class ApiService {
   async login(identifier: string, password: string) {
     const trimmed = identifier.trim();
     const payload: Record<string, string> = { identifier: trimmed, password };
-    if (trimmed.includes('@')) {
+    if (trimmed.includes("@")) {
       payload.email = trimmed.toLowerCase();
     } else {
       payload.phone = trimmed;
     }
-    const response = await this.client.post('/auth/login', payload);
+    const response = await this.client.post("/auth/login", payload);
     return response.data;
   }
 
@@ -180,96 +197,134 @@ class ApiService {
     date_of_birth?: string;
     profile_image?: string;
   }) {
-    const response = await this.client.post('/auth/register', data);
+    const response = await this.client.post("/auth/register", data);
     return response.data;
   }
 
   async getMe() {
-    const response = await this.client.get('/auth/me');
+    const response = await this.client.get("/auth/me");
     return response.data;
   }
 
-  async updateProfile(data: { full_name?: string; phone?: string; profile_image?: string; date_of_birth?: string }) {
-    await this.ensureRouteAvailable('/auth/profile', 'Profile update');
+  async updateProfile(data: {
+    full_name?: string;
+    phone?: string;
+    profile_image?: string;
+    date_of_birth?: string;
+  }) {
+    await this.ensureRouteAvailable("/auth/profile", "Profile update");
     try {
-      const response = await this.client.put('/auth/profile', data);
+      const response = await this.client.put("/auth/profile", data);
       return response.data;
     } catch (error: any) {
-      this.throwFeatureUnavailable(error, 'Profile update');
+      this.throwFeatureUnavailable(error, "Profile update");
     }
   }
 
   async changePassword(current_password: string, new_password: string) {
-    await this.ensureRouteAvailable('/auth/change-password', 'Change password');
+    await this.ensureRouteAvailable("/auth/change-password", "Change password");
     try {
-      const response = await this.client.put('/auth/change-password', {
+      const response = await this.client.put("/auth/change-password", {
         current_password,
         new_password,
       });
       return response.data;
     } catch (error: any) {
-      this.throwFeatureUnavailable(error, 'Change password');
+      this.throwFeatureUnavailable(error, "Change password");
     }
   }
 
-  async requestForgotPasswordOtp(phone: string) {
-    await this.ensureRouteAvailable('/auth/forgot-password/request-otp', 'Forgot password OTP');
+  async requestForgotPasswordOtp(identifier: string) {
+    await this.ensureRouteAvailable(
+      "/auth/forgot-password/request-otp",
+      "Forgot password OTP",
+    );
     try {
-      const response = await this.client.post('/auth/forgot-password/request-otp', { phone }, { timeout: 65000 });
+      const isEmail = identifier.includes("@");
+      const payload = isEmail
+        ? { email: identifier.trim().toLowerCase() }
+        : { phone: identifier.trim() };
+      const response = await this.client.post(
+        "/auth/forgot-password/request-otp",
+        payload,
+        { timeout: 65000 },
+      );
       return response.data;
     } catch (error: any) {
       const status = Number(error?.response?.status || 0);
-      const detail = String(error?.response?.data?.detail || '');
+      const detail = String(error?.response?.data?.detail || "");
 
-      if (status === 404 && detail.toLowerCase().includes('account not found')) {
+      // If backend returned a clear validation/business error (e.g. 404 account not found, 400 bad phone/inactive, 429 rate limit)
+      if (detail && (status === 404 || status === 400 || status === 429 || status === 422)) {
         throw error;
       }
-      if (error?.code === 'ECONNABORTED') {
-        const wrapped: any = new Error('Server is waking up. Please wait a few seconds and try again.');
+      if (error?.code === "ECONNABORTED") {
+        const wrapped: any = new Error(
+          "Server is waking up. Please wait a few seconds and try again.",
+        );
         wrapped.response = {
           status: 408,
-          data: { detail: 'Server is waking up. Please wait a few seconds and try again.' },
+          data: {
+            detail:
+              "Server is waking up. Please wait a few seconds and try again.",
+          },
         };
         throw wrapped;
       }
-      this.throwFeatureUnavailable(error, 'Forgot password OTP');
+      this.throwFeatureUnavailable(error, "Forgot password OTP");
     }
   }
 
-  async resetForgotPassword(phone: string, otp: string, new_password: string, confirm_password: string) {
-    await this.ensureRouteAvailable('/auth/forgot-password/reset', 'Forgot password reset');
+  async resetForgotPassword(
+    identifier: string,
+    otp: string,
+    new_password: string,
+    confirm_password: string,
+  ) {
+    await this.ensureRouteAvailable(
+      "/auth/forgot-password/reset",
+      "Forgot password reset",
+    );
     try {
-      const response = await this.client.post('/auth/forgot-password/reset', {
-        phone,
-        otp,
+      const isEmail = identifier.includes("@");
+      const payload: any = {
+        otp: otp.trim(),
         new_password,
         confirm_password,
-      });
+      };
+      if (isEmail) {
+        payload.email = identifier.trim().toLowerCase();
+      } else {
+        payload.phone = identifier.trim();
+      }
+      const response = await this.client.post("/auth/forgot-password/reset", payload);
       return response.data;
     } catch (error: any) {
       const status = Number(error?.response?.status || 0);
-      const detail = String(error?.response?.data?.detail || '');
-      if (status === 404 && detail.toLowerCase().includes('account not found')) {
+      const detail = String(error?.response?.data?.detail || "");
+      if (detail && (status === 404 || status === 400 || status === 429 || status === 422)) {
         throw error;
       }
-      this.throwFeatureUnavailable(error, 'Forgot password reset');
+      this.throwFeatureUnavailable(error, "Forgot password reset");
     }
   }
 
   async updatePushToken(pushToken: string) {
-    const response = await this.client.put('/auth/push-token', null, { params: { push_token: pushToken } });
+    const response = await this.client.put("/auth/push-token", null, {
+      params: { push_token: pushToken },
+    });
     return response.data;
   }
 
   // Centers
   async getCenters() {
-    const response = await this.client.get('/centers');
+    const response = await this.client.get("/centers");
     return response.data;
   }
 
   // Approvals
   async getPendingApprovals() {
-    const response = await this.client.get('/approvals/pending');
+    const response = await this.client.get("/approvals/pending");
     return response.data;
   }
 
@@ -279,13 +334,17 @@ class ApiService {
   }
 
   async rejectRequest(requestId: string, reason?: string) {
-    const response = await this.client.post(`/approvals/${requestId}/reject`, null, { params: { reason } });
+    const response = await this.client.post(
+      `/approvals/${requestId}/reject`,
+      null,
+      { params: { reason } },
+    );
     return response.data;
   }
 
   // Members
   async getMembers(center?: string) {
-    const response = await this.client.get('/members', { params: { center } });
+    const response = await this.client.get("/members", { params: { center } });
     return response.data;
   }
 
@@ -295,7 +354,7 @@ class ApiService {
   }
 
   async createMember(data: any) {
-    const response = await this.client.post('/members', data);
+    const response = await this.client.post("/members", data);
     return response.data;
   }
 
@@ -320,7 +379,9 @@ class ApiService {
   }
 
   async changeMemberCenter(userId: string, newCenter: string) {
-    const response = await this.client.put(`/members/${userId}/center`, null, { params: { new_center: newCenter } });
+    const response = await this.client.put(`/members/${userId}/center`, null, {
+      params: { new_center: newCenter },
+    });
     return response.data;
   }
 
@@ -330,18 +391,23 @@ class ApiService {
   }
 
   async updateBodyMetrics(userId: string, metricIndex: number, data: any) {
-    const response = await this.client.put(`/members/${userId}/metrics/${metricIndex}`, data);
+    const response = await this.client.put(
+      `/members/${userId}/metrics/${metricIndex}`,
+      data,
+    );
     return response.data;
   }
 
   async deleteBodyMetrics(userId: string, metricIndex: number) {
-    const response = await this.client.delete(`/members/${userId}/metrics/${metricIndex}`);
+    const response = await this.client.delete(
+      `/members/${userId}/metrics/${metricIndex}`,
+    );
     return response.data;
   }
 
   // Trainers
   async getTrainers(center?: string) {
-    const response = await this.client.get('/trainers', { params: { center } });
+    const response = await this.client.get("/trainers", { params: { center } });
     return response.data;
   }
 
@@ -351,28 +417,38 @@ class ApiService {
   }
 
   async createTrainer(data: any) {
-    const response = await this.client.post('/trainers', data);
+    const response = await this.client.post("/trainers", data);
     return response.data;
   }
 
   async changeTrainerCenter(userId: string, newCenter: string) {
-    const response = await this.client.put(`/trainers/${userId}/center`, null, { params: { new_center: newCenter } });
+    const response = await this.client.put(`/trainers/${userId}/center`, null, {
+      params: { new_center: newCenter },
+    });
     return response.data;
   }
 
   async updateUserAchievements(userId: string, achievements: string[]) {
-    await this.ensureRouteAvailable('/users/{user_id}/achievements', 'Achievements update');
+    await this.ensureRouteAvailable(
+      "/users/{user_id}/achievements",
+      "Achievements update",
+    );
     try {
-      const response = await this.client.put(`/users/${userId}/achievements`, { achievements });
+      const response = await this.client.put(`/users/${userId}/achievements`, {
+        achievements,
+      });
       return response.data;
     } catch (error: any) {
-      this.throwFeatureUnavailable(error, 'Achievements update');
+      this.throwFeatureUnavailable(error, "Achievements update");
     }
   }
 
   // Attendance
-  async checkIn(userId: string, method: string = 'manual') {
-    const response = await this.client.post('/attendance/check-in', { user_id: userId, method });
+  async checkIn(userId: string, method: string = "manual") {
+    const response = await this.client.post("/attendance/check-in", {
+      user_id: userId,
+      method,
+    });
     return response.data;
   }
 
@@ -382,77 +458,108 @@ class ApiService {
   }
 
   async getTodayAttendance(center?: string) {
-    const response = await this.client.get('/attendance/today', { params: { center } });
+    const response = await this.client.get("/attendance/today", {
+      params: { center },
+    });
     return response.data;
   }
 
-  async getAttendanceHistory(userId: string, startDate?: string, endDate?: string, months?: number) {
+  async getAttendanceHistory(
+    userId: string,
+    startDate?: string,
+    endDate?: string,
+    months?: number,
+  ) {
     const params: any = {};
     if (startDate) params.start_date = startDate;
     if (endDate) params.end_date = endDate;
-    if (typeof months === 'number') params.months = months;
-    const response = await this.client.get(`/attendance/history/${userId}`, { params });
+    if (typeof months === "number") params.months = months;
+    const response = await this.client.get(`/attendance/history/${userId}`, {
+      params,
+    });
     return response.data;
   }
 
   async getQrCode() {
-    const response = await this.client.get('/attendance/qr-code');
+    const response = await this.client.get("/attendance/qr-code");
     return response.data;
   }
 
   async qrCheckIn(code: string, location?: QrLocationPayload) {
-    const response = await this.client.post('/attendance/qr-check-in', { code, ...(location || {}) });
+    const response = await this.client.post("/attendance/qr-check-in", {
+      code,
+      ...(location || {}),
+    });
     return response.data;
   }
 
   async qrCheckOut(code: string, location?: QrLocationPayload) {
-    const response = await this.client.post('/attendance/qr-check-out', { code, ...(location || {}) });
+    const response = await this.client.post("/attendance/qr-check-out", {
+      code,
+      ...(location || {}),
+    });
     return response.data;
   }
 
   async qrScan(code: string, location?: QrLocationPayload) {
-    const response = await this.client.post('/attendance/qr-scan', { code, ...(location || {}) });
+    const response = await this.client.post("/attendance/qr-scan", {
+      code,
+      ...(location || {}),
+    });
     return response.data;
   }
 
   // Notifications
   async getNotifications() {
-    const response = await this.client.get('/notifications');
+    const response = await this.client.get("/notifications");
     return response.data;
   }
 
   async markNotificationRead(notificationId: string) {
-    const response = await this.client.put(`/notifications/${notificationId}/read`);
+    const response = await this.client.put(
+      `/notifications/${notificationId}/read`,
+    );
     return response.data;
   }
 
   async markAllNotificationsRead() {
-    const response = await this.client.put('/notifications/read-all');
+    const response = await this.client.put("/notifications/read-all");
     return response.data;
   }
 
   async getUnreadNotificationCount() {
-    const response = await this.client.get('/notifications/unread-count');
+    const response = await this.client.get("/notifications/unread-count");
     return response.data;
   }
 
   async getSupportContact() {
-    await this.ensureRouteAvailable('/support/contact', 'Help and support contact');
+    await this.ensureRouteAvailable(
+      "/support/contact",
+      "Help and support contact",
+    );
     try {
-      const response = await this.client.get('/support/contact');
+      const response = await this.client.get("/support/contact");
       return response.data;
     } catch (error: any) {
-      this.throwFeatureUnavailable(error, 'Help and support contact');
+      this.throwFeatureUnavailable(error, "Help and support contact");
     }
   }
 
   // Messages
-  async sendMessage(receiverId: string, content: string, messageType: string = 'text') {
-    const response = await this.client.post('/messages', {
-      receiver_id: receiverId,
-      content,
-      message_type: messageType,
-    }, { timeout: 30000 });
+  async sendMessage(
+    receiverId: string,
+    content: string,
+    messageType: string = "text",
+  ) {
+    const response = await this.client.post(
+      "/messages",
+      {
+        receiver_id: receiverId,
+        content,
+        message_type: messageType,
+      },
+      { timeout: 30000 },
+    );
     return response.data;
   }
 
@@ -462,24 +569,26 @@ class ApiService {
   }
 
   async getMessageContacts() {
-    const response = await this.client.get('/messages/contacts');
+    const response = await this.client.get("/messages/contacts");
     return response.data;
   }
 
   async deleteSelectedMessages(messageIds: string[]) {
-    const response = await this.client.post('/messages/delete-selected', {
+    const response = await this.client.post("/messages/delete-selected", {
       message_ids: messageIds,
     });
     return response.data;
   }
 
   async deleteConversation(otherUserId: string) {
-    const response = await this.client.delete(`/messages/conversations/${otherUserId}`);
+    const response = await this.client.delete(
+      `/messages/conversations/${otherUserId}`,
+    );
     return response.data;
   }
 
   async getConversations() {
-    const response = await this.client.get('/conversations');
+    const response = await this.client.get("/conversations");
     return response.data;
   }
 
@@ -487,28 +596,38 @@ class ApiService {
   async createAnnouncement(data: {
     title: string;
     content: string;
-    target: 'all' | 'members' | 'trainers' | 'selected' | 'center' | 'members_center';
+    target:
+      "all" | "members" | "trainers" | "selected" | "center" | "members_center";
     target_center?: string;
     target_users?: string[];
   }) {
-    const response = await this.client.post('/announcements', data);
+    const response = await this.client.post("/announcements", data);
     return response.data;
   }
 
-  async updateAnnouncement(id: string, data: {
-    title?: string;
-    content?: string;
-    target?: 'all' | 'members' | 'trainers' | 'selected' | 'center' | 'members_center';
-    target_center?: string;
-    target_users?: string[];
-  }) {
+  async updateAnnouncement(
+    id: string,
+    data: {
+      title?: string;
+      content?: string;
+      target?:
+        | "all"
+        | "members"
+        | "trainers"
+        | "selected"
+        | "center"
+        | "members_center";
+      target_center?: string;
+      target_users?: string[];
+    },
+  ) {
     const response = await this.client.put(`/announcements/${id}`, data);
     return response.data;
   }
 
   async getAnnouncements(limit?: number) {
-    const response = await this.client.get('/announcements', {
-      params: typeof limit === 'number' ? { limit } : undefined,
+    const response = await this.client.get("/announcements", {
+      params: typeof limit === "number" ? { limit } : undefined,
     });
     return response.data;
   }
@@ -520,7 +639,7 @@ class ApiService {
 
   // Merchandise
   async getMerchandise() {
-    const response = await this.client.get('/merchandise');
+    const response = await this.client.get("/merchandise");
     return response.data;
   }
 
@@ -530,7 +649,7 @@ class ApiService {
   }
 
   async createMerchandise(data: any) {
-    const response = await this.client.post('/merchandise', data);
+    const response = await this.client.post("/merchandise", data);
     return response.data;
   }
 
@@ -547,10 +666,10 @@ class ApiService {
   async createMerchandiseOrder(
     items: { merchandise_id: string; size: string; quantity: number }[],
     notes?: string,
-    payment_method: string = 'upi',
+    payment_method: string = "upi",
     payment_proof_image?: string,
   ) {
-    const response = await this.client.post('/merchandise/order', {
+    const response = await this.client.post("/merchandise/order", {
       items,
       notes,
       payment_method,
@@ -560,23 +679,29 @@ class ApiService {
   }
 
   async getMyMerchandiseOrders() {
-    const response = await this.client.get('/merchandise/orders/my');
+    const response = await this.client.get("/merchandise/orders/my");
     return response.data;
   }
 
   async getAllMerchandiseOrders(center?: string, status?: string) {
-    const response = await this.client.get('/merchandise/orders/all', { params: { center, status } });
+    const response = await this.client.get("/merchandise/orders/all", {
+      params: { center, status },
+    });
     return response.data;
   }
 
   async updateMerchandiseOrderStatus(orderId: string, newStatus: string) {
-    const response = await this.client.put(`/merchandise/orders/${orderId}/status`, null, { params: { new_status: newStatus } });
+    const response = await this.client.put(
+      `/merchandise/orders/${orderId}/status`,
+      null,
+      { params: { new_status: newStatus } },
+    );
     return response.data;
   }
 
   // Workouts
   async createWorkout(data: any) {
-    const response = await this.client.post('/workouts', data);
+    const response = await this.client.post("/workouts", data);
     return response.data;
   }
 
@@ -596,15 +721,19 @@ class ApiService {
   }
 
   async completeExercise(workoutId: string, exerciseIndex: number) {
-    const response = await this.client.put(`/workouts/${workoutId}/complete`, null, {
-      params: { exercise_index: exerciseIndex },
-    });
+    const response = await this.client.put(
+      `/workouts/${workoutId}/complete`,
+      null,
+      {
+        params: { exercise_index: exerciseIndex },
+      },
+    );
     return response.data;
   }
 
   // Diets
   async createDiet(data: any) {
-    const response = await this.client.post('/diets', data);
+    const response = await this.client.post("/diets", data);
     return response.data;
   }
 
@@ -625,49 +754,74 @@ class ApiService {
 
   // Payments
   async createPayment(data: any) {
-    const response = await this.client.post('/payments', data);
+    const response = await this.client.post("/payments", data);
     return response.data;
   }
 
-  async payMembership(payment_method: string = 'upi', proof_image?: string) {
-    await this.ensureRouteAvailable('/payments/membership/pay', 'Membership payment proof submission');
+  async payMembership(payment_method: string = "upi", proof_image?: string) {
+    await this.ensureRouteAvailable(
+      "/payments/membership/pay",
+      "Membership payment proof submission",
+    );
     try {
-      const response = await this.client.post('/payments/membership/pay', { payment_method, proof_image });
+      const response = await this.client.post("/payments/membership/pay", {
+        payment_method,
+        proof_image,
+      });
       return response.data;
     } catch (error: any) {
-      this.throwFeatureUnavailable(error, 'Membership payment proof submission');
+      this.throwFeatureUnavailable(
+        error,
+        "Membership payment proof submission",
+      );
     }
   }
 
   async getMyPaymentSummary() {
-    await this.ensureRouteAvailable('/payments/summary/me', 'Member payment summary');
+    await this.ensureRouteAvailable(
+      "/payments/summary/me",
+      "Member payment summary",
+    );
     try {
-      const response = await this.client.get('/payments/summary/me');
+      const response = await this.client.get("/payments/summary/me");
       return response.data;
     } catch (error: any) {
-      this.throwFeatureUnavailable(error, 'Member payment summary');
+      this.throwFeatureUnavailable(error, "Member payment summary");
     }
   }
 
   async getAdminRevenueSummary(center?: string, history_limit: number = 100) {
-    await this.ensureRouteAvailable('/payments/summary/admin', 'Admin revenue summary');
+    await this.ensureRouteAvailable(
+      "/payments/summary/admin",
+      "Admin revenue summary",
+    );
     try {
-      const response = await this.client.get('/payments/summary/admin', {
+      const response = await this.client.get("/payments/summary/admin", {
         params: { center, history_limit },
       });
       return response.data;
     } catch (error: any) {
-      this.throwFeatureUnavailable(error, 'Admin revenue summary');
+      this.throwFeatureUnavailable(error, "Admin revenue summary");
     }
   }
 
-  async verifyPayment(paymentId: string, status: 'completed' | 'failed', note?: string) {
-    await this.ensureRouteAvailable('/payments/{payment_id}/verify', 'Payment verification');
+  async verifyPayment(
+    paymentId: string,
+    status: "completed" | "failed",
+    note?: string,
+  ) {
+    await this.ensureRouteAvailable(
+      "/payments/{payment_id}/verify",
+      "Payment verification",
+    );
     try {
-      const response = await this.client.put(`/payments/${paymentId}/verify`, { status, note });
+      const response = await this.client.put(`/payments/${paymentId}/verify`, {
+        status,
+        note,
+      });
       return response.data;
     } catch (error: any) {
-      this.throwFeatureUnavailable(error, 'Payment verification');
+      this.throwFeatureUnavailable(error, "Payment verification");
     }
   }
 
@@ -678,43 +832,55 @@ class ApiService {
 
   // Dashboard
   async getAdminDashboard(center?: string) {
-    const response = await this.client.get('/dashboard/admin', { params: { center } });
+    const response = await this.client.get("/dashboard/admin", {
+      params: { center },
+    });
     return response.data;
   }
 
   async getTrainerDashboard() {
-    const response = await this.client.get('/dashboard/trainer');
+    const response = await this.client.get("/dashboard/trainer");
     return response.data;
   }
 
   async getMemberDashboard() {
-    const response = await this.client.get('/dashboard/member');
+    const response = await this.client.get("/dashboard/member");
     return response.data;
   }
 
   async getHeroImages() {
-    await this.ensureRouteAvailable('/settings/hero-images', 'Hero images');
+    await this.ensureRouteAvailable("/settings/hero-images", "Hero images");
     try {
-      const response = await this.client.get('/settings/hero-images');
+      const response = await this.client.get("/settings/hero-images");
       return response.data;
     } catch (error: any) {
-      this.throwFeatureUnavailable(error, 'Hero images');
+      this.throwFeatureUnavailable(error, "Hero images");
     }
   }
 
   async updateHeroImages(slides: { id: string; title: string; uri: string }[]) {
-    await this.ensureRouteAvailable('/settings/hero-images', 'Hero image update');
+    await this.ensureRouteAvailable(
+      "/settings/hero-images",
+      "Hero image update",
+    );
     try {
-      const response = await this.client.put('/settings/hero-images', { slides });
+      const response = await this.client.put("/settings/hero-images", {
+        slides,
+      });
       return response.data;
     } catch (error: any) {
-      this.throwFeatureUnavailable(error, 'Hero image update');
+      this.throwFeatureUnavailable(error, "Hero image update");
     }
+  }
+
+  async generateAiPlan(payload: {
+    goal: string;
+    level: string;
+    weight: string;
+  }) {
+    const response = await this.client.post("/generate-ai-plan", payload);
+    return response.data;
   }
 }
 
-
-  async generateAiPlan(payload: { goal: string; level: string; weight: string }) {
-    const response = await this.client.post('/generate-ai-plan', payload);
-    return response.data;
-  }\n}\n\nexport const api = new ApiService();
+export const api = new ApiService();

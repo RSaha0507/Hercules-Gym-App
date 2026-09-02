@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGym } from '../context/GymContext';
 import { User, CenterType, Role } from '../types';
 import {
@@ -32,6 +32,11 @@ export const MembersView: React.FC = () => {
 
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // Synchronize centerFilter whenever selectedCenter changes in context
+  useEffect(() => {
+    setCenterFilter(selectedCenter === 'All' ? 'all' : selectedCenter);
+  }, [selectedCenter]);
 
   // New member form state
   const [formData, setFormData] = useState({

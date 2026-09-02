@@ -93,7 +93,7 @@ export default function LogWorkoutScreen() {
             <Text style={[styles.subtitle, { color: theme.text }]}>{exercise} Progress</Text>
             <LineChart
               data={{
-                labels: chartData.map((_, i) => \`#\${i+1}\`),
+                labels: chartData.map((_, i) => `#${i+1}`),
                 datasets: [{ data: chartData }]
               }}
               width={Dimensions.get('window').width - 40}

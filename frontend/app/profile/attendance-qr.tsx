@@ -84,7 +84,8 @@ export default function AttendanceQrScreen() {
       console.log('Error printing QR', e);
     }
   };
-\n  return (
+  
+  return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.primary} />
       </View>

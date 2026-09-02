@@ -121,7 +121,7 @@ ATTENDANCE_QR_MAX_GPS_ACCURACY_METERS = max(30.0, read_float_env("ATTENDANCE_QR_
 ATTENDANCE_QR_BLOCK_MOCK_LOCATION = read_bool_env("ATTENDANCE_QR_BLOCK_MOCK_LOCATION", True)
 PASSWORD_RESET_OTP_LENGTH = min(8, max(4, read_int_env("PASSWORD_RESET_OTP_LENGTH", 6)))
 PASSWORD_RESET_OTP_TTL_MINUTES = max(1, read_int_env("PASSWORD_RESET_OTP_TTL_MINUTES", 10))
-PASSWORD_RESET_OTP_RESEND_SECONDS = max(10, read_int_env("PASSWORD_RESET_OTP_RESEND_SECONDS", 45))
+PASSWORD_RESET_OTP_RESEND_SECONDS = max(10, read_int_env("PASSWORD_RESET_OTP_RESEND_SECONDS", 30))
 PASSWORD_RESET_OTP_MAX_ATTEMPTS = max(1, read_int_env("PASSWORD_RESET_OTP_MAX_ATTEMPTS", 5))
 MEMBERSHIP_BASE_FEE = max(0.0, read_float_env("MEMBERSHIP_BASE_FEE", 700.0))
 MEMBERSHIP_WINDOW_DAYS = max(1, read_int_env("MEMBERSHIP_WINDOW_DAYS", 7))
@@ -278,10 +278,14 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 class ForgotPasswordOtpRequest(BaseModel):
-    phone: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    identifier: Optional[str] = None
 
 class ForgotPasswordResetRequest(BaseModel):
-    phone: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    identifier: Optional[str] = None
     otp: str
     new_password: str
     confirm_password: str
@@ -2039,25 +2043,139 @@ def normalize_password_reset_otp(value: str) -> str:
         )
     return normalized
 
+async def send_password_reset_email(to_email: str, to_name: str, otp: str) -> dict:
+    """Send Password Reset OTP via EmailJS / SMTP or log locally"""
+    # 1. Try EmailJS if configured
+    emailjs_service_id = os.environ.get("EMAILJS_SERVICE_ID")
+    emailjs_template_id = os.environ.get("EMAILJS_TEMPLATE_ID")
+    emailjs_public_key = os.environ.get("EMAILJS_PUBLIC_KEY") or os.environ.get("EMAILJS_USER_ID")
+    emailjs_private_key = os.environ.get("EMAILJS_PRIVATE_KEY")
+    
+    if emailjs_service_id and emailjs_template_id and emailjs_public_key:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as http_client:
+                payload = {
+                    "service_id": emailjs_service_id,
+                    "template_id": emailjs_template_id,
+                    "user_id": emailjs_public_key,
+                    "template_params": {
+                        "to_email": to_email,
+                        "to_name": to_name or "Member",
+                        "otp": otp,
+                        "expiry_minutes": PASSWORD_RESET_OTP_TTL_MINUTES,
+                        "message": f"Your Hercules Gym password reset OTP is {otp}. Valid for {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.",
+                    }
+                }
+                if emailjs_private_key:
+                    payload["accessToken"] = emailjs_private_key
+                
+                resp = await http_client.post("https://api.emailjs.com/api/v1.0/email/send", json=payload)
+                if resp.status_code in (200, 201):
+                    logger.info(f"EmailJS OTP successfully delivered to {to_email}")
+                    return {"status": "sent", "provider": "emailjs"}
+                else:
+                    logger.warning(f"EmailJS returned status {resp.status_code}: {resp.text}")
+        except Exception as exc:
+            logger.error(f"Failed to send EmailJS OTP: {exc}")
+
+    # 2. Try SMTP if configured (e.g. Gmail / Outlook / Custom SMTP)
+    smtp_host = os.environ.get("SMTP_HOST")
+    smtp_port = read_int_env("SMTP_PORT", 587)
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASS")
+    smtp_from = os.environ.get("SMTP_FROM", smtp_user or "noreply@herculesgym.com")
+
+    if smtp_host and smtp_user and smtp_pass:
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            import asyncio
+
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"Hercules Gym - Password Reset OTP: {otp}"
+            msg["From"] = smtp_from
+            msg["To"] = to_email
+
+            text_content = f"Hi {to_name},\n\nYour password reset OTP is: {otp}\nThis OTP is valid for {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.\nIf you did not request this, please ignore this email.\n\nHercules Gym"
+            html_content = f"""
+            <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px;">
+                <h2 style="color: #e11d48; margin-top: 0;">Hercules Gym</h2>
+                <p style="font-size: 16px; color: #1e293b;">Hi <strong>{to_name}</strong>,</p>
+                <p style="font-size: 14px; color: #475569;">You requested a password reset for your account. Use the OTP below to complete the reset:</p>
+                <div style="background: #f1f5f9; padding: 18px; border-radius: 12px; text-align: center; margin: 24px 0;">
+                    <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0f172a;">{otp}</span>
+                </div>
+                <p style="font-size: 13px; color: #64748b;">This OTP is valid for <strong>{PASSWORD_RESET_OTP_TTL_MINUTES} minutes</strong>. Do not share it with anyone.</p>
+                <p style="font-size: 12px; color: #94a3b8; margin-top: 32px;">Hercules Gym • Ranaghat • Chakdah • Madanpur</p>
+            </div>
+            """
+            msg.attach(MIMEText(text_content, "plain"))
+            msg.attach(MIMEText(html_content, "html"))
+
+            def _send():
+                with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+                    server.starttls()
+                    server.login(smtp_user, smtp_pass)
+                    server.sendmail(smtp_from, [to_email], msg.as_string())
+            await asyncio.to_thread(_send)
+            logger.info(f"SMTP OTP successfully delivered to {to_email}")
+            return {"status": "sent", "provider": "smtp"}
+        except Exception as exc:
+            logger.error(f"Failed to send SMTP OTP: {exc}")
+
+    # Fallback log
+    logger.info(f"[PASSWORD RESET OTP] Target: {to_email} ({to_name}) | OTP: {otp}")
+    return {"status": "logged", "provider": "local"}
+
 @api_router.post("/auth/forgot-password/request-otp")
 async def request_forgotten_password_otp(payload: ForgotPasswordOtpRequest):
-    normalized_phone = normalize_indian_phone(payload.phone)
-    phone_candidates = phone_lookup_values(normalized_phone)
+    input_email = (payload.email or "").strip().lower()
+    input_phone = (payload.phone or "").strip()
+    input_identifier = (payload.identifier or "").strip().lower()
+
+    if not input_email and input_identifier and "@" in input_identifier:
+        input_email = input_identifier
+    elif not input_phone and input_identifier and any(ch.isdigit() for ch in input_identifier):
+        input_phone = input_identifier
+
+    query_conditions = []
+    if input_email:
+        query_conditions.append({"email": {"$regex": f"^{re.escape(input_email)}$", "$options": "i"}})
+    if input_phone:
+        try:
+            norm_p = normalize_indian_phone(input_phone)
+            query_conditions.append({"phone": {"$in": phone_lookup_values(norm_p)}})
+        except Exception:
+            pass
+
+    if not query_conditions:
+        raise HTTPException(status_code=400, detail="Please enter your registered email address")
+
     user_doc = await run_with_mongo_retry(
         lambda: db.users.find_one(
-            {"phone": {"$in": phone_candidates}},
-            {"id": 1, "full_name": 1, "is_active": 1},
+            {"$or": query_conditions} if len(query_conditions) > 1 else query_conditions[0],
+            {"id": 1, "full_name": 1, "email": 1, "phone": 1, "is_active": 1},
         ),
         context="auth.forgot_password.request_otp.find_user",
     )
     if not user_doc:
-        raise HTTPException(status_code=404, detail="Account not found")
+        raise HTTPException(status_code=404, detail="No account found with this email address")
     if not user_doc.get("is_active", True):
-        raise HTTPException(status_code=400, detail="Account is inactive")
+        raise HTTPException(status_code=400, detail="Account is inactive. Please contact gym administration")
+
+    user_email = (user_doc.get("email") or input_email).strip().lower()
+    user_phone = user_doc.get("phone")
+    full_name = user_doc.get("full_name") or "Member"
 
     now = datetime.utcnow()
     existing_otp = await run_with_mongo_retry(
-        lambda: db.password_reset_otps.find_one({"phone": normalized_phone}),
+        lambda: db.password_reset_otps.find_one({
+            "$or": [
+                {"user_id": user_doc["id"]},
+                {"email": user_email},
+            ]
+        }),
         context="auth.forgot_password.request_otp.find_existing",
     )
     if existing_otp:
@@ -2075,11 +2193,12 @@ async def request_forgotten_password_otp(payload: ForgotPasswordOtpRequest):
 
     await run_with_mongo_retry(
         lambda: db.password_reset_otps.update_one(
-            {"phone": normalized_phone},
+            {"user_id": user_doc["id"]},
             {
                 "$set": {
-                    "phone": normalized_phone,
                     "user_id": user_doc["id"],
+                    "email": user_email,
+                    "phone": user_phone,
                     "otp_hash": get_password_hash(otp),
                     "created_at": now,
                     "expires_at": expires_at,
@@ -2093,19 +2212,27 @@ async def request_forgotten_password_otp(payload: ForgotPasswordOtpRequest):
         context="auth.forgot_password.request_otp.upsert_otp",
     )
 
-    full_name = user_doc.get("full_name") or "Member"
+    # 1. Send via Email (EmailJS / SMTP)
+    email_res = await send_password_reset_email(user_email, full_name, otp)
+
+    # 2. Also send in-app notification
     await send_notification_to_user(
         user_doc["id"],
         "Password Reset OTP",
-        f"Hi {full_name}, your OTP is {otp}. It expires in {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.",
+        f"Hi {full_name}, your password reset OTP is {otp}. It expires in {PASSWORD_RESET_OTP_TTL_MINUTES} minutes.",
         "security",
         {
             "action": "forgot_password_otp",
-            "phone": normalized_phone,
+            "email": user_email,
         },
     )
 
-    response = {"message": "OTP sent successfully"}
+    response = {
+        "message": f"OTP sent to {user_email}",
+        "email": user_email,
+        "resend_cooldown_seconds": PASSWORD_RESET_OTP_RESEND_SECONDS,
+        "delivery": email_res.get("provider", "email"),
+    }
     if not IS_PRODUCTION:
         response["otp"] = otp
     return response
@@ -2115,41 +2242,83 @@ async def reset_forgotten_password(payload: ForgotPasswordResetRequest):
     if payload.new_password != payload.confirm_password:
         raise HTTPException(status_code=400, detail="Passwords do not match")
 
-    normalized_phone = normalize_indian_phone(payload.phone)
+    input_email = (payload.email or "").strip().lower()
+    input_phone = (payload.phone or "").strip()
+    input_identifier = (payload.identifier or "").strip().lower()
+
+    if not input_email and input_identifier and "@" in input_identifier:
+        input_email = input_identifier
+    elif not input_phone and input_identifier and any(ch.isdigit() for ch in input_identifier):
+        input_phone = input_identifier
+
     normalized_otp = normalize_password_reset_otp(payload.otp)
     now = datetime.utcnow()
 
+    # Find the user first or find OTP directly
+    lookup_or = []
+    if input_email:
+        lookup_or.append({"email": {"$regex": f"^{re.escape(input_email)}$", "$options": "i"}})
+    if input_phone:
+        try:
+            norm_p = normalize_indian_phone(input_phone)
+            lookup_or.append({"phone": {"$in": phone_lookup_values(norm_p)}})
+        except Exception:
+            pass
+
+    user_doc = None
+    if lookup_or:
+        user_doc = await run_with_mongo_retry(
+            lambda: db.users.find_one(
+                {"$or": lookup_or} if len(lookup_or) > 1 else lookup_or[0],
+                {"id": 1, "full_name": 1, "email": 1, "phone": 1, "hashed_password": 1},
+            ),
+            context="auth.forgot_password.reset.find_user",
+        )
+
+    otp_conditions = []
+    if user_doc:
+        otp_conditions.append({"user_id": user_doc["id"]})
+    if input_email:
+        otp_conditions.append({"email": input_email})
+    if input_phone:
+        otp_conditions.append({"phone": input_phone})
+
+    if not otp_conditions:
+        raise HTTPException(status_code=400, detail="Please enter your email or request an OTP first")
+
     otp_record = await run_with_mongo_retry(
-        lambda: db.password_reset_otps.find_one({"phone": normalized_phone}),
+        lambda: db.password_reset_otps.find_one(
+            {"$or": otp_conditions} if len(otp_conditions) > 1 else otp_conditions[0]
+        ),
         context="auth.forgot_password.reset.find_otp",
     )
     if not otp_record:
-        raise HTTPException(status_code=400, detail="Request OTP first")
+        raise HTTPException(status_code=400, detail="No active OTP found. Please request an OTP first")
 
     expires_at = coerce_utc_naive_datetime(otp_record.get("expires_at"), now)
     if not expires_at or expires_at <= now:
         await run_with_mongo_retry(
-            lambda: db.password_reset_otps.delete_one({"phone": normalized_phone}),
+            lambda: db.password_reset_otps.delete_one({"_id": otp_record["_id"]}),
             context="auth.forgot_password.reset.delete_expired_otp",
         )
-        raise HTTPException(status_code=400, detail="OTP expired. Request a new OTP")
+        raise HTTPException(status_code=400, detail="OTP expired. Please request a new OTP")
 
     attempt_count = int(otp_record.get("attempt_count") or 0)
     if attempt_count >= PASSWORD_RESET_OTP_MAX_ATTEMPTS:
-        raise HTTPException(status_code=400, detail="Maximum OTP attempts reached. Request a new OTP")
+        raise HTTPException(status_code=400, detail="Maximum OTP attempts reached. Please request a new OTP")
 
     if not verify_password(normalized_otp, otp_record.get("otp_hash", "")):
         attempt_count += 1
         await run_with_mongo_retry(
             lambda: db.password_reset_otps.update_one(
-                {"phone": normalized_phone},
+                {"_id": otp_record["_id"]},
                 {"$set": {"attempt_count": attempt_count, "last_attempt_at": now}},
             ),
             context="auth.forgot_password.reset.increment_attempt",
         )
 
         if attempt_count >= PASSWORD_RESET_OTP_MAX_ATTEMPTS:
-            raise HTTPException(status_code=400, detail="Maximum OTP attempts reached. Request a new OTP")
+            raise HTTPException(status_code=400, detail="Maximum OTP attempts reached. Please request a new OTP")
 
         remaining_attempts = PASSWORD_RESET_OTP_MAX_ATTEMPTS - attempt_count
         raise HTTPException(
@@ -2157,10 +2326,12 @@ async def reset_forgotten_password(payload: ForgotPasswordResetRequest):
             detail=f"Invalid OTP. {remaining_attempts} attempt(s) remaining",
         )
 
-    user_doc = await run_with_mongo_retry(
-        lambda: db.users.find_one({"phone": {"$in": phone_lookup_values(normalized_phone)}}),
-        context="auth.forgot_password.reset.find_user",
-    )
+    # If user_doc wasn't found before, look it up by user_id from OTP record
+    if not user_doc:
+        user_doc = await run_with_mongo_retry(
+            lambda: db.users.find_one({"id": otp_record.get("user_id")}),
+            context="auth.forgot_password.reset.find_user_by_otp_id",
+        )
     if not user_doc:
         raise HTTPException(status_code=404, detail="Account not found")
 
@@ -2181,10 +2352,10 @@ async def reset_forgotten_password(payload: ForgotPasswordResetRequest):
         context="auth.forgot_password.reset.update_hash",
     )
     await run_with_mongo_retry(
-        lambda: db.password_reset_otps.delete_one({"phone": normalized_phone}),
+        lambda: db.password_reset_otps.delete_one({"_id": otp_record["_id"]}),
         context="auth.forgot_password.reset.delete_otp",
     )
-    return {"message": "Password reset successful"}
+    return {"message": "Password reset successful. Please sign in with your new password"}
 
 @api_router.post("/data-deletion/request")
 async def request_data_deletion(payload: DataDeletionRequestCreate):

@@ -5,7 +5,7 @@
   },
   "build": {
     "development": {
-      "credentialsSource": "local",
+      "credentialsSource": "remote",
       "developmentClient": true,
       "distribution": "internal",
       "android": {
@@ -14,7 +14,7 @@
       "channel": "development"
     },
     "preview": {
-      "credentialsSource": "local",
+      "credentialsSource": "remote",
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://hercules-gym-api-rsaha0507.onrender.com"
@@ -25,7 +25,7 @@
       "channel": "preview"
     },
     "production": {
-      "credentialsSource": "local",
+      "credentialsSource": "remote",
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://hercules-gym-api-rsaha0507.onrender.com"

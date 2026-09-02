@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,12 +13,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../src/context/AuthContext';
 import { useTheme } from '../src/context/ThemeContext';
 import { useLanguage } from '../src/context/LanguageContext';
-import { api } from '../src/services/api';
+import { api, GYM_CENTERS } from '../src/services/api';
 
 interface Trainer {
   id: string;
@@ -32,6 +33,11 @@ export default function TrainersScreen() {
   const { user } = useAuth();
   const { theme } = useTheme();
   const { t } = useLanguage();
+  const params = useLocalSearchParams<{ center?: string }>();
+
+  const [selectedCenter, setSelectedCenter] = useState<string | null>(
+    params.center && params.center !== 'All' ? params.center : null
+  );
   const [trainers, setTrainers] = useState<Trainer[]>([]);
   const [filteredTrainers, setFilteredTrainers] = useState<Trainer[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -39,13 +45,18 @@ export default function TrainersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const isFetchingRef = useRef(false);
 
+  useEffect(() => {
+    if (params.center !== undefined) {
+      setSelectedCenter(params.center && params.center !== 'All' ? params.center : null);
+    }
+  }, [params.center]);
+
   const loadTrainers = useCallback(async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
       const data = await api.getTrainers();
       setTrainers(data);
-      setFilteredTrainers(data);
     } catch (error) {
       console.log('Error loading trainers:', error);
     } finally {
@@ -73,21 +84,27 @@ export default function TrainersScreen() {
   }, [loadTrainers]);
 
   useEffect(() => {
-    if (!searchQuery) {
-      setFilteredTrainers(trainers);
-      return;
+    let result = trainers;
+
+    if (selectedCenter) {
+      result = result.filter(
+        (t) => (t.center || '').toLowerCase() === selectedCenter.toLowerCase()
+      );
     }
 
-    const query = searchQuery.toLowerCase();
-    setFilteredTrainers(
-      trainers.filter(
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter(
         (trainer) =>
           trainer.full_name.toLowerCase().includes(query) ||
           trainer.email.toLowerCase().includes(query) ||
-          (trainer.center || '').toLowerCase().includes(query)
-      )
-    );
-  }, [searchQuery, trainers]);
+          (trainer.center || '').toLowerCase().includes(query) ||
+          (trainer.phone || '').includes(query)
+      );
+    }
+
+    setFilteredTrainers(result);
+  }, [searchQuery, trainers, selectedCenter]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -141,6 +158,42 @@ export default function TrainersScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Center Filter Chips */}
+        <View style={styles.centerFilterRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.centerScroll}>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                !selectedCenter ? styles.filterChipActive : styles.filterChipInactive,
+              ]}
+              onPress={() => setSelectedCenter(null)}
+            >
+              <Text style={[styles.filterChipText, !selectedCenter && styles.filterChipTextActive]}>
+                {t('All Centers')}
+              </Text>
+            </TouchableOpacity>
+            {GYM_CENTERS.map((center) => (
+              <TouchableOpacity
+                key={center}
+                style={[
+                  styles.filterChip,
+                  selectedCenter === center ? styles.filterChipActive : styles.filterChipInactive,
+                ]}
+                onPress={() => setSelectedCenter(center)}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    selectedCenter === center && styles.filterChipTextActive,
+                  ]}
+                >
+                  {center}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
         <View style={styles.searchContainer}>
           <View style={styles.searchInput}>
             <Ionicons name="search" size={20} color="#D8EEFF" />
@@ -182,10 +235,19 @@ export default function TrainersScreen() {
                 </Text>
               </View>
               <View style={styles.info}>
-                <Text style={[styles.name, { color: theme.text }]}>{item.full_name}</Text>
+                <View style={styles.nameRow}>
+                  <Text style={[styles.name, { color: theme.text }]}>{item.full_name}</Text>
+                  {item.center ? (
+                    <View style={[styles.centerBadge, { backgroundColor: theme.primary + '15' }]}>
+                      <Text style={[styles.centerBadgeText, { color: theme.primary }]}>
+                        {item.center}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
                 <Text style={[styles.meta, { color: theme.textSecondary }]}>{item.email}</Text>
                 <Text style={[styles.meta, { color: theme.textSecondary }]}>
-                  {item.center || t('No center')} - {item.member_count || 0} {t('members')}
+                  {item.member_count || 0} {t('assigned members')}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
@@ -196,7 +258,11 @@ export default function TrainersScreen() {
           <View style={styles.emptyContainer}>
             <Ionicons name="fitness-outline" size={56} color={theme.textSecondary} />
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-              {searchQuery ? t('No trainers found') : t('No trainers available')}
+              {searchQuery
+                ? t('No trainers found')
+                : selectedCenter
+                ? `No trainers found for ${selectedCenter}`
+                : t('No trainers available')}
             </Text>
           </View>
         }
@@ -249,7 +315,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 18,
-    paddingVertical: 16,
+    paddingVertical: 14,
   },
   backButton: {
     padding: 4,
@@ -269,15 +335,44 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.28)',
     backgroundColor: 'rgba(8,20,38,0.2)',
   },
+  centerFilterRow: {
+    marginBottom: 12,
+  },
+  centerScroll: {
+    paddingHorizontal: 18,
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterChipActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
+  },
+  filterChipInactive: {
+    backgroundColor: 'rgba(8, 20, 38, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.85)',
+  },
+  filterChipTextActive: {
+    color: '#0F172A',
+  },
   searchContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     marginBottom: 12,
   },
   searchInput: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    height: 46,
+    height: 44,
     borderRadius: 14,
     gap: 10,
     backgroundColor: 'rgba(255,255,255,0.13)',
@@ -286,7 +381,7 @@ const styles = StyleSheet.create({
   },
   searchText: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     color: '#F3FCFF',
   },
   listContent: {
@@ -342,9 +437,24 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 12,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
   name: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  centerBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  centerBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
   },
   meta: {
     fontSize: 12,
@@ -360,3 +470,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
+

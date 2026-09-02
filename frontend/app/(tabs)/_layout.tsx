@@ -159,7 +159,7 @@ export default function TabLayout() {
             <Ionicons name="bulb" size={size} color={color} />
           ),
         }}
-      />\n
+      />
       <Tabs.Screen
         name="log-workout"
         options={{
@@ -169,7 +169,9 @@ export default function TabLayout() {
             <Ionicons name="barbell" size={size} color={color} />
           ),
         }}
-      />\n      <Tabs.Screen\n        name="profile"
+      />
+      <Tabs.Screen      
+        name="profile"
         options={{
           title: t('Profile'),
           tabBarIcon: ({ focused }) => getTabBarIcon('profile', focused),

@@ -182,65 +182,81 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
 
       {/* Metrics Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className={`p-4 rounded-2xl border transition-all ${
-          theme === 'dark' ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-zinc-200 shadow-sm'
-        }`}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('attendance')}
+          className={`p-4 rounded-2xl border text-left transition-all hover:scale-[1.02] cursor-pointer ${
+            theme === 'dark' ? 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700' : 'bg-white border-zinc-200 shadow-sm hover:border-zinc-300'
+          }`}
+        >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-zinc-400">Total Check-Ins Today</span>
             <div className="p-2 rounded-xl bg-rose-500/10 text-rose-500">
               <CalendarCheck2 className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-white">{todayAttendanceList.length}</div>
+          <div className={`text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>{todayAttendanceList.length}</div>
           <p className="text-[11px] text-zinc-400 mt-1 flex items-center gap-1">
             <span className="text-emerald-400 font-bold">+{todayAttendanceList.length * 3}%</span> vs yesterday
           </p>
-        </div>
+        </button>
 
-        <div className={`p-4 rounded-2xl border transition-all ${
-          theme === 'dark' ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-zinc-200 shadow-sm'
-        }`}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('members')}
+          className={`p-4 rounded-2xl border text-left transition-all hover:scale-[1.02] cursor-pointer ${
+            theme === 'dark' ? 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700' : 'bg-white border-zinc-200 shadow-sm hover:border-zinc-300'
+          }`}
+        >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-zinc-400">Registered Members</span>
             <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
               <Users className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-white">{activeMembersCount}</div>
+          <div className={`text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>{activeMembersCount}</div>
           <p className="text-[11px] text-zinc-400 mt-1 flex items-center gap-1">
             Across {selectedCenter === 'All' ? 'all 3 centers' : selectedCenter}
           </p>
-        </div>
+        </button>
 
-        <div className={`p-4 rounded-2xl border transition-all ${
-          theme === 'dark' ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-zinc-200 shadow-sm'
-        }`}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('approvals')}
+          className={`p-4 rounded-2xl border text-left transition-all hover:scale-[1.02] cursor-pointer ${
+            theme === 'dark' ? 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700' : 'bg-white border-zinc-200 shadow-sm hover:border-zinc-300'
+          }`}
+        >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-zinc-400">Pending Approvals</span>
             <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500">
               <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-white">{pendingApprovalsCount}</div>
+          <div className={`text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>{pendingApprovalsCount}</div>
           <p className="text-[11px] text-zinc-400 mt-1">
             {pendingApprovalsCount > 0 ? 'Requires admin review' : 'All accounts verified'}
           </p>
-        </div>
+        </button>
 
-        <div className={`p-4 rounded-2xl border transition-all ${
-          theme === 'dark' ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-zinc-200 shadow-sm'
-        }`}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('members')}
+          className={`p-4 rounded-2xl border text-left transition-all hover:scale-[1.02] cursor-pointer ${
+            theme === 'dark' ? 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700' : 'bg-white border-zinc-200 shadow-sm hover:border-zinc-300'
+          }`}
+        >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-zinc-400">Certified Trainers</span>
             <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500">
               <ShieldCheck className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-white">{trainersCount}</div>
+          <div className={`text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>{trainersCount}</div>
           <p className="text-[11px] text-zinc-400 mt-1">
             Personal & group coaching
           </p>
-        </div>
+        </button>
       </div>
 
       {/* Main Grid: Workout of Day & Announcements & Recent Check-ins */}

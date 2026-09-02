@@ -8,16 +8,17 @@ import {
   RefreshControl,
   ActivityIndicator,
   TextInput,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useLanguage } from '../../src/context/LanguageContext';
-import { api } from '../../src/services/api';
+import { api, GYM_CENTERS } from '../../src/services/api';
 
 interface Member {
   id: string;
@@ -26,6 +27,7 @@ interface Member {
   full_name: string;
   is_active: boolean;
   member_id: string;
+  center?: string;
   membership?: {
     plan_name: string;
     end_date: string;
@@ -37,6 +39,15 @@ export default function MembersScreen() {
   const { user } = useAuth();
   const { theme } = useTheme();
   const { t } = useLanguage();
+  const params = useLocalSearchParams<{ center?: string; status?: string }>();
+
+  const [selectedCenter, setSelectedCenter] = useState<string | null>(
+    params.center && params.center !== 'All' ? params.center : null
+  );
+  const [selectedStatus, setSelectedStatus] = useState<'all' | 'active' | 'inactive'>(
+    params.status === 'active' ? 'active' : params.status === 'inactive' ? 'inactive' : 'all'
+  );
+
   const [members, setMembers] = useState<Member[]>([]);
   const [filteredMembers, setFilteredMembers] = useState<Member[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,13 +55,24 @@ export default function MembersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const isFetchingRef = useRef(false);
 
+  // Sync route params when navigating with query parameters
+  useEffect(() => {
+    if (params.center !== undefined) {
+      setSelectedCenter(params.center && params.center !== 'All' ? params.center : null);
+    }
+    if (params.status !== undefined) {
+      setSelectedStatus(
+        params.status === 'active' ? 'active' : params.status === 'inactive' ? 'inactive' : 'all'
+      );
+    }
+  }, [params.center, params.status]);
+
   const loadMembers = useCallback(async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
     try {
       const data = await api.getMembers();
       setMembers(data);
-      setFilteredMembers(data);
     } catch (error) {
       console.log('Error loading members:', error);
     } finally {
@@ -78,19 +100,38 @@ export default function MembersScreen() {
     return () => clearInterval(interval);
   }, [loadMembers]);
 
+  // Combined filtering: Search, Center filter, and Status filter
   useEffect(() => {
-    if (searchQuery) {
-      const filtered = members.filter(
-        (member) =>
-          member.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          member.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          member.member_id?.toLowerCase().includes(searchQuery.toLowerCase())
+    let result = members;
+
+    // Filter by Center
+    if (selectedCenter) {
+      result = result.filter(
+        (m) => (m.center || '').toLowerCase() === selectedCenter.toLowerCase()
       );
-      setFilteredMembers(filtered);
-    } else {
-      setFilteredMembers(members);
     }
-  }, [searchQuery, members]);
+
+    // Filter by Status
+    if (selectedStatus === 'active') {
+      result = result.filter((m) => m.is_active);
+    } else if (selectedStatus === 'inactive') {
+      result = result.filter((m) => !m.is_active);
+    }
+
+    // Filter by Search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter(
+        (member) =>
+          member.full_name?.toLowerCase().includes(query) ||
+          member.email?.toLowerCase().includes(query) ||
+          member.member_id?.toLowerCase().includes(query) ||
+          member.phone?.includes(query)
+      );
+    }
+
+    setFilteredMembers(result);
+  }, [searchQuery, members, selectedCenter, selectedStatus]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -107,6 +148,11 @@ export default function MembersScreen() {
     if (daysRemaining <= 7) return { text: t('{days}d left', { days: daysRemaining }), color: theme.warning };
     return { text: t('Active'), color: theme.success };
   };
+
+  // Center-filtered pool for header statistics
+  const centerScopedMembers = selectedCenter
+    ? members.filter((m) => (m.center || '').toLowerCase() === selectedCenter.toLowerCase())
+    : members;
 
   const renderMemberItem = ({ item }: { item: Member }) => {
     const status = getMembershipStatus(item);
@@ -127,7 +173,16 @@ export default function MembersScreen() {
             </Text>
           </View>
           <View style={styles.memberInfo}>
-            <Text style={[styles.memberName, { color: theme.text }]}>{item.full_name}</Text>
+            <View style={styles.nameRow}>
+              <Text style={[styles.memberName, { color: theme.text }]}>{item.full_name}</Text>
+              {item.center ? (
+                <View style={[styles.centerBadge, { backgroundColor: theme.primary + '15' }]}>
+                  <Text style={[styles.centerBadgeText, { color: theme.primary }]}>
+                    {item.center}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
             <Text style={[styles.memberId, { color: theme.textSecondary }]}>{item.member_id}</Text>
             <Text style={[styles.memberEmail, { color: theme.textSecondary }]}>{item.email}</Text>
           </View>
@@ -174,6 +229,42 @@ export default function MembersScreen() {
           )}
         </View>
 
+        {/* Center Filter Chips (Only for Admin/All Centers) */}
+        <View style={styles.centerFilterRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.centerScroll}>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                !selectedCenter ? styles.filterChipActive : styles.filterChipInactive,
+              ]}
+              onPress={() => setSelectedCenter(null)}
+            >
+              <Text style={[styles.filterChipText, !selectedCenter && styles.filterChipTextActive]}>
+                {t('All Centers')}
+              </Text>
+            </TouchableOpacity>
+            {GYM_CENTERS.map((center) => (
+              <TouchableOpacity
+                key={center}
+                style={[
+                  styles.filterChip,
+                  selectedCenter === center ? styles.filterChipActive : styles.filterChipInactive,
+                ]}
+                onPress={() => setSelectedCenter(center)}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    selectedCenter === center && styles.filterChipTextActive,
+                  ]}
+                >
+                  {center}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+
         {/* Search */}
         <View style={styles.searchContainer}>
           <View style={[styles.searchInput, { borderColor: 'rgba(255,255,255,0.28)' }]}>
@@ -193,26 +284,46 @@ export default function MembersScreen() {
           </View>
         </View>
 
-        {/* Stats */}
+        {/* Status / Active Filter Tabs & Stats */}
         <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{members.length}</Text>
+          <TouchableOpacity
+            style={[
+              styles.statItem,
+              selectedStatus === 'all' && styles.statItemActive,
+            ]}
+            onPress={() => setSelectedStatus('all')}
+          >
+            <Text style={styles.statValue}>{centerScopedMembers.length}</Text>
             <Text style={styles.statLabel}>{t('Total')}</Text>
-          </View>
-          <View style={styles.statItem}>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.statItem,
+              selectedStatus === 'active' && styles.statItemActive,
+            ]}
+            onPress={() => setSelectedStatus('active')}
+          >
             <Text style={[styles.statValue, { color: '#B8FFE7' }]}>
-              {members.filter((m) => m.is_active).length}
+              {centerScopedMembers.filter((m) => m.is_active).length}
             </Text>
             <Text style={styles.statLabel}>{t('Active')}</Text>
-          </View>
-            <View style={styles.statItem}>
-              <Text style={[styles.statValue, { color: '#FFD8D8' }]}>
-                {members.filter((m) => !m.is_active).length}
-              </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.statItem,
+              selectedStatus === 'inactive' && styles.statItemActive,
+            ]}
+            onPress={() => setSelectedStatus('inactive')}
+          >
+            <Text style={[styles.statValue, { color: '#FFD8D8' }]}>
+              {centerScopedMembers.filter((m) => !m.is_active).length}
+            </Text>
             <Text style={styles.statLabel}>{t('Inactive')}</Text>
-            </View>
-          </View>
-        </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
 
       {/* Members List */}
       <FlatList
@@ -227,8 +338,12 @@ export default function MembersScreen() {
           <View style={styles.emptyContainer}>
             <Ionicons name="people-outline" size={60} color={theme.textSecondary} />
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-                {searchQuery ? t('No members found') : t('No members yet')}
-              </Text>
+              {searchQuery
+                ? t('No members found')
+                : selectedCenter
+                ? `No members found for ${selectedCenter}`
+                : t('No members yet')}
+            </Text>
           </View>
         }
       />
@@ -280,66 +395,101 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 18,
-    paddingVertical: 16,
+    paddingVertical: 14,
   },
   title: {
     color: '#F5FCFF',
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '800',
   },
   addButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.28)',
     backgroundColor: 'rgba(8,20,38,0.2)',
   },
+  centerFilterRow: {
+    marginBottom: 12,
+  },
+  centerScroll: {
+    paddingHorizontal: 18,
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterChipActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
+  },
+  filterChipInactive: {
+    backgroundColor: 'rgba(8, 20, 38, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.85)',
+  },
+  filterChipTextActive: {
+    color: '#0F172A',
+  },
   searchContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
+    paddingHorizontal: 18,
+    marginBottom: 12,
   },
   searchInput: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    height: 48,
+    paddingHorizontal: 14,
+    height: 44,
     borderRadius: 14,
-    gap: 12,
+    gap: 10,
     borderWidth: 1,
     backgroundColor: 'rgba(255,255,255,0.12)',
   },
   searchText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     color: '#F3FCFF',
   },
   statsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    gap: 12,
-    marginBottom: 18,
+    paddingHorizontal: 18,
+    gap: 10,
+    marginBottom: 14,
   },
   statItem: {
     flex: 1,
-    padding: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     borderRadius: 14,
     alignItems: 'center',
     backgroundColor: 'rgba(8, 20, 38, 0.22)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
   },
+  statItemActive: {
+    borderColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+  },
   statValue: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: '#FFFFFF',
   },
   statLabel: {
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 11,
+    marginTop: 2,
     color: '#D8EEFF',
+    fontWeight: '600',
   },
   listContent: {
     paddingHorizontal: 20,
@@ -394,9 +544,24 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 12,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
   memberName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  centerBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  centerBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
   },
   memberId: {
     fontSize: 12,

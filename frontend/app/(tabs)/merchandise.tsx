@@ -58,7 +58,7 @@ export default function MerchandiseScreen() {
   const [ordering, setOrdering] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [cartAnimation] = useState(new Animated.Value(1));
-  const ["" // no proof needed setPaymentProofImage] = useState<string | null>(null);
+  const [paymentProofImage, setPaymentProofImage] = useState<string | null>(null);
   const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(null);
 
   const categories = ['All', 'T-Shirts', 'Hoodies', 'Accessories', 'Supplements'];
