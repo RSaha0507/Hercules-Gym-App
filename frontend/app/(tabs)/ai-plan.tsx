@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/context/ThemeContext';
@@ -16,16 +16,39 @@ export default function AIPlanScreen() {
   const [plan, setPlan] = useState<any>(null);
 
   const generatePlan = async () => {
-    if (!weight || !goal || !level) return;
+    if (!weight.trim() || !goal.trim() || !level.trim()) {
+      Alert.alert('Missing Information', 'Please enter weight, goal, and experience level.');
+      return;
+    }
     setLoading(true);
     try {
       const data = await api.generateAiPlan({ weight, goal, level });
       setPlan(data);
-    } catch (e) {
+    } catch (e: any) {
       console.log('Error generating plan', e);
+      Alert.alert(
+        'AI Generation Error', 
+        e.response?.data?.detail || 'Unable to generate AI plan. Please ensure GEMINI_API_KEY is configured on the backend.'
+      );
     } finally {
       setLoading(false);
     }
+  };
+
+  const renderSection = (title: string, content: any) => {
+    if (!content) return null;
+    return (
+      <View style={[styles.sectionBlock, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <Text style={[styles.sectionHeader, { color: theme.primary }]}>{title}</Text>
+        {typeof content === 'string' ? (
+          <Text style={[styles.planText, { color: theme.text }]}>{content}</Text>
+        ) : (
+          <Text style={[styles.planText, { color: theme.text }]}>
+            {typeof content === 'object' ? JSON.stringify(content, null, 2) : String(content)}
+          </Text>
+        )}
+      </View>
+    );
   };
 
   return (
@@ -76,11 +99,17 @@ export default function AIPlanScreen() {
         </TouchableOpacity>
 
         {plan && (
-          <View style={[styles.planCard, { backgroundColor: theme.card }]}>
-            <Text style={[styles.planTitle, { color: theme.text }]}>Your 4-Week Plan</Text>
-            <Text style={[styles.planText, { color: theme.textSecondary }]}>
-              {JSON.stringify(plan, null, 2)}
-            </Text>
+          <View style={styles.resultsContainer}>
+            <Text style={[styles.planTitle, { color: theme.text }]}>Your Personalized Plan</Text>
+            {plan.workout_plan ? renderSection('Workout Plan', plan.workout_plan) : null}
+            {plan.diet_plan ? renderSection('Diet & Nutrition Plan', plan.diet_plan) : null}
+            {!plan.workout_plan && !plan.diet_plan && (
+              <View style={[styles.planCard, { backgroundColor: theme.card }]}>
+                <Text style={[styles.planText, { color: theme.textSecondary }]}>
+                  {JSON.stringify(plan, null, 2)}
+                </Text>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -97,7 +126,10 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, padding: 12, borderRadius: 8, fontSize: 16 },
   button: { padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 10 },
   buttonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  planCard: { marginTop: 30, padding: 20, borderRadius: 12 },
-  planTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 10 },
-  planText: { fontSize: 14 }
+  resultsContainer: { marginTop: 25 },
+  planTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
+  sectionBlock: { padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 14 },
+  sectionHeader: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
+  planCard: { padding: 16, borderRadius: 12 },
+  planText: { fontSize: 14, lineHeight: 22 }
 });

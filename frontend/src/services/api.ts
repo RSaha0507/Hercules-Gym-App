@@ -881,6 +881,16 @@ class ApiService {
     const response = await this.client.post("/generate-ai-plan", payload);
     return response.data;
   }
+
+  async getWorkoutLogs() {
+    const response = await this.client.get("/workout-logs");
+    return response.data;
+  }
+
+  async createWorkoutLog(items: Array<{ exercise: string; sets: number; reps: number; weight: number }>) {
+    const response = await this.client.post("/workout-logs", { items });
+    return response.data;
+  }
 }
 
 export const api = new ApiService();

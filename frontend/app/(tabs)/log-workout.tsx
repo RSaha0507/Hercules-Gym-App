@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
@@ -23,23 +23,27 @@ export default function LogWorkoutScreen() {
 
   const fetchLogs = async () => {
     try {
-      // Create ad-hoc api call since we didn't add it to api.ts yet
-      const res = await api.client.get('/workout-logs');
-      setLogs(res.data);
-    } catch (e) {
+      const data = await api.getWorkoutLogs();
+      setLogs(Array.isArray(data) ? data : []);
+    } catch (e: any) {
       console.log('Error fetching logs', e);
     }
   };
 
   const logWorkout = async () => {
+    if (!exercise.trim()) {
+      Alert.alert('Validation Error', 'Please enter an exercise name.');
+      return;
+    }
     try {
-      await api.client.post('/workout-logs', {
-        items: [{ exercise, sets: parseInt(sets), reps: parseInt(reps), weight: parseFloat(weight) }]
-      });
-      alert('Workout logged successfully!');
+      await api.createWorkoutLog([
+        { exercise, sets: parseInt(sets) || 1, reps: parseInt(reps) || 1, weight: parseFloat(weight) || 0 }
+      ]);
+      Alert.alert('Success', 'Workout logged successfully!');
       fetchLogs();
-    } catch (e) {
+    } catch (e: any) {
       console.log('Error logging', e);
+      Alert.alert('Error', e.response?.data?.detail || 'Failed to log workout');
     }
   };
 

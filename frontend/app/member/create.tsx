@@ -21,6 +21,30 @@ import { api, GYM_CENTERS, CenterType } from '../../src/services/api';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 
+const InputField = React.memo(({ 
+  label, 
+  value, 
+  onChangeText, 
+  placeholder,
+  required = false,
+  theme,
+  ...props 
+}: any) => (
+  <View style={styles.inputGroup}>
+    <Text style={[styles.label, { color: theme.text }]}>
+      {label} {required && <Text style={{ color: theme.error }}>*</Text>}
+    </Text>
+    <TextInput
+      style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text }]}
+      placeholder={placeholder}
+      placeholderTextColor={theme.textSecondary}
+      value={value}
+      onChangeText={onChangeText}
+      {...props}
+    />
+  </View>
+));
+
 export default function CreateMemberScreen() {
   const { theme } = useTheme();
   const { user } = useAuth();
@@ -163,29 +187,6 @@ export default function CreateMemberScreen() {
     }
   };
 
-  const InputField = ({ 
-    label, 
-    value, 
-    onChangeText, 
-    placeholder,
-    required = false,
-    ...props 
-  }: any) => (
-    <View style={styles.inputGroup}>
-      <Text style={[styles.label, { color: theme.text }]}>
-        {label} {required && <Text style={{ color: theme.error }}>*</Text>}
-      </Text>
-      <TextInput
-        style={[styles.input, { backgroundColor: theme.inputBg, color: theme.text }]}
-        placeholder={placeholder}
-        placeholderTextColor={theme.textSecondary}
-        value={value}
-        onChangeText={onChangeText}
-        {...props}
-      />
-    </View>
-  );
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       {/* Header */}
@@ -212,35 +213,39 @@ export default function CreateMemberScreen() {
             <InputField
               label="Full Name"
               value={formData.full_name}
-              onChangeText={(text: string) => setFormData({ ...formData, full_name: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, full_name: text }))}
               placeholder="Enter full name"
               required
+              theme={theme}
             />
             <InputField
               label="Email"
               value={formData.email}
-              onChangeText={(text: string) => setFormData({ ...formData, email: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, email: text }))}
               placeholder="Enter email address"
               keyboardType="email-address"
               autoCapitalize="none"
               required
+              theme={theme}
             />
             <InputField
               label="Phone"
               value={formData.phone}
-              onChangeText={(text: string) => setFormData({ ...formData, phone: toIndianPhoneDigits(text) })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, phone: toIndianPhoneDigits(text) }))}
               placeholder="10-digit mobile number"
               keyboardType="phone-pad"
               maxLength={10}
               required
+              theme={theme}
             />
             <InputField
               label="Password"
               value={formData.password}
-              onChangeText={(text: string) => setFormData({ ...formData, password: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, password: text }))}
               placeholder="Create password"
               secureTextEntry
               required
+              theme={theme}
             />
 
             <View style={styles.inputGroup}>
@@ -293,7 +298,7 @@ export default function CreateMemberScreen() {
                         borderColor: formData.center === center ? theme.primary : theme.border,
                       },
                     ]}
-                    onPress={() => setFormData({ ...formData, center })}
+                    onPress={() => setFormData((prev) => ({ ...prev, center }))}
                     disabled={user?.role === 'trainer'} // Trainers can only add to their center
                   >
                     <Ionicons
@@ -322,16 +327,18 @@ export default function CreateMemberScreen() {
             <InputField
               label="Gender"
               value={formData.gender}
-              onChangeText={(text: string) => setFormData({ ...formData, gender: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, gender: text }))}
               placeholder="Male / Female / Other"
+              theme={theme}
             />
             <InputField
               label="Address"
               value={formData.address}
-              onChangeText={(text: string) => setFormData({ ...formData, address: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, address: text }))}
               placeholder="Enter address"
               multiline
               numberOfLines={2}
+              theme={theme}
             />
           </View>
 
@@ -341,15 +348,17 @@ export default function CreateMemberScreen() {
             <InputField
               label="Plan Name"
               value={formData.plan_name}
-              onChangeText={(text: string) => setFormData({ ...formData, plan_name: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, plan_name: text }))}
               placeholder="e.g., Monthly, Quarterly, Annual"
+              theme={theme}
             />
             <InputField
               label="Amount (₹)"
               value={formData.plan_amount}
-              onChangeText={(text: string) => setFormData({ ...formData, plan_amount: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, plan_amount: text }))}
               placeholder="Enter amount"
               keyboardType="numeric"
+              theme={theme}
             />
             <View style={styles.inputGroup}>
               <Text style={[styles.label, { color: theme.text }]}>Start Date</Text>
@@ -383,22 +392,25 @@ export default function CreateMemberScreen() {
             <InputField
               label="Contact Name"
               value={formData.emergency_name}
-              onChangeText={(text: string) => setFormData({ ...formData, emergency_name: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, emergency_name: text }))}
               placeholder="Enter name"
+              theme={theme}
             />
             <InputField
               label="Contact Phone"
               value={formData.emergency_phone}
-              onChangeText={(text: string) => setFormData({ ...formData, emergency_phone: toIndianPhoneDigits(text) })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, emergency_phone: toIndianPhoneDigits(text) }))}
               placeholder="10-digit mobile number"
               keyboardType="phone-pad"
               maxLength={10}
+              theme={theme}
             />
             <InputField
               label="Relationship"
               value={formData.emergency_relationship}
-              onChangeText={(text: string) => setFormData({ ...formData, emergency_relationship: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, emergency_relationship: text }))}
               placeholder="e.g., Parent, Spouse, Friend"
+              theme={theme}
             />
           </View>
 
@@ -408,18 +420,20 @@ export default function CreateMemberScreen() {
             <InputField
               label="Medical Notes"
               value={formData.medical_notes}
-              onChangeText={(text: string) => setFormData({ ...formData, medical_notes: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, medical_notes: text }))}
               placeholder="Any medical conditions or injuries"
               multiline
               numberOfLines={3}
+              theme={theme}
             />
             <InputField
               label="Fitness Goals"
               value={formData.goals}
-              onChangeText={(text: string) => setFormData({ ...formData, goals: text })}
+              onChangeText={(text: string) => setFormData((prev) => ({ ...prev, goals: text }))}
               placeholder="What does the member want to achieve?"
               multiline
               numberOfLines={3}
+              theme={theme}
             />
           </View>
 

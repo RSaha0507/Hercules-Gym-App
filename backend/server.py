@@ -5945,62 +5945,55 @@ async def privacy_policy_page():
 async def privacy_page_alias():
     return HTMLResponse(content=PRIVACY_POLICY_PAGE_HTML)
 
-# Include router
-app.include_router(api_router)
+# ---------------------------------------------------------------------------
+# AI Generation and Workout Logs Routers & Handlers
+# ---------------------------------------------------------------------------
+class AIPlanRequest(BaseModel):
+    goal: Optional[str] = None
+    level: Optional[str] = None
+    weight: Optional[str] = None
 
-# CORS middleware
-cors_origins_env = os.environ.get("CORS_ORIGINS", "*").strip()
-if cors_origins_env == "*":
-    cors_allow_origins = ["*"]
-    cors_allow_credentials = False
-else:
-    cors_allow_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
-    cors_allow_credentials = True
-
-if IS_PRODUCTION and cors_origins_env == "*":
-    logger.warning("CORS_ORIGINS is set to '*'. Restrict this in production.")
-
-
-
-from google import genai
-import os
-import json
-import re
-from datetime import datetime
-
-ai_router = APIRouter(prefix="/ai", tags=["AI"])
-
-def sanitize_input(text: str, max_length: int = 100) -> str:
-    # Remove any characters that aren't alphanumeric, spaces, or basic punctuation
-    sanitized = re.sub(r"[^a-zA-Z0-9\s.,\-\'\"]", "", str(text))
+def sanitize_input(text: Any, max_length: int = 150) -> str:
+    sanitized = re.sub(r"[^a-zA-Z0-9\s.,\-\'\"]", "", str(text or ""))
     return sanitized[:max_length].strip()
 
-@ai_router.post("/generate-plan")
-async def generate_plan(payload: dict, current_user: UserInDB = Depends(get_current_user)):
-    goal = payload.get("goal")
-    level = payload.get("level")
-    weight = payload.get("weight")
-    
+async def generate_plan_handler(
+    payload: Union[AIPlanRequest, Dict[str, Any]], 
+    current_user: UserInDB = Depends(get_current_user)
+):
+    if isinstance(payload, AIPlanRequest):
+        goal = payload.goal
+        level = payload.level
+        weight = payload.weight
+    elif isinstance(payload, dict):
+        goal = payload.get("goal")
+        level = payload.get("level")
+        weight = payload.get("weight")
+    else:
+        goal = getattr(payload, "goal", None)
+        level = getattr(payload, "level", None)
+        weight = getattr(payload, "weight", None)
+
     if not all([goal, level, weight]):
-        raise HTTPException(status_code=400, detail="Missing inputs")
+        raise HTTPException(status_code=400, detail="Missing required inputs (goal, level, weight)")
 
     # 1. Prompt Injection Mitigation (Input Sanitization)
     sanitized_goal = sanitize_input(goal, max_length=150)
     sanitized_level = sanitize_input(level, max_length=50)
-    sanitized_weight = sanitize_input(weight, max_length=10)
-    
+    sanitized_weight = sanitize_input(weight, max_length=15)
+
     if len(sanitized_goal) < 2 or len(sanitized_level) < 2:
         raise HTTPException(status_code=400, detail="Invalid inputs provided")
 
-    # 2. Rate Limiting (Max 5 per day)
+    # 2. Rate Limiting (Max 10 per day)
     now = datetime.utcnow()
     today_str = now.strftime("%Y-%m-%d")
-    
+
     profile = await db.member_profiles.find_one({"user_id": current_user.id})
     if profile:
         rate_limit_data = profile.get("ai_rate_limit", {})
         if rate_limit_data.get("date") == today_str:
-            if rate_limit_data.get("count", 0) >= 5:
+            if rate_limit_data.get("count", 0) >= 10:
                 raise HTTPException(status_code=429, detail="Daily AI plan generation limit reached. Please try again tomorrow.")
             new_count = rate_limit_data.get("count", 0) + 1
         else:
@@ -6010,24 +6003,28 @@ async def generate_plan(payload: dict, current_user: UserInDB = Depends(get_curr
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="AI service not configured")
-        
-    client = genai.Client(api_key=api_key)
-    
+        logger.error("GEMINI_API_KEY is not set in environment")
+        raise HTTPException(
+            status_code=503, 
+            detail="AI service not configured: GEMINI_API_KEY is missing on backend server."
+        )
+
     prompt = f"""
     Act as an elite personal trainer and nutritionist.
     User Profile:
     - Weight: {sanitized_weight} kg
     - Goal: {sanitized_goal}
     - Experience Level: {sanitized_level}
-    
+
     Generate a JSON object containing two keys: "workout_plan" and "diet_plan".
     "workout_plan" should be a 4-week summary and schedule.
     "diet_plan" should be a daily meal plan (breakfast, lunch, dinner, snacks).
     Return ONLY valid JSON without markdown formatting.
     """
-    
+
     try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt,
@@ -6035,8 +6032,16 @@ async def generate_plan(payload: dict, current_user: UserInDB = Depends(get_curr
                 response_mime_type="application/json",
             ),
         )
-        data = json.loads(response.text)
-        
+        text = (response.text or "").strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        elif text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+        data = json.loads(text)
+
         # Save to MongoDB and update rate limit
         await db.member_profiles.update_one(
             {"user_id": current_user.id},
@@ -6050,14 +6055,8 @@ async def generate_plan(payload: dict, current_user: UserInDB = Depends(get_curr
         )
         return data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-from pydantic import BaseModel
-from datetime import datetime
-import uuid
-
-workout_logs_router = APIRouter(prefix="/workout-logs", tags=["Workouts"])
+        logger.error(f"Error generating AI plan with Gemini: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate plan: {str(e)}")
 
 class WorkoutLogItem(BaseModel):
     exercise: str
@@ -6068,8 +6067,7 @@ class WorkoutLogItem(BaseModel):
 class WorkoutLogCreate(BaseModel):
     items: List[WorkoutLogItem]
 
-@workout_logs_router.post("")
-async def create_workout_log(log: WorkoutLogCreate, current_user: UserInDB = Depends(get_current_user)):
+async def create_workout_log_handler(log: WorkoutLogCreate, current_user: UserInDB = Depends(get_current_user)):
     now = datetime.utcnow()
     doc = {
         "id": uuid.uuid4().hex,
@@ -6080,17 +6078,51 @@ async def create_workout_log(log: WorkoutLogCreate, current_user: UserInDB = Dep
     await db.workout_logs.insert_one(doc)
     return {"status": "success", "id": doc["id"]}
 
-@workout_logs_router.get("")
-async def get_workout_logs(current_user: UserInDB = Depends(get_current_user)):
+async def get_workout_logs_handler(current_user: UserInDB = Depends(get_current_user)):
     cursor = db.workout_logs.find({"user_id": current_user.id}).sort("date", -1)
     logs = await cursor.to_list(length=100)
     for log in logs:
         log["_id"] = str(log["_id"])
+        if isinstance(log.get("date"), datetime):
+            log["date"] = log["date"].isoformat()
     return logs
 
+# Dedicated sub-routers
+ai_router = APIRouter(prefix="/ai", tags=["AI"])
+ai_router.add_api_route("/generate-plan", generate_plan_handler, methods=["POST"])
 
-app.include_router(ai_router)
+workout_logs_router = APIRouter(prefix="/workout-logs", tags=["Workouts"])
+workout_logs_router.add_api_route("", create_workout_log_handler, methods=["POST"])
+workout_logs_router.add_api_route("", get_workout_logs_handler, methods=["GET"])
+
+# Mount on api_router so /api/generate-ai-plan and /api/workout-logs work
+api_router.add_api_route("/generate-ai-plan", generate_plan_handler, methods=["POST"])
+api_router.add_api_route("/ai/generate-plan", generate_plan_handler, methods=["POST"])
+api_router.include_router(workout_logs_router)
+api_router.include_router(ai_router)
+
+# Mount router on main FastAPI app
+app.include_router(api_router)
 app.include_router(workout_logs_router)
+app.include_router(ai_router)
+
+# Direct root-level aliases (without /api)
+app.add_api_route("/generate-ai-plan", generate_plan_handler, methods=["POST"])
+app.add_api_route("/workout-logs", create_workout_log_handler, methods=["POST"])
+app.add_api_route("/workout-logs", get_workout_logs_handler, methods=["GET"])
+
+# CORS middleware
+cors_origins_env = os.environ.get("CORS_ORIGINS", "*").strip()
+if cors_origins_env == "*":
+    cors_allow_origins = ["*"]
+    cors_allow_credentials = False
+else:
+    cors_allow_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+    cors_allow_credentials = True
+
+if IS_PRODUCTION and cors_origins_env == "*":
+    logger.warning("CORS_ORIGINS is set to '*'. Restrict this in production.")
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=cors_allow_credentials,
@@ -6198,51 +6230,3 @@ async def shutdown_db_client():
 
 # Export socket app for uvicorn
 app = socket_app
-
-class AIPlanRequest(BaseModel):
-    goal: str
-    level: str
-    weight: str
-
-@api_router.post("/generate-ai-plan")
-async def generate_ai_plan(payload: AIPlanRequest, current_user: UserInDB = Depends(get_current_user)):
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="AI service not configured")
-        
-    try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        
-        prompt = f"""
-        Act as an elite personal trainer and nutritionist.
-        User Profile:
-        - Weight: {payload.weight} kg
-        - Goal: {payload.goal}
-        - Experience Level: {payload.level}
-        
-        Generate a JSON object containing two keys: "workout_plan" and "diet_plan".
-        "workout_plan" should be a 4-week summary and schedule.
-        "diet_plan" should be a daily meal plan (breakfast, lunch, dinner, snacks).
-        Return ONLY valid JSON without markdown formatting.
-        """
-        
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        # Parse the JSON response
-        import json
-        text = response.text
-        if text.startswith("```json"):
-            text = text[7:-3]
-        data = json.loads(text)
-        
-        # Save to MongoDB
-        await db.member_profiles.update_one(
-            {"user_id": current_user.id},
-            {"$set": {"ai_plan": data}}
-        )
-        return data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
