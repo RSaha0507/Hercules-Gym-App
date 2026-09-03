@@ -26,10 +26,12 @@ export default function AIPlanScreen() {
       setPlan(data);
     } catch (e: any) {
       console.log('Error generating plan', e);
-      Alert.alert(
-        'AI Generation Error', 
-        e.response?.data?.detail || 'Unable to generate AI plan. Please ensure GEMINI_API_KEY is configured on the backend.'
-      );
+      const detail = e.response?.data?.detail;
+      const isTimeout = e.code === 'ECONNABORTED' || e.message?.toLowerCase().includes('timeout');
+      const errorMessage = detail || (isTimeout 
+        ? 'AI generation took longer than expected due to temporary model traffic. Please try again.' 
+        : (e.message || 'Unable to generate AI plan. Please try again.'));
+      Alert.alert('AI Generation Error', errorMessage);
     } finally {
       setLoading(false);
     }

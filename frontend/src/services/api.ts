@@ -878,7 +878,9 @@ class ApiService {
     level: string;
     weight: string;
   }) {
-    const response = await this.client.post("/generate-ai-plan", payload);
+    const response = await this.client.post("/generate-ai-plan", payload, {
+      timeout: 60000,
+    });
     return response.data;
   }
 
