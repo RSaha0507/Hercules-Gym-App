@@ -6025,13 +6025,42 @@ async def generate_plan_handler(
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                response_mime_type="application/json",
-            ),
-        )
+        
+        # Determine candidate models (Google recommended gemini-3.6-flash; also support 3.8 and latest)
+        preferred_model = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash").strip()
+        candidate_models = [
+            preferred_model,
+            "gemini-3.6-flash",
+            "gemini-3.8-flash",
+            "gemini-flash-latest",
+        ]
+        # Remove duplicates while preserving order
+        unique_models = []
+        for m in candidate_models:
+            if m and m not in unique_models:
+                unique_models.append(m)
+
+        response = None
+        last_err = None
+        for mod in unique_models:
+            try:
+                logger.info(f"Attempting AI plan generation using model: {mod}")
+                response = client.models.generate_content(
+                    model=mod,
+                    contents=prompt,
+                    config=genai.types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                    ),
+                )
+                if response and response.text:
+                    break
+            except Exception as mod_err:
+                logger.warning(f"Gemini model {mod} failed: {mod_err}")
+                last_err = mod_err
+
+        if not response or not response.text:
+            raise last_err or RuntimeError("No response received from any Gemini model candidate")
+
         text = (response.text or "").strip()
         if text.startswith("```json"):
             text = text[7:]
