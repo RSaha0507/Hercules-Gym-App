@@ -6227,13 +6227,15 @@ async def generate_plan_handler(
         from google import genai
         client = genai.Client(api_key=api_key)
         
-        # Determine candidate models (prioritize stable alias gemini-flash-latest for capacity)
-        preferred_model = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash").strip()
+        # Determine candidate models (prioritize high-throughput flash-lite models to prevent 503 high-demand errors)
+        preferred_model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip()
         candidate_models = [
             preferred_model,
-            "gemini-3.8-flash",
             "gemini-3.1-flash-lite",
-            "gemini-flash-latest",
+            "gemini-3.5-flash-lite",
+            "gemini-flash-lite-latest",
+            "gemini-3.8-flash",
+            "gemini-3.5-flash",
         ]
         # Remove duplicates while preserving order
         unique_models = []
