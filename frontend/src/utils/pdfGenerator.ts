@@ -1,10 +1,17 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { Platform, Alert } from 'react-native';
-import { ADAPTIVE_ICON_BASE64 } from './adaptiveIconBase64';
+import { Platform, Alert, Image } from 'react-native';
 
 function getLogoUri(): string {
-  return ADAPTIVE_ICON_BASE64;
+  try {
+    const asset = Image.resolveAssetSource(require('../../assets/images/adaptive-icon.png'));
+    if (asset && asset.uri) {
+      return asset.uri;
+    }
+  } catch (err) {
+    console.log('Unable to resolve adaptive-icon.png:', err);
+  }
+  return '';
 }
 
 function escapeHtml(text: string): string {
@@ -335,7 +342,7 @@ export async function exportPlanToPdf(title: string, content: string, subtitle?:
       <body>
         <div class="header">
           <div class="brand-container">
-            <img class="brand-logo" src="${logoUri}" alt="Hercules Gym Logo" />
+            ${logoUri ? `<img class="brand-logo" src="${logoUri}" alt="Hercules Gym Logo" onerror="this.style.display='none'" />` : ''}
             <div class="brand-text">
               <div class="brand">HERCULES GYM</div>
               <div class="badge">HG.AI INTELLIGENCE</div>

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, Component, ReactNode } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,8 @@ import {
   LayoutAnimation,
   UIManager,
   Keyboard,
+  TextStyle,
+  ViewStyle,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,10 +24,14 @@ import { useLanguage } from '../../src/context/LanguageContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { api } from '../../src/services/api';
 import { exportPlanToPdf } from '../../src/utils/pdfGenerator';
-import { MarkdownView } from '../../src/components/MarkdownView';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
+// Enable LayoutAnimation safely for Android
+try {
+  if (Platform.OS === 'android' && typeof (UIManager as any)?.setLayoutAnimationEnabledExperimental === 'function') {
+    (UIManager as any).setLayoutAnimationEnabledExperimental(true);
+  }
+} catch (e) {
+  // Ignore animation setup errors
 }
 
 const HG_AI_LOGO = require('../../assets/images/hg-ai-logo.png');
@@ -70,12 +76,6 @@ const STARTER_PROMPTS: PromptCard[] = [
     prompt: 'How do I calculate a healthy caloric deficit for fat loss while preserving lean muscle mass? Give exact calculation guidelines and habits.',
   },
   {
-    icon: 'moon-outline',
-    title: 'Recovery & Sleep Protocol',
-    subtitle: 'Reduce DOMS soreness & maximize deep sleep',
-    prompt: 'What are the best recovery habits, foam rolling techniques, and sleep hygiene practices to optimize deep muscle recovery after heavy training?',
-  },
-  {
     icon: 'restaurant-outline',
     title: 'Pre & Post Workout Fuel',
     subtitle: 'Optimal timing for muscle glycogen & protein synthesis',
@@ -83,16 +83,489 @@ const STARTER_PROMPTS: PromptCard[] = [
   },
 ];
 
-export default function HGAIScreen() {
+/* =========================================================================
+   INLINE SELF-CONTAINED MARKDOWN RENDERER
+   Supports tables, headings, bold, italics, lists & paragraphs.
+   Zero external dependencies.
+   ========================================================================= */
+
+function renderInlineFormatting(text: string, baseStyle: TextStyle, isUser: boolean, theme: any) {
+  if (!text) return null;
+  const parts = text.split(/(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_|`[^`]+`)/g);
+
+  return parts.map((part, index) => {
+    if (!part) return null;
+
+    // Bold + Italic: ***text***
+    if (part.startsWith('***') && part.endsWith('***') && part.length >= 6) {
+      return (
+        <Text key={index} style={[baseStyle, { fontWeight: '700', fontStyle: 'italic', color: isUser ? '#FFF' : theme.text }]}>
+          {part.slice(3, -3)}
+        </Text>
+      );
+    }
+    // Bold: **text**
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      return (
+        <Text key={index} style={[baseStyle, { fontWeight: '700', color: isUser ? '#FFF' : (theme.primaryDark || theme.text) }]}>
+          {part.slice(2, -2)}
+        </Text>
+      );
+    }
+    // Italic: *text* or _text_
+    if (((part.startsWith('*') && part.endsWith('*')) || (part.startsWith('_') && part.endsWith('_'))) && part.length >= 2) {
+      return (
+        <Text key={index} style={[baseStyle, { fontStyle: 'italic', opacity: 0.9 }]}>
+          {part.slice(1, -1)}
+        </Text>
+      );
+    }
+    // Code: `text`
+    if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+      return (
+        <Text
+          key={index}
+          style={[
+            baseStyle,
+            {
+              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+              fontSize: (baseStyle.fontSize || 14) * 0.9,
+              backgroundColor: isUser ? 'rgba(255,255,255,0.2)' : theme.inputBg,
+              color: isUser ? '#FFF' : theme.primary,
+              paddingHorizontal: 4,
+            },
+          ]}
+        >
+          {part.slice(1, -1)}
+        </Text>
+      );
+    }
+
+    return (
+      <Text key={index} style={baseStyle}>
+        {part}
+      </Text>
+    );
+  });
+}
+
+function parseMarkdownBlocks(rawMd: string) {
+  if (!rawMd || typeof rawMd !== 'string') return [];
+  const lines = rawMd.split('\n');
+  const blocks: Array<{
+    type: 'heading' | 'divider' | 'blockquote' | 'bullet_list' | 'numbered_list' | 'table' | 'paragraph';
+    level?: number;
+    text?: string;
+    items?: any[];
+    headers?: string[];
+    rows?: string[][];
+  }> = [];
+
+  let i = 0;
+  while (i < lines.length) {
+    const rawLine = lines[i];
+    const line = rawLine.trim();
+
+    if (!line) {
+      i++;
+      continue;
+    }
+
+    // Divider: ---
+    if (/^(---|---|\*\*\*|___)\s*$/.test(line)) {
+      blocks.push({ type: 'divider' });
+      i++;
+      continue;
+    }
+
+    // Heading: #, ##, ###
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      let text = headingMatch[2].trim();
+      if (text.startsWith('**') && text.endsWith('**') && text.length >= 4) {
+        text = text.slice(2, -2).trim();
+      }
+      blocks.push({ type: 'heading', level, text });
+      i++;
+      continue;
+    }
+
+    // Blockquote: >
+    if (line.startsWith('>')) {
+      blocks.push({ type: 'blockquote', text: line.replace(/^>\s*/, '').trim() });
+      i++;
+      continue;
+    }
+
+    // Table: line with | and separator on next line
+    if (line.includes('|') && i + 1 < lines.length && /^\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?$/.test(lines[i + 1].trim())) {
+      const cleanRow = (r: string) => {
+        let t = r.trim();
+        if (t.startsWith('|')) t = t.slice(1);
+        if (t.endsWith('|')) t = t.slice(0, -1);
+        return t.split('|').map((c) => c.trim());
+      };
+      const headers = cleanRow(line);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim().includes('|') && !/^\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?$/.test(lines[i].trim())) {
+        const row = cleanRow(lines[i]);
+        if (row.some((c) => c.length > 0)) rows.push(row);
+        i++;
+      }
+      if (headers.length > 0) {
+        blocks.push({ type: 'table', headers, rows });
+        continue;
+      }
+    }
+
+    // Bullet List: * or -
+    const bulletMatch = line.match(/^(\*|-|\+|•)\s+(.*)$/);
+    if (bulletMatch) {
+      const items: string[] = [];
+      while (i < lines.length) {
+        const curr = lines[i].trim();
+        const m = curr.match(/^(\*|-|\+|•)\s+(.*)$/);
+        if (m) {
+          items.push(m[2].trim());
+          i++;
+        } else if (curr && !curr.startsWith('#') && !curr.includes('|')) {
+          if (items.length > 0) items[items.length - 1] += ' ' + curr;
+          i++;
+        } else {
+          break;
+        }
+      }
+      blocks.push({ type: 'bullet_list', items });
+      continue;
+    }
+
+    // Numbered List: 1.
+    const numMatch = line.match(/^(\d+)\.\s+(.*)$/);
+    if (numMatch) {
+      const items: { num: string; text: string }[] = [];
+      while (i < lines.length) {
+        const curr = lines[i].trim();
+        const m = curr.match(/^(\d+)\.\s+(.*)$/);
+        if (m) {
+          items.push({ num: m[1], text: m[2].trim() });
+          i++;
+        } else if (curr && !curr.startsWith('#') && !curr.includes('|')) {
+          if (items.length > 0) items[items.length - 1].text += ' ' + curr;
+          i++;
+        } else {
+          break;
+        }
+      }
+      blocks.push({ type: 'numbered_list', items });
+      continue;
+    }
+
+    // Regular Paragraph
+    let paraText = line;
+    i++;
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !lines[i].trim().match(/^(#{1,6}\s+|(\*|-|\+|•)\s+|\d+\.\s+|>|---|___|\*\*\*)/) &&
+      !lines[i].trim().includes('|')
+    ) {
+      paraText += ' ' + lines[i].trim();
+      i++;
+    }
+    blocks.push({ type: 'paragraph', text: paraText });
+  }
+
+  return blocks;
+}
+
+const SafeMarkdown: React.FC<{ content: string; isUser: boolean; theme: any }> = ({ content, isUser, theme }) => {
+  const blocks = React.useMemo(() => parseMarkdownBlocks(content), [content]);
+  const baseTextStyle: TextStyle = {
+    fontSize: 14.5,
+    lineHeight: 22,
+    color: isUser ? '#FFFFFF' : theme.text,
+  };
+
+  return (
+    <View style={{ width: '100%' }}>
+      {blocks.map((block, idx) => {
+        if (block.type === 'heading') {
+          const fontSize = block.level === 1 ? 19 : block.level === 2 ? 17 : 15.5;
+          const headingStyle: TextStyle = {
+            fontSize,
+            fontWeight: '700',
+            lineHeight: fontSize * 1.35,
+            color: isUser ? '#FFFFFF' : theme.text,
+            marginTop: idx === 0 ? 2 : 12,
+            marginBottom: 4,
+          };
+          return (
+            <Text key={idx} style={headingStyle}>
+              {renderInlineFormatting(block.text || '', headingStyle, isUser, theme)}
+            </Text>
+          );
+        }
+
+        if (block.type === 'divider') {
+          return (
+            <View
+              key={idx}
+              style={{
+                height: 1,
+                backgroundColor: isUser ? 'rgba(255,255,255,0.2)' : theme.border,
+                marginVertical: 10,
+              }}
+            />
+          );
+        }
+
+        if (block.type === 'blockquote') {
+          return (
+            <View
+              key={idx}
+              style={{
+                borderLeftWidth: 3,
+                borderLeftColor: theme.primary,
+                backgroundColor: isUser ? 'rgba(255,255,255,0.1)' : theme.inputBg,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 4,
+                marginVertical: 6,
+              }}
+            >
+              <Text style={[baseTextStyle, { fontStyle: 'italic' }]}>
+                {renderInlineFormatting(block.text || '', baseTextStyle, isUser, theme)}
+              </Text>
+            </View>
+          );
+        }
+
+        if (block.type === 'bullet_list') {
+          return (
+            <View key={idx} style={{ marginVertical: 4 }}>
+              {(block.items || []).map((item, itemIdx) => (
+                <View key={itemIdx} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 5 }}>
+                  <View
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: 2.5,
+                      backgroundColor: isUser ? '#FFF' : theme.primary,
+                      marginTop: 8,
+                      marginRight: 8,
+                    }}
+                  />
+                  <Text style={[baseTextStyle, { flex: 1 }]}>
+                    {renderInlineFormatting(item, baseTextStyle, isUser, theme)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          );
+        }
+
+        if (block.type === 'numbered_list') {
+          return (
+            <View key={idx} style={{ marginVertical: 4 }}>
+              {(block.items || []).map((item, itemIdx) => (
+                <View key={itemIdx} style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 5 }}>
+                  <Text style={{ fontWeight: '700', fontSize: 13.5, marginRight: 6, lineHeight: 22, color: isUser ? '#FFF' : theme.primary }}>
+                    {item.num}.
+                  </Text>
+                  <Text style={[baseTextStyle, { flex: 1 }]}>
+                    {renderInlineFormatting(item.text, baseTextStyle, isUser, theme)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          );
+        }
+
+        if (block.type === 'table') {
+          const headers = block.headers || [];
+          const rows = block.rows || [];
+          const colWidths = headers.map((_, cIdx) => {
+            const maxL = Math.max(headers[cIdx]?.length || 0, ...rows.map((r) => (r[cIdx] || '').length));
+            if (maxL <= 10) return 90;
+            if (maxL <= 22) return 130;
+            return 170;
+          });
+
+          return (
+            <View key={idx} style={{ marginVertical: 8, width: '100%' }}>
+              <Text style={{ fontSize: 10, color: isUser ? 'rgba(255,255,255,0.7)' : theme.textSecondary, marginBottom: 3 }}>
+                ↔ Swipe table horizontally
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
+                <View
+                  style={{
+                    borderWidth: 1,
+                    borderColor: isUser ? 'rgba(255,255,255,0.25)' : theme.border,
+                    borderRadius: 6,
+                    overflow: 'hidden',
+                    backgroundColor: isUser ? 'transparent' : theme.card,
+                  }}
+                >
+                  {/* Table Header */}
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      backgroundColor: isUser ? 'rgba(255,255,255,0.2)' : (theme.isDark ? '#262626' : '#f1f5f9'),
+                      borderBottomWidth: 1,
+                      borderBottomColor: isUser ? 'rgba(255,255,255,0.25)' : theme.border,
+                    }}
+                  >
+                    {headers.map((h, hIdx) => (
+                      <View
+                        key={hIdx}
+                        style={{
+                          width: colWidths[hIdx],
+                          paddingHorizontal: 8,
+                          paddingVertical: 6,
+                          borderRightWidth: hIdx === headers.length - 1 ? 0 : StyleSheet.hairlineWidth,
+                          borderRightColor: isUser ? 'rgba(255,255,255,0.25)' : theme.border,
+                        }}
+                      >
+                        <Text style={{ fontWeight: '700', fontSize: 12, color: isUser ? '#FFF' : theme.text }}>
+                          {renderInlineFormatting(h, { fontSize: 12, fontWeight: '700' }, isUser, theme)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                  {/* Table Rows */}
+                  {rows.map((row, rIdx) => (
+                    <View
+                      key={rIdx}
+                      style={{
+                        flexDirection: 'row',
+                        backgroundColor: rIdx % 2 === 1 ? (isUser ? 'rgba(255,255,255,0.06)' : theme.inputBg) : 'transparent',
+                        borderBottomWidth: rIdx === rows.length - 1 ? 0 : StyleSheet.hairlineWidth,
+                        borderBottomColor: isUser ? 'rgba(255,255,255,0.25)' : theme.border,
+                      }}
+                    >
+                      {headers.map((_, cIdx) => (
+                        <View
+                          key={cIdx}
+                          style={{
+                            width: colWidths[cIdx],
+                            paddingHorizontal: 8,
+                            paddingVertical: 6,
+                            borderRightWidth: cIdx === headers.length - 1 ? 0 : StyleSheet.hairlineWidth,
+                            borderRightColor: isUser ? 'rgba(255,255,255,0.25)' : theme.border,
+                          }}
+                        >
+                          <Text style={{ fontSize: 12.5, lineHeight: 18, color: isUser ? '#FFF' : theme.text }}>
+                            {renderInlineFormatting(row[cIdx] || '', { fontSize: 12.5 }, isUser, theme)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+          );
+        }
+
+        // Paragraph
+        return (
+          <View key={idx} style={{ marginBottom: 6 }}>
+            <Text style={baseTextStyle}>
+              {renderInlineFormatting(block.text || '', baseTextStyle, isUser, theme)}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+};
+
+/* =========================================================================
+   ERROR BOUNDARY
+   Guarantees that HG.AI never goes blank if any unexpected render error happens
+   ========================================================================= */
+
+class ScreenErrorBoundary extends Component<
+  { children: ReactNode; theme: any },
+  { hasError: boolean; error: Error | null }
+> {
+  state = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: any) {
+    console.error('HG.AI Screen Caught Exception:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView
+          style={{
+            flex: 1,
+            backgroundColor: this.props.theme?.background || '#0f172a',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 24,
+          }}
+        >
+          <Ionicons name="alert-circle-outline" size={54} color="#ef4444" />
+          <Text
+            style={{
+              color: this.props.theme?.text || '#ffffff',
+              fontSize: 18,
+              fontWeight: '800',
+              marginTop: 14,
+              textAlign: 'center',
+            }}
+          >
+            HG.AI Temporary Notice
+          </Text>
+          <Text
+            style={{
+              color: this.props.theme?.textSecondary || '#94a3b8',
+              fontSize: 13,
+              marginTop: 8,
+              textAlign: 'center',
+              lineHeight: 18,
+            }}
+          >
+            {this.state.error?.message || 'An unexpected rendering error occurred in this view.'}
+          </Text>
+          <TouchableOpacity
+            style={{
+              marginTop: 20,
+              backgroundColor: this.props.theme?.primary || '#2563eb',
+              paddingHorizontal: 22,
+              paddingVertical: 11,
+              borderRadius: 8,
+            }}
+            onPress={() => this.setState({ hasError: false, error: null })}
+          >
+            <Text style={{ color: '#ffffff', fontWeight: '700' }}>Reload HG.AI</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* =========================================================================
+   MAIN HG.AI SCREEN COMPONENT
+   ========================================================================= */
+
+function HGAIScreenInner() {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
-  // Floating tab bar height: 76 + insets.bottom + 10 margin
   const floatingTabBarHeight = 86 + insets.bottom;
-
-  // Track keyboard visibility so we can remove tab bar clearance when keyboard is open
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   useEffect(() => {
@@ -106,12 +579,11 @@ export default function HGAIScreen() {
     );
 
     return () => {
-      showSub.remove();
-      hideSub.remove();
+      showSub?.remove?.();
+      hideSub?.remove?.();
     };
   }, []);
 
-  // Chat conversation state - starts empty like ChatGPT/Gemini
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -124,8 +596,9 @@ export default function HGAIScreen() {
     const query = (textToSend || inputText).trim();
     if (!query || isGenerating) return;
 
-    // Smoothly animate logo moving from center to top-right corner
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    try {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    } catch (e) {}
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
@@ -167,7 +640,7 @@ export default function HGAIScreen() {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 150);
     } catch (err: any) {
-      console.log('HG.AI error:', err);
+      console.log('HG.AI request error:', err);
       const detail = err.response?.data?.detail;
       const isTimeout = err.code === 'ECONNABORTED' || err.message?.toLowerCase().includes('timeout');
       const errText = detail || (isTimeout
@@ -192,6 +665,9 @@ export default function HGAIScreen() {
       const firstLine = msg.content.split('\n')[0].replace(/[*#]/g, '').trim();
       const title = firstLine.length > 5 && firstLine.length < 50 ? firstLine : 'Hercules Gym Fitness & Diet Plan';
       await exportPlanToPdf(title, msg.content, `Prepared by HG.AI for ${user?.full_name || 'Member'}`);
+    } catch (err: any) {
+      console.log('PDF export error:', err);
+      Alert.alert('Export Notice', 'Unable to generate PDF document at this moment.');
     } finally {
       setExportingId(null);
     }
@@ -204,7 +680,9 @@ export default function HGAIScreen() {
       {
         text: 'Start Fresh',
         onPress: () => {
-          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          try {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          } catch (e) {}
           setMessages([]);
           setInputText('');
         },
@@ -247,7 +725,6 @@ export default function HGAIScreen() {
               </TouchableOpacity>
             )}
 
-            {/* When user starts chatting, the HG.AI logo goes to the top right corner */}
             {isChatting && (
               <View style={styles.topRightLogoWrapper}>
                 <Image
@@ -263,17 +740,14 @@ export default function HGAIScreen() {
 
         {/* MAIN BODY AREA */}
         {!isChatting ? (
-          /* =========================================================================
-             GEMINI / CHATGPT OPENING STATE:
-             The HG.AI logo opens right in the middle of the screen!
-             ========================================================================= */
+          /* Opening Welcome Screen */
           <ScrollView
             style={styles.centerContainer}
             contentContainerStyle={styles.centerContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Centered HG.AI Logo with sleek glow aura */}
+            {/* Center Logo */}
             <View style={styles.middleLogoOuter}>
               <View style={[styles.middleLogoGlow, { shadowColor: theme.primary }]} />
               <View style={[styles.middleLogoContainer, { borderColor: theme.primary }]}>
@@ -285,7 +759,6 @@ export default function HGAIScreen() {
               </View>
             </View>
 
-            {/* Center Greeting & Title */}
             <Text style={[styles.centerTitle, { color: theme.text }]}>HG.AI</Text>
             <Text style={[styles.centerSubtitle, { color: theme.primary }]}>
               Hercules Gym Intelligent Coach
@@ -294,7 +767,7 @@ export default function HGAIScreen() {
               What fitness goal, lifting form, yoga flow, or nutrition plan would you like to master today?
             </Text>
 
-            {/* Starter Prompt Cards (ChatGPT / Gemini Grid Style) */}
+            {/* Starter Prompt Cards */}
             <View style={styles.starterGrid}>
               {STARTER_PROMPTS.map((item, idx) => (
                 <TouchableOpacity
@@ -327,12 +800,8 @@ export default function HGAIScreen() {
             </View>
           </ScrollView>
         ) : (
-          /* =========================================================================
-             ACTIVE CHAT CONVERSATION STATE:
-             Logo has moved to top right corner. Messages render here.
-             ========================================================================= */
+          /* Active Chat Stream */
           <>
-            {/* Quick Inspiration Horizontal Scrollbar */}
             <View style={[styles.quickChipsBar, { borderBottomColor: theme.border, backgroundColor: theme.card }]}>
               <ScrollView
                 horizontal
@@ -353,7 +822,6 @@ export default function HGAIScreen() {
               </ScrollView>
             </View>
 
-            {/* Message Stream */}
             <ScrollView
               ref={scrollViewRef}
               style={styles.messageList}
@@ -389,11 +857,7 @@ export default function HGAIScreen() {
                           : [styles.botBubble, { backgroundColor: theme.card, borderColor: theme.border }],
                       ]}
                     >
-                      <MarkdownView
-                        content={msg.content}
-                        isUser={isUser}
-                        baseTextColor={isUser ? '#f4dfdf' : theme.text}
-                      />
+                      <SafeMarkdown content={msg.content} isUser={isUser} theme={theme} />
 
                       <View style={styles.bubbleFooter}>
                         <Text
@@ -442,7 +906,7 @@ export default function HGAIScreen() {
                     <View style={styles.typingRow}>
                       <ActivityIndicator size="small" color={theme.primary} />
                       <Text style={[styles.typingText, { color: theme.textSecondary }]}>
-                        HG.AI is consulting sports science & fitness guidelines...
+                        HG.AI is consulting sports science &amp; fitness guidelines...
                       </Text>
                     </View>
                   </View>
@@ -452,7 +916,7 @@ export default function HGAIScreen() {
           </>
         )}
 
-        {/* Input Bar (Positioned above floating tab bar when keyboard is hidden) */}
+        {/* Input Bar */}
         <View
           style={[
             styles.inputContainer,
@@ -497,11 +961,20 @@ export default function HGAIScreen() {
             </TouchableOpacity>
           </View>
           <Text style={[styles.disclaimerText, { color: theme.textSecondary }]}>
-            Strictly specialized in workouts, exercises, yoga, meditation, diet & healthy lifestyle.
+            Strictly specialized in workouts, exercises, yoga, meditation, diet &amp; healthy lifestyle.
           </Text>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+export default function HGAIScreen() {
+  const { theme } = useTheme();
+  return (
+    <ScreenErrorBoundary theme={theme}>
+      <HGAIScreenInner />
+    </ScreenErrorBoundary>
   );
 }
 
@@ -538,7 +1011,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   badgeText: {
-    color: '#f0cccc',
+    color: '#FFF',
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.5,
@@ -595,8 +1068,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#000',
   },
-
-  // Gemini / ChatGPT Center Opening View Styles
   centerContainer: {
     flex: 1,
   },
@@ -628,7 +1099,7 @@ const styles = StyleSheet.create({
     borderRadius: 62,
     borderWidth: 2.5,
     overflow: 'hidden',
-    backgroundColor: '#271f1f',
+    backgroundColor: '#000',
   },
   middleLogoImage: {
     width: '100%',
@@ -690,8 +1161,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     opacity: 0.6,
   },
-
-  // Active Chat Message Styles
   quickChipsBar: {
     borderBottomWidth: 1,
     paddingVertical: 7,
@@ -738,7 +1207,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     overflow: 'hidden',
     marginTop: 4,
-    backgroundColor: '#1e1919',
+    backgroundColor: '#000',
   },
   botAvatarImage: {
     width: '100%',
@@ -754,12 +1223,9 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 4,
   },
   botBubble: {
+    maxWidth: '88%',
     borderBottomLeftRadius: 4,
     borderWidth: 1,
-  },
-  messageText: {
-    fontSize: 14.5,
-    lineHeight: 22,
   },
   bubbleFooter: {
     flexDirection: 'row',
