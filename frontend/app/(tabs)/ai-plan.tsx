@@ -13,14 +13,16 @@ import {
   Image,
   LayoutAnimation,
   UIManager,
+  Keyboard,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { api } from '../../src/services/api';
 import { exportPlanToPdf } from '../../src/utils/pdfGenerator';
+import { MarkdownView } from '../../src/components/MarkdownView';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -85,6 +87,29 @@ export default function HGAIScreen() {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+
+  // Floating tab bar height: 76 + insets.bottom + 10 margin
+  const floatingTabBarHeight = 86 + insets.bottom;
+
+  // Track keyboard visibility so we can remove tab bar clearance when keyboard is open
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setIsKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setIsKeyboardVisible(false)
+    );
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Chat conversation state - starts empty like ChatGPT/Gemini
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -364,14 +389,11 @@ export default function HGAIScreen() {
                           : [styles.botBubble, { backgroundColor: theme.card, borderColor: theme.border }],
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.messageText,
-                          { color: isUser ? '#FFFFFF' : theme.text },
-                        ]}
-                      >
-                        {msg.content}
-                      </Text>
+                      <MarkdownView
+                        content={msg.content}
+                        isUser={isUser}
+                        baseTextColor={isUser ? '#f4dfdf' : theme.text}
+                      />
 
                       <View style={styles.bubbleFooter}>
                         <Text
@@ -430,8 +452,19 @@ export default function HGAIScreen() {
           </>
         )}
 
-        {/* Input Bar (Always Available At Bottom) */}
-        <View style={[styles.inputContainer, { backgroundColor: theme.card, borderTopColor: theme.border }]}>
+        {/* Input Bar (Positioned above floating tab bar when keyboard is hidden) */}
+        <View
+          style={[
+            styles.inputContainer,
+            {
+              backgroundColor: theme.card,
+              borderTopColor: theme.border,
+              paddingBottom: isKeyboardVisible
+                ? (Platform.OS === 'ios' ? 10 : 8)
+                : floatingTabBarHeight + 8,
+            },
+          ]}
+        >
           <View style={styles.inputRow}>
             <TextInput
               style={[
@@ -712,12 +745,12 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   bubble: {
-    maxWidth: '84%',
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   userBubble: {
+    maxWidth: '82%',
     borderBottomRightRadius: 4,
   },
   botBubble: {
