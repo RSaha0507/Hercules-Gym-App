@@ -893,6 +893,33 @@ class ApiService {
     const response = await this.client.post("/workout-logs", { items });
     return response.data;
   }
+
+  async chatWithAI(messages: Array<{ role: 'user' | 'assistant'; content: string }>, context?: any) {
+    const response = await this.client.post("/ai/chat", { messages, context }, {
+      timeout: 60000,
+    });
+    return response.data;
+  }
+
+  async logMemberMonthlyWeight(memberId: string, payload: { month: string; weight_kg: number; notes?: string }) {
+    const response = await this.client.post(`/members/${memberId}/monthly-weight`, payload);
+    return response.data;
+  }
+
+  async getMemberMonthlyWeight(memberId: string) {
+    const response = await this.client.get(`/members/${memberId}/monthly-weight`);
+    return response.data;
+  }
+
+  async getMemberProgressAnalytics(memberId: string) {
+    const response = await this.client.get(`/members/${memberId}/progress-analytics`);
+    return response.data;
+  }
+
+  async getMyProgressAnalytics() {
+    const response = await this.client.get("/my/progress-analytics");
+    return response.data;
+  }
 }
 
 export const api = new ApiService();

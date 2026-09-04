@@ -3159,6 +3159,196 @@ async def delete_body_metrics(
 
     return {"message": "Metrics deleted successfully", "metric": removed_metric}
 
+# ==================== MONTHLY WEIGHT & PROGRESS ANALYTICS ROUTES ====================
+
+class MonthlyWeightEntry(BaseModel):
+    month: str  # Format YYYY-MM, e.g. "2026-09"
+    weight_kg: float
+    notes: Optional[str] = ""
+
+@api_router.post("/members/{user_id}/monthly-weight")
+async def log_member_monthly_weight(
+    user_id: str,
+    payload: MonthlyWeightEntry,
+    current_user: UserInDB = Depends(require_admin_or_trainer)
+):
+    member_user, profile = await ensure_member_management_access(user_id, current_user)
+    
+    month_clean = payload.month.strip()
+    if not re.match(r"^\d{4}-(0[1-9]|1[0-2])$", month_clean):
+        raise HTTPException(status_code=400, detail="Invalid month format. Expected YYYY-MM (e.g. 2026-09)")
+    
+    if payload.weight_kg < 20 or payload.weight_kg > 350:
+        raise HTTPException(status_code=400, detail="Weight must be between 20 kg and 350 kg")
+        
+    weight_val = round(float(payload.weight_kg), 2)
+    entry = {
+        "user_id": user_id,
+        "month": month_clean,
+        "weight_kg": weight_val,
+        "notes": (payload.notes or "").strip(),
+        "logged_by_id": current_user.id,
+        "logged_by_name": current_user.full_name,
+        "logged_by_role": current_user.role,
+        "logged_at": datetime.utcnow()
+    }
+    
+    await db.monthly_weight_logs.update_one(
+        {"user_id": user_id, "month": month_clean},
+        {"$set": entry},
+        upsert=True
+    )
+    
+    # Also update profile current weight
+    await db.member_profiles.update_one(
+        {"user_id": user_id},
+        {"$set": {"weight": weight_val, "updated_at": datetime.utcnow()}}
+    )
+    
+    return {
+        "status": "success",
+        "message": f"Weight for {month_clean} saved successfully",
+        "entry": {
+            "month": month_clean,
+            "weight_kg": weight_val,
+            "notes": entry["notes"],
+            "logged_by_name": current_user.full_name,
+            "logged_at": entry["logged_at"].isoformat()
+        }
+    }
+
+@api_router.get("/members/{user_id}/monthly-weight")
+async def get_member_monthly_weight(
+    user_id: str,
+    current_user: UserInDB = Depends(get_current_user)
+):
+    if current_user.role == "member" and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if current_user.role in ["admin", "trainer"]:
+        await ensure_member_management_access(user_id, current_user)
+        
+    cursor = db.monthly_weight_logs.find({"user_id": user_id}).sort("month", 1)
+    logs = await cursor.to_list(100)
+    for l in logs:
+        l["_id"] = str(l["_id"])
+        if isinstance(l.get("logged_at"), datetime):
+            l["logged_at"] = l["logged_at"].isoformat()
+    return logs
+
+async def compute_progress_analytics(target_user_id: str):
+    # 1. Fetch monthly trainer-logged weights
+    cursor = db.monthly_weight_logs.find({"user_id": target_user_id}).sort("month", 1)
+    weight_logs = await cursor.to_list(100)
+    formatted_weights = []
+    for wl in weight_logs:
+        formatted_weights.append({
+            "month": wl.get("month"),
+            "weight_kg": wl.get("weight_kg"),
+            "notes": wl.get("notes", ""),
+            "logged_by_name": wl.get("logged_by_name", "Trainer"),
+            "logged_at": wl.get("logged_at").isoformat() if isinstance(wl.get("logged_at"), datetime) else str(wl.get("logged_at", ""))
+        })
+    
+    start_weight = formatted_weights[0]["weight_kg"] if formatted_weights else None
+    latest_weight = formatted_weights[-1]["weight_kg"] if formatted_weights else None
+    weight_change = round(latest_weight - start_weight, 2) if (start_weight is not None and latest_weight is not None) else None
+
+    # 2. Fetch workout logs logged by member
+    workout_cursor = db.workout_logs.find({"user_id": target_user_id}).sort("date", 1)
+    raw_workouts = await workout_cursor.to_list(500)
+    
+    monthly_workout_map = {}
+    total_volume_overall = 0.0
+    total_sets_overall = 0
+    all_exercises_max = {}
+
+    for w in raw_workouts:
+        dt = w.get("date")
+        if isinstance(dt, datetime):
+            m_key = dt.strftime("%Y-%m")
+        elif isinstance(dt, str) and len(dt) >= 7:
+            m_key = dt[:7]
+        else:
+            m_key = "Other"
+            
+        if m_key not in monthly_workout_map:
+            monthly_workout_map[m_key] = {
+                "month": m_key,
+                "sessions_count": 0,
+                "total_sets": 0,
+                "total_volume_kg": 0.0,
+                "exercises": {}
+            }
+            
+        monthly_workout_map[m_key]["sessions_count"] += 1
+        items = w.get("items", [])
+        for item in items:
+            sets = int(item.get("sets") or 0)
+            reps = int(item.get("reps") or 0)
+            weight = float(item.get("weight") or 0.0)
+            vol = sets * reps * weight
+            ex = str(item.get("exercise") or "Exercise").strip()
+            
+            monthly_workout_map[m_key]["total_sets"] += sets
+            monthly_workout_map[m_key]["total_volume_kg"] += vol
+            total_sets_overall += sets
+            total_volume_overall += vol
+            
+            cur_max = monthly_workout_map[m_key]["exercises"].get(ex, 0.0)
+            if weight > cur_max:
+                monthly_workout_map[m_key]["exercises"][ex] = weight
+            
+            cur_overall_max = all_exercises_max.get(ex, 0.0)
+            if weight > cur_overall_max:
+                all_exercises_max[ex] = weight
+
+    monthly_workout_list = []
+    for m_key in sorted(monthly_workout_map.keys()):
+        mw = monthly_workout_map[m_key]
+        top_ex = sorted(mw["exercises"].items(), key=lambda x: x[1], reverse=True)[:3]
+        monthly_workout_list.append({
+            "month": mw["month"],
+            "sessions_count": mw["sessions_count"],
+            "total_sets": mw["total_sets"],
+            "total_volume_kg": round(mw["total_volume_kg"], 1),
+            "top_exercises": [{"exercise": k, "max_weight": v} for k, v in top_ex]
+        })
+
+    return {
+        "user_id": target_user_id,
+        "monthly_weights": formatted_weights,
+        "weight_summary": {
+            "starting_weight": start_weight,
+            "current_weight": latest_weight,
+            "net_change_kg": weight_change,
+            "total_checkins": len(formatted_weights)
+        },
+        "monthly_workouts": monthly_workout_list,
+        "workout_summary": {
+            "total_sessions": len(raw_workouts),
+            "total_sets": total_sets_overall,
+            "total_volume_kg": round(total_volume_overall, 1),
+            "personal_records": [{"exercise": k, "max_weight": v} for k, v in sorted(all_exercises_max.items(), key=lambda x: x[1], reverse=True)[:5]]
+        }
+    }
+
+@api_router.get("/members/{user_id}/progress-analytics")
+async def get_member_progress_analytics(
+    user_id: str,
+    current_user: UserInDB = Depends(get_current_user)
+):
+    if current_user.role == "member" and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if current_user.role in ["admin", "trainer"]:
+        await ensure_member_management_access(user_id, current_user)
+    return await compute_progress_analytics(user_id)
+
+@api_router.get("/my/progress-analytics")
+async def get_my_progress_analytics(
+    current_user: UserInDB = Depends(get_current_user)
+):
+    return await compute_progress_analytics(current_user.id)
+
 # ==================== TRAINER MANAGEMENT ROUTES ====================
 
 @api_router.post("/trainers")
@@ -6010,22 +6200,34 @@ async def generate_plan_handler(
         )
 
     prompt = f"""
-    Act as an elite personal trainer and nutritionist.
+    Act as an elite sports nutritionist and dietitian.
     User Profile:
     - Weight: {sanitized_weight} kg
     - Goal: {sanitized_goal}
-    - Experience Level: {sanitized_level}
+    - Dietary Preference / Habit: {sanitized_level}
 
-    Generate a JSON object containing two keys: "workout_plan" and "diet_plan".
-    "workout_plan" should be a 4-week summary and schedule.
-    "diet_plan" should be a daily meal plan (breakfast, lunch, dinner, snacks).
-    Return ONLY valid JSON without markdown formatting.
+    Generate a JSON object containing a detailed, personalized "diet_plan".
+    Do NOT include any workout routines or exercise schedules, as workouts are assigned daywise separately.
+    The "diet_plan" object should include:
+    - "daily_targets": {{"calories": "e.g. 2300 kcal", "protein": "e.g. 150g", "carbs": "e.g. 240g", "fats": "e.g. 60g"}}
+    - "meals": [
+        {{"meal": "Breakfast", "time": "8:00 AM", "items": "...", "calories": "..."}},
+        {{"meal": "Mid-Morning", "time": "11:00 AM", "items": "...", "calories": "..."}},
+        {{"meal": "Lunch", "time": "1:30 PM", "items": "...", "calories": "..."}},
+        {{"meal": "Evening Snack", "time": "5:00 PM", "items": "...", "calories": "..."}},
+        {{"meal": "Dinner", "time": "8:30 PM", "items": "...", "calories": "..."}}
+      ]
+    - "hydration": "e.g. 3.5 - 4 Litres water daily"
+    - "guidelines": ["Tip 1", "Tip 2", "Tip 3"]
+
+    Return ONLY valid JSON with key "diet_plan".
     """
 
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
         
+        # Determine candidate models (prioritize stable alias gemini-flash-latest for capacity)
         preferred_model = os.environ.get("GEMINI_MODEL", "gemini-flash-latest").strip()
         candidate_models = [
             preferred_model,
@@ -6086,6 +6288,162 @@ async def generate_plan_handler(
         logger.error(f"Error generating AI plan with Gemini: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate plan: {str(e)}")
 
+# ==================== HG.AI CHAT LLM ASSISTANT ====================
+
+class AIChatMessageItem(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+class AIChatPayload(BaseModel):
+    messages: List[AIChatMessageItem]
+    context: Optional[Dict[str, Any]] = None
+
+async def ai_chat_handler(
+    payload: Union[AIChatPayload, Dict[str, Any]],
+    current_user: UserInDB = Depends(get_current_user)
+):
+    if isinstance(payload, AIChatPayload):
+        messages = payload.messages
+        context = payload.context or {}
+    elif isinstance(payload, dict):
+        raw_msgs = payload.get("messages", [])
+        messages = [AIChatMessageItem(**m) if isinstance(m, dict) else m for m in raw_msgs]
+        context = payload.get("context") or {}
+    else:
+        messages = getattr(payload, "messages", [])
+        context = getattr(payload, "context", {}) or {}
+
+    if not messages:
+        raise HTTPException(status_code=400, detail="No chat messages provided.")
+
+    latest_msg = messages[-1].content.strip()
+    if not latest_msg:
+        raise HTTPException(status_code=400, detail="Message content cannot be empty.")
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        logger.error("GEMINI_API_KEY is not set in environment")
+        raise HTTPException(
+            status_code=503,
+            detail="AI service not configured: GEMINI_API_KEY is missing on backend server."
+        )
+
+    # Rate limiting: 50 messages per day
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    profile = await db.member_profiles.find_one({"user_id": current_user.id})
+    if profile:
+        rl = profile.get("ai_chat_rate_limit", {})
+        if rl.get("date") == today_str:
+            if rl.get("count", 0) >= 50:
+                raise HTTPException(status_code=429, detail="Daily HG.AI message limit reached (50 queries). Please return tomorrow!")
+            new_chat_count = rl.get("count", 0) + 1
+        else:
+            new_chat_count = 1
+    else:
+        new_chat_count = 1
+
+    system_instruction = """You are HG.AI, the elite fitness, bodybuilding, nutrition, and wellness AI coach created exclusively for Hercules Gym.
+Your role is to empower members with science-backed, motivating, safe, and practical advice.
+
+CRITICAL DOMAIN RESTRICTIONS - STRICT MANDATE:
+You are STRICTLY PERMITTED to answer questions ONLY within the following knowledge domains:
+1. Gym training, bodybuilding, powerlifting, functional training, calisthenics, cardio, HIIT, conditioning, athletic performance.
+2. Exercises, proper biomechanical form, lifting cues, technique breakdown, progressive overload, training splits, sets, reps, and routine design.
+3. Yoga asanas, breathwork (pranayama), meditation, mindfulness, mental focus, recovery, and stress reduction.
+4. Diet, sports nutrition, meal planning, macro and micro calculation, caloric surplus/deficit, healthy recipes, and supplements (whey protein, creatine, multivitamins, BCAAs, hydration salts).
+5. Healthy food choices, digestion, pre-workout and post-workout nutrition, hydration, and clean eating.
+6. Healthy habits, sleep optimization, recovery routines, injury prevention, warm-up/cool-down, and a healthy active lifestyle.
+
+MANDATORY REFUSAL DIRECTIVE:
+If the user asks ANY question or submits ANY prompt outside of gym, fitness, workouts, exercises, yoga, meditation, diet, healthy food, healthy habits, and healthy lifestyle (for example: coding, writing code, general trivia, math homework, movies, stock trading, financial advice, unrelated politics, celebrity gossip, gaming, non-fitness topics):
+You MUST IMMEDIATELY and POLITELY REFUSE.
+Sample response for out-of-scope prompts:
+"I am HG.AI, your dedicated Hercules Gym fitness and wellness coach! I specialize exclusively in gym training, workouts, exercises, yoga, meditation, diet, nutrition, and healthy lifestyle habits. I cannot answer queries outside these domains. Let's redirect our focus—how can I help you reach your physical and wellness goals today?"
+
+OUTPUT FORMATTING:
+- Use clean, modern Markdown formatting (bold headers, bullet points, clean numbered lists).
+- If the user asks for a meal plan, workout split, or diet guideline, structure it logically with headers and sections so it looks polished and can be exported directly to a PDF document.
+- Be encouraging, disciplined, energetic, and professional."""
+
+    # Build conversation thread for model
+    dialogue_history = []
+    # Take last 8 messages
+    slice_msgs = messages[-8:]
+    for m in slice_msgs:
+        role_tag = "User" if m.role == "user" else "HG.AI"
+        dialogue_history.append(f"{role_tag}: {m.content.strip()}")
+
+    user_context_str = f"Member: {current_user.full_name} ({current_user.role})"
+    if current_user.center:
+        user_context_str += f", Gym Branch: {current_user.center}"
+    if context:
+        user_context_str += f", Context: {json.dumps(context)}"
+
+    full_prompt = f"""{system_instruction}
+
+User Profile Context:
+{user_context_str}
+
+Recent Conversation:
+{chr(10).join(dialogue_history)}
+
+HG.AI:"""
+
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+
+        preferred_model = os.environ.get("GEMINI_MODEL", "gemini-flash-latest").strip()
+        candidate_models = [
+            preferred_model,
+            "gemini-flash-latest",
+            "gemini-3.6-flash",
+            "gemini-3.8-flash",
+        ]
+        unique_models = []
+        for m in candidate_models:
+            if m and m not in unique_models:
+                unique_models.append(m)
+
+        response = None
+        last_err = None
+        for mod in unique_models:
+            try:
+                logger.info(f"Attempting HG.AI response with model: {mod}")
+                response = client.models.generate_content(
+                    model=mod,
+                    contents=full_prompt,
+                )
+                if response and response.text:
+                    break
+            except Exception as mod_err:
+                logger.warning(f"Gemini model {mod} failed in HG.AI chat: {mod_err}")
+                last_err = mod_err
+
+        if not response or not response.text:
+            raise last_err or RuntimeError("No response received from any Gemini model candidate")
+
+        reply_text = response.text.strip()
+
+        # Update chat rate limit
+        await db.member_profiles.update_one(
+            {"user_id": current_user.id},
+            {
+                "$set": {
+                    "ai_chat_rate_limit": {"date": today_str, "count": new_chat_count}
+                }
+            },
+            upsert=True
+        )
+
+        return {
+            "status": "success",
+            "response": reply_text
+        }
+    except Exception as e:
+        logger.error(f"Error in HG.AI chat generation: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate HG.AI response: {str(e)}")
+
 class WorkoutLogItem(BaseModel):
     exercise: str
     sets: int
@@ -6118,14 +6476,16 @@ async def get_workout_logs_handler(current_user: UserInDB = Depends(get_current_
 # Dedicated sub-routers
 ai_router = APIRouter(prefix="/ai", tags=["AI"])
 ai_router.add_api_route("/generate-plan", generate_plan_handler, methods=["POST"])
+ai_router.add_api_route("/chat", ai_chat_handler, methods=["POST"])
 
 workout_logs_router = APIRouter(prefix="/workout-logs", tags=["Workouts"])
 workout_logs_router.add_api_route("", create_workout_log_handler, methods=["POST"])
 workout_logs_router.add_api_route("", get_workout_logs_handler, methods=["GET"])
 
-# Mount on api_router so /api/generate-ai-plan and /api/workout-logs work
+# Mount on api_router so /api/generate-ai-plan, /api/ai/chat, and /api/workout-logs work
 api_router.add_api_route("/generate-ai-plan", generate_plan_handler, methods=["POST"])
 api_router.add_api_route("/ai/generate-plan", generate_plan_handler, methods=["POST"])
+api_router.add_api_route("/ai/chat", ai_chat_handler, methods=["POST"])
 api_router.include_router(workout_logs_router)
 api_router.include_router(ai_router)
 
@@ -6136,6 +6496,7 @@ app.include_router(ai_router)
 
 # Direct root-level aliases (without /api)
 app.add_api_route("/generate-ai-plan", generate_plan_handler, methods=["POST"])
+app.add_api_route("/ai/chat", ai_chat_handler, methods=["POST"])
 app.add_api_route("/workout-logs", create_workout_log_handler, methods=["POST"])
 app.add_api_route("/workout-logs", get_workout_logs_handler, methods=["GET"])
 

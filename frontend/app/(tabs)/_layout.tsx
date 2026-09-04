@@ -1,12 +1,12 @@
-import React from 'react';
-import { Redirect, Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
-import { useAuth } from '../../src/context/AuthContext';
-import { useTheme } from '../../src/context/ThemeContext';
-import { useLanguage } from '../../src/context/LanguageContext';
-import { View, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import React from "react";
+import { Redirect, Tabs } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
+import { useAuth } from "../../src/context/AuthContext";
+import { useTheme } from "../../src/context/ThemeContext";
+import { useLanguage } from "../../src/context/LanguageContext";
+import { View, StyleSheet, Image } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabLayout() {
   const { user } = useAuth();
@@ -15,29 +15,29 @@ export default function TabLayout() {
   const insets = useSafeAreaInsets();
 
   const getTabBarIcon = (name: string, focused: boolean) => {
-    let iconName: keyof typeof Ionicons.glyphMap = 'home';
+    let iconName: keyof typeof Ionicons.glyphMap = "home";
 
     switch (name) {
-      case 'index':
-        iconName = focused ? 'home' : 'home-outline';
+      case "index":
+        iconName = focused ? "home" : "home-outline";
         break;
-      case 'members':
-        iconName = focused ? 'people' : 'people-outline';
+      case "members":
+        iconName = focused ? "people" : "people-outline";
         break;
-      case 'approvals':
-        iconName = focused ? 'checkmark-circle' : 'checkmark-circle-outline';
+      case "approvals":
+        iconName = focused ? "checkmark-circle" : "checkmark-circle-outline";
         break;
-      case 'attendance':
-        iconName = focused ? 'calendar' : 'calendar-outline';
+      case "attendance":
+        iconName = focused ? "calendar" : "calendar-outline";
         break;
-      case 'merchandise':
-        iconName = focused ? 'shirt' : 'shirt-outline';
+      case "merchandise":
+        iconName = focused ? "shirt" : "shirt-outline";
         break;
-      case 'messages':
-        iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+      case "messages":
+        iconName = focused ? "chatbubbles" : "chatbubbles-outline";
         break;
-      case 'profile':
-        iconName = focused ? 'person' : 'person-outline';
+      case "profile":
+        iconName = focused ? "person" : "person-outline";
         break;
     }
 
@@ -47,18 +47,22 @@ export default function TabLayout() {
           styles.iconContainer,
           {
             borderColor: focused ? theme.primary : theme.border,
-            backgroundColor: focused ? theme.primary : 'rgba(255,255,255,0.06)',
+            backgroundColor: focused ? theme.primary : "rgba(255,255,255,0.06)",
           },
         ]}
       >
-        <Ionicons name={iconName} size={19} color={focused ? '#FFFFFF' : theme.textSecondary} />
+        <Ionicons
+          name={iconName}
+          size={19}
+          color={focused ? "#FFFFFF" : theme.textSecondary}
+        />
       </View>
     );
   };
 
-  const showMembersTab = user?.role === 'admin' || user?.role === 'trainer';
-  const showApprovalsTab = user?.role === 'admin' || user?.role === 'trainer';
-  const showMerchandiseTab = user?.role !== 'admin'; // Members and trainers can view/order
+  const showMembersTab = user?.role === "admin" || user?.role === "trainer";
+  const showApprovalsTab = user?.role === "admin" || user?.role === "trainer";
+  const showMerchandiseTab = user?.role !== "admin"; // Members and trainers can view/order
 
   if (!user) {
     return <Redirect href="/" />;
@@ -70,14 +74,14 @@ export default function TabLayout() {
         headerShown: false,
         tabBarBackground: () => (
           <BlurView
-            tint={isDark ? 'dark' : 'light'}
+            tint={isDark ? "dark" : "light"}
             intensity={90}
             style={styles.tabBarBlur}
           />
         ),
         tabBarStyle: {
-          backgroundColor: 'transparent',
-          borderTopColor: 'transparent',
+          backgroundColor: "transparent",
+          borderTopColor: "transparent",
           borderTopWidth: 0,
           elevation: 0,
           height: 76 + insets.bottom,
@@ -86,20 +90,22 @@ export default function TabLayout() {
           marginHorizontal: 14,
           marginBottom: 10,
           borderRadius: 30,
-          position: 'absolute',
-          shadowColor: '#111827',
+          position: "absolute",
+          shadowColor: "#111827",
           shadowOffset: { width: 0, height: 12 },
           shadowOpacity: 0.16,
           shadowRadius: 18,
           borderWidth: 1,
-          borderColor: isDark ? 'rgba(140,180,220,0.24)' : 'rgba(25,95,140,0.14)',
+          borderColor: isDark
+            ? "rgba(140,180,220,0.24)"
+            : "rgba(25,95,140,0.14)",
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarHideOnKeyboard: true,
         tabBarLabelStyle: {
           fontSize: 10,
-          fontWeight: '600',
+          fontWeight: "600",
           marginTop: -1,
         },
       }}
@@ -107,74 +113,89 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: t('Home'),
-          tabBarIcon: ({ focused }) => getTabBarIcon('index', focused),
+          title: t("Home"),
+          tabBarIcon: ({ focused }) => getTabBarIcon("index", focused),
         }}
       />
       <Tabs.Screen
         name="members"
         options={{
-          title: t('Members'),
-          tabBarIcon: ({ focused }) => getTabBarIcon('members', focused),
-          href: showMembersTab ? '/(tabs)/members' : null,
+          title: t("Members"),
+          tabBarIcon: ({ focused }) => getTabBarIcon("members", focused),
+          href: showMembersTab ? "/(tabs)/members" : null,
         }}
       />
       <Tabs.Screen
         name="approvals"
         options={{
-          title: t('Approvals'),
-          tabBarIcon: ({ focused }) => getTabBarIcon('approvals', focused),
-          href: showApprovalsTab ? '/(tabs)/approvals' : null,
+          title: t("Approvals"),
+          tabBarIcon: ({ focused }) => getTabBarIcon("approvals", focused),
+          href: showApprovalsTab ? "/(tabs)/approvals" : null,
         }}
       />
       <Tabs.Screen
         name="attendance"
         options={{
-          title: t('Attendance'),
-          tabBarIcon: ({ focused }) => getTabBarIcon('attendance', focused),
+          title: t("Attendance"),
+          tabBarIcon: ({ focused }) => getTabBarIcon("attendance", focused),
         }}
       />
       <Tabs.Screen
         name="merchandise"
         options={{
-          title: t('Shop'),
-          tabBarIcon: ({ focused }) => getTabBarIcon('merchandise', focused),
-          href: showMerchandiseTab ? '/(tabs)/merchandise' : null,
+          title: t("Shop"),
+          tabBarIcon: ({ focused }) => getTabBarIcon("merchandise", focused),
+          href: showMerchandiseTab ? "/(tabs)/merchandise" : null,
         }}
       />
       <Tabs.Screen
         name="messages"
         options={{
-          title: t('Chat'),
-          tabBarIcon: ({ focused }) => getTabBarIcon('messages', focused),
+          title: t("Chat"),
+          tabBarIcon: ({ focused }) => getTabBarIcon("messages", focused),
         }}
       />
-      
       <Tabs.Screen
         name="ai-plan"
         options={{
-          title: t('AI Plan'),
-          href: user?.role === 'member' ? '/(tabs)/ai-plan' : null,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bulb" size={size} color={color} />
+          title: t("HG.AI"),
+          href: "/(tabs)/ai-plan",
+          tabBarIcon: ({ focused, size }) => (
+            <View
+              style={{
+                width: size + 2,
+                height: size + 2,
+                borderRadius: (size + 2) / 2,
+                borderWidth: focused ? 1.5 : 1,
+                borderColor: focused ? theme.primary : theme.border,
+                overflow: "hidden",
+                backgroundColor: "#000",
+              }}
+            >
+              <Image
+                source={require("../../assets/images/hg-ai-logo.png")}
+                style={{ width: "100%", height: "100%" }}
+                resizeMode="cover"
+              />
+            </View>
           ),
         }}
       />
       <Tabs.Screen
         name="log-workout"
         options={{
-          title: t('Log Workout'),
-          href: user?.role === 'member' ? '/(tabs)/log-workout' : null,
+          title: t("Progress"),
+          href: user?.role === "member" ? "/(tabs)/log-workout" : null,
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="barbell" size={size} color={color} />
+            <Ionicons name="trending-up" size={size} color={color} />
           ),
         }}
-      />
-      <Tabs.Screen      
+      />{" "}
+      <Tabs.Screen
         name="profile"
         options={{
-          title: t('Profile'),
-          tabBarIcon: ({ focused }) => getTabBarIcon('profile', focused),
+          title: t("Profile"),
+          tabBarIcon: ({ focused }) => getTabBarIcon("profile", focused),
         }}
       />
     </Tabs>
@@ -185,14 +206,14 @@ const styles = StyleSheet.create({
   tabBarBlur: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 30,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   iconContainer: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 1,
   },
 });

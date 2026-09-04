@@ -67,8 +67,8 @@ const HOME_REFRESH_INTERVAL_MS = 30000;
 const HOME_CACHE_TTL_MS = 5 * 60 * 1000;
 const HOME_ANNOUNCEMENTS_LIMIT = 5;
 const DEFAULT_HERO_SLIDE_WIDTH = Dimensions.get('window').width - 64;
-const HERO_IMAGE_MAX_DATA_URI_LENGTH = 620000;
-const HERO_IMAGE_MAX_DIMENSION = 1280;
+const HERO_IMAGE_MAX_DATA_URI_LENGTH = 650000;
+const HERO_IMAGE_MAX_DIMENSION = 2560;
 const HERO_IMAGE_MIN_COMPRESSION = 0.24;
 
 const toUnreadCount = (value: unknown) => {
@@ -1179,6 +1179,13 @@ export default function HomeScreen() {
               >
                 <Ionicons name="chatbubbles" size={24} color="#FFF" />
                 <Text style={styles.quickActionText}>{t('Messages')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.quickAction, { backgroundColor: '#a02424' }]}
+                onPress={() => router.push('/(tabs)/ai-plan')}
+              >
+                <Ionicons name="sparkles" size={24} color="#FFF" />
+                <Text style={styles.quickActionText}>HG.AI</Text>
               </TouchableOpacity>
             </View>
           </View>

@@ -42,6 +42,24 @@ export default function MemberDetailScreen() {
   const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
   const [attendanceHistoryLoading, setAttendanceHistoryLoading] = useState(false);
 
+  // Monthly Weight & Progress Analytics
+  const [showWeightModal, setShowWeightModal] = useState(false);
+  const [weightMonth, setWeightMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [weightValue, setWeightValue] = useState('');
+  const [weightNotes, setWeightNotes] = useState('');
+  const [savingWeight, setSavingWeight] = useState(false);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+
+  const loadMonthlyWeights = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await api.getMemberProgressAnalytics(id);
+      setAnalyticsData(data);
+    } catch (err) {
+      console.log('Error loading progress analytics for member:', err);
+    }
+  }, [id]);
+
   const loadMember = useCallback(async () => {
     if (!id) {
       setIsLoading(false);
@@ -51,13 +69,40 @@ export default function MemberDetailScreen() {
       const data = await api.getMember(id);
       setMemberData(data);
       setAchievementsInput((data?.user?.achievements || data?.achievements || []).join('\n'));
+      loadMonthlyWeights();
     } catch (error) {
       console.log('Error loading member:', error);
       Alert.alert('Error', 'Failed to load member details');
     } finally {
       setIsLoading(false);
     }
-  }, [id]);
+  }, [id, loadMonthlyWeights]);
+
+  const handleSaveMonthlyWeight = async () => {
+    const val = parseFloat(weightValue);
+    if (!weightMonth.trim() || isNaN(val) || val < 20 || val > 350) {
+      Alert.alert('Invalid Input', 'Please enter a valid month (YYYY-MM, e.g. 2026-09) and weight between 20 and 350 kg.');
+      return;
+    }
+    setSavingWeight(true);
+    try {
+      await api.logMemberMonthlyWeight(id, {
+        month: weightMonth.trim(),
+        weight_kg: val,
+        notes: weightNotes.trim(),
+      });
+      Alert.alert('Success', `Recorded ${val} kg for ${weightMonth}`);
+      setShowWeightModal(false);
+      setWeightValue('');
+      setWeightNotes('');
+      loadMember();
+      loadMonthlyWeights();
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.detail || 'Failed to log monthly weight');
+    } finally {
+      setSavingWeight(false);
+    }
+  };
 
   useEffect(() => {
     loadMember();
@@ -350,6 +395,98 @@ export default function MemberDetailScreen() {
           </View>
         )}
 
+        {/* Monthly Weight & Progress Analytics Section */}
+        <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={styles.sectionHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                Monthly Weight & Progress Analytics
+              </Text>
+              <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>
+                Official weight check-ins logged by trainers & member workout progress
+              </Text>
+            </View>
+            {(user?.role === 'admin' || user?.role === 'trainer') && (
+              <TouchableOpacity
+                style={{
+                  backgroundColor: theme.primary,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                }}
+                onPress={() => setShowWeightModal(true)}
+              >
+                <Ionicons name="scale-outline" size={16} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '700' }}>+ Log Weight</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Quick Metrics Bar */}
+          <View style={{ flexDirection: 'row', gap: 10, marginVertical: 12 }}>
+            <View style={{ flex: 1, backgroundColor: theme.inputBg, padding: 10, borderRadius: 10, alignItems: 'center' }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary }}>Start Weight</Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text, marginTop: 2 }}>
+                {analyticsData?.weight_summary?.starting_weight ? `${analyticsData.weight_summary.starting_weight} kg` : '--'}
+              </Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: theme.inputBg, padding: 10, borderRadius: 10, alignItems: 'center' }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary }}>Current Weight</Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: theme.primary, marginTop: 2 }}>
+                {analyticsData?.weight_summary?.current_weight ? `${analyticsData.weight_summary.current_weight} kg` : '--'}
+              </Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: theme.inputBg, padding: 10, borderRadius: 10, alignItems: 'center' }}>
+              <Text style={{ fontSize: 11, color: theme.textSecondary }}>Total Workouts</Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#8b5cf6', marginTop: 2 }}>
+                {analyticsData?.workout_summary?.total_sessions || 0}
+              </Text>
+            </View>
+          </View>
+
+          {/* Monthly Weights Logged */}
+          <Text style={{ fontSize: 13, fontWeight: '700', color: theme.text, marginTop: 6, marginBottom: 8 }}>
+            Trainer Check-in History
+          </Text>
+          {(!analyticsData?.monthly_weights || analyticsData.monthly_weights.length === 0) ? (
+            <Text style={[styles.notesText, { color: theme.textSecondary }]}>
+              No monthly weight logged yet. Tap "+ Log Weight" above to record this month's check-in.
+            </Text>
+          ) : (
+            analyticsData.monthly_weights.map((w: any, idx: number) => (
+              <View
+                key={idx}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingVertical: 8,
+                  borderBottomWidth: 1,
+                  borderBottomColor: theme.border,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ backgroundColor: theme.primary + '18', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: theme.primary }}>{w.month}</Text>
+                  </View>
+                  <View>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>{w.weight_kg} kg</Text>
+                    <Text style={{ fontSize: 11, color: theme.textSecondary }}>Recorded by {w.logged_by_name}</Text>
+                  </View>
+                </View>
+                {w.notes ? (
+                  <Text style={{ fontSize: 12, color: theme.textSecondary, fontStyle: 'italic', maxWidth: '40%', textAlign: 'right' }}>
+                    "{w.notes}"
+                  </Text>
+                ) : null}
+              </View>
+            ))
+          )}
+        </View>
+
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
           <TouchableOpacity 
@@ -430,6 +567,105 @@ export default function MemberDetailScreen() {
                   <ActivityIndicator size="small" color="#FFF" />
                 ) : (
                   <Text style={[styles.modalButtonText, { color: '#FFF' }]}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Monthly Weight Check-In Modal (Trainer / Admin Only) */}
+      <Modal visible={showWeightModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <Ionicons name="scale-outline" size={20} color={theme.primary} />
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Log Monthly Weight</Text>
+            </View>
+            <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>
+              Official trainer measurement for {memberUser?.full_name || 'Member'}
+            </Text>
+
+            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text, marginBottom: 4, marginTop: 6 }}>
+              Check-In Month (YYYY-MM):
+            </Text>
+            <TextInput
+              style={[
+                styles.modalInput,
+                {
+                  minHeight: 44,
+                  borderColor: theme.border,
+                  color: theme.text,
+                  backgroundColor: theme.inputBg,
+                  marginBottom: 10,
+                },
+              ]}
+              value={weightMonth}
+              onChangeText={setWeightMonth}
+              placeholder="2026-09"
+              placeholderTextColor={theme.textSecondary}
+            />
+
+            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text, marginBottom: 4 }}>
+              Body Weight (kg):
+            </Text>
+            <TextInput
+              style={[
+                styles.modalInput,
+                {
+                  minHeight: 44,
+                  borderColor: theme.border,
+                  color: theme.text,
+                  backgroundColor: theme.inputBg,
+                  marginBottom: 10,
+                },
+              ]}
+              value={weightValue}
+              onChangeText={setWeightValue}
+              placeholder="e.g. 74.5"
+              placeholderTextColor={theme.textSecondary}
+              keyboardType="numeric"
+            />
+
+            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.text, marginBottom: 4 }}>
+              Trainer Notes / Progress Remarks (optional):
+            </Text>
+            <TextInput
+              style={[
+                styles.modalInput,
+                {
+                  minHeight: 70,
+                  borderColor: theme.border,
+                  color: theme.text,
+                  backgroundColor: theme.inputBg,
+                  marginBottom: 10,
+                },
+              ]}
+              value={weightNotes}
+              onChangeText={setWeightNotes}
+              placeholder="e.g. Noticeable muscle tone, body fat down ~1%"
+              placeholderTextColor={theme.textSecondary}
+              multiline
+              textAlignVertical="top"
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, { borderColor: theme.border }]}
+                onPress={() => setShowWeightModal(false)}
+                disabled={savingWeight}
+              >
+                <Text style={[styles.modalButtonText, { color: theme.text }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: theme.primary }]}
+                onPress={handleSaveMonthlyWeight}
+                disabled={savingWeight}
+              >
+                {savingWeight ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={[styles.modalButtonText, { color: '#FFF' }]}>Save Weight</Text>
                 )}
               </TouchableOpacity>
             </View>
