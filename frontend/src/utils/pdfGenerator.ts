@@ -1,27 +1,9 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Platform, Alert } from 'react-native';
-import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system';
 import { ADAPTIVE_ICON_BASE64 } from './adaptiveIconBase64';
 
-async function getLogoUri(): Promise<string> {
-  try {
-    const [asset] = await Asset.loadAsync(require('../../assets/images/adaptive-icon.png'));
-    if (Platform.OS !== 'web' && asset.localUri && FileSystem?.readAsStringAsync) {
-      const base64 = await FileSystem.readAsStringAsync(asset.localUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      if (base64) {
-        return `data:image/png;base64,${base64}`;
-      }
-    }
-    if (asset.uri) {
-      return asset.uri;
-    }
-  } catch (err) {
-    console.log('Using fallback base64 logo for PDF:', err);
-  }
+function getLogoUri(): string {
   return ADAPTIVE_ICON_BASE64;
 }
 
@@ -248,7 +230,7 @@ function markdownToHtml(md: string): string {
 
 export async function exportPlanToPdf(title: string, content: string, subtitle?: string) {
   try {
-    const logoUri = await getLogoUri();
+    const logoUri = getLogoUri();
     const formattedHtml = `
       <!DOCTYPE html>
       <html>
