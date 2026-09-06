@@ -453,7 +453,7 @@ export default function MemberDetailScreen() {
           </Text>
           {(!analyticsData?.monthly_weights || analyticsData.monthly_weights.length === 0) ? (
             <Text style={[styles.notesText, { color: theme.textSecondary }]}>
-              No monthly weight logged yet. Tap "+ Log Weight" above to record this month's check-in.
+              No monthly weight logged yet. Tap &quot;+ Log Weight&quot; above to record this month's check-in.
             </Text>
           ) : (
             analyticsData.monthly_weights.map((w: any, idx: number) => (
@@ -479,7 +479,7 @@ export default function MemberDetailScreen() {
                 </View>
                 {w.notes ? (
                   <Text style={{ fontSize: 12, color: theme.textSecondary, fontStyle: 'italic', maxWidth: '40%', textAlign: 'right' }}>
-                    "{w.notes}"
+                    &quot;{w.notes}&quot;
                   </Text>
                 ) : null}
               </View>

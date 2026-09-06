@@ -44,6 +44,7 @@ const InputField = React.memo(({
     />
   </View>
 ));
+InputField.displayName = 'InputField';
 
 export default function CreateMemberScreen() {
   const { theme } = useTheme();

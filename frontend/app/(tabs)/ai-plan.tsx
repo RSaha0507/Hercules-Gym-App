@@ -15,7 +15,6 @@ import {
   UIManager,
   Keyboard,
   TextStyle,
-  ViewStyle,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,7 +29,7 @@ try {
   if (Platform.OS === 'android' && typeof (UIManager as any)?.setLayoutAnimationEnabledExperimental === 'function') {
     (UIManager as any).setLayoutAnimationEnabledExperimental(true);
   }
-} catch (e) {
+} catch {
   // Ignore animation setup errors
 }
 
@@ -152,14 +151,14 @@ function renderInlineFormatting(text: string, baseStyle: TextStyle, isUser: bool
 function parseMarkdownBlocks(rawMd: string) {
   if (!rawMd || typeof rawMd !== 'string') return [];
   const lines = rawMd.split('\n');
-  const blocks: Array<{
+  const blocks: {
     type: 'heading' | 'divider' | 'blockquote' | 'bullet_list' | 'numbered_list' | 'table' | 'paragraph';
     level?: number;
     text?: string;
     items?: any[];
     headers?: string[];
     rows?: string[][];
-  }> = [];
+  }[] = [];
 
   let i = 0;
   while (i < lines.length) {
@@ -561,7 +560,6 @@ class ScreenErrorBoundary extends Component<
 
 function HGAIScreenInner() {
   const { theme } = useTheme();
-  const { t } = useLanguage();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
@@ -598,7 +596,7 @@ function HGAIScreenInner() {
 
     try {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    } catch (e) {}
+    } catch {}
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
@@ -682,7 +680,7 @@ function HGAIScreenInner() {
         onPress: () => {
           try {
             LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-          } catch (e) {}
+          } catch {}
           setMessages([]);
           setInputText('');
         },

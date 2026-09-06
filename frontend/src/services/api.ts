@@ -889,12 +889,12 @@ class ApiService {
     return response.data;
   }
 
-  async createWorkoutLog(items: Array<{ exercise: string; sets: number; reps: number; weight: number }>) {
+  async createWorkoutLog(items: { exercise: string; sets: number; reps: number; weight: number }[]) {
     const response = await this.client.post("/workout-logs", { items });
     return response.data;
   }
 
-  async chatWithAI(messages: Array<{ role: 'user' | 'assistant'; content: string }>, context?: any) {
+  async chatWithAI(messages: { role: 'user' | 'assistant'; content: string }[], context?: any) {
     const response = await this.client.post("/ai/chat", { messages, context }, {
       timeout: 60000,
     });

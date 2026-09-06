@@ -21,7 +21,6 @@ const screenWidth = Dimensions.get('window').width;
 
 export default function LogWorkoutScreen() {
   const { theme } = useTheme();
-  const { t } = useLanguage();
 
   const [activeTab, setActiveTab] = useState<'log' | 'analytics'>('log');
 
@@ -310,7 +309,7 @@ export default function LogWorkoutScreen() {
                         Trainer-Verified Monthly Weight
                       </Text>
                       <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
-                        Logged by your center's certified trainer
+                        Logged by your center&apos;s certified trainer
                       </Text>
                     </View>
                     <View style={[styles.verifiedBadge, { backgroundColor: '#10b98120' }]}>
@@ -387,7 +386,7 @@ export default function LogWorkoutScreen() {
                           </View>
                           {w.notes ? (
                             <Text style={[styles.weightNote, { color: theme.textSecondary }]}>
-                              "{w.notes}"
+                              &quot;{w.notes}&quot;
                             </Text>
                           ) : null}
                         </View>

@@ -17,7 +17,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { api } from '../../src/services/api';
-import { formatDateDDMMYYYY, toSystemDate } from '../../src/utils/time';
+import { formatDateDDMMYYYY } from '../../src/utils/time';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Skeleton } from '../../src/components/Skeleton';
 
