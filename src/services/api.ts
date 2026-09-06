@@ -152,6 +152,44 @@ class WebApiService {
     return await this.request('/auth/me');
   }
 
+  async logout() {
+    this.setToken(null);
+  }
+
+  async requestForgotPasswordOtp(identifier: string) {
+    const trimmed = identifier.trim();
+    const isEmail = trimmed.includes('@');
+    const payload = isEmail ? { email: trimmed.toLowerCase() } : { phone: trimmed };
+    return await this.request<any>('/auth/forgot-password/request-otp', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async resetForgotPassword(
+    identifier: string,
+    otp: string,
+    new_password: string,
+    confirm_password: string
+  ) {
+    const trimmed = identifier.trim();
+    const isEmail = trimmed.includes('@');
+    const payload: any = {
+      otp: otp.trim(),
+      new_password,
+      confirm_password,
+    };
+    if (isEmail) {
+      payload.email = trimmed.toLowerCase();
+    } else {
+      payload.phone = trimmed;
+    }
+    return await this.request<any>('/auth/forgot-password/reset', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   // Members
   async getMembers() {
     return await this.request<any[]>('/members');
