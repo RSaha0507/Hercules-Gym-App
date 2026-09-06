@@ -22,3 +22,16 @@ services:
         sync: false
       - key: SOCKET_CORS_ORIGINS
         sync: false
+
+  # Hercules Gym Admin Web Dashboard (Vite + React)
+  - type: web
+    name: hercules-gym-admin-web
+    runtime: static
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+

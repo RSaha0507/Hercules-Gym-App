@@ -15,6 +15,7 @@ import {
   ChevronDown,
   CheckCircle2,
   Clock,
+  RefreshCw,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -38,6 +39,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
     isCheckedIn,
     activeCheckIn,
     checkOut,
+    backendConnected,
+    isSyncing,
+    syncWithBackend,
   } = useGym();
 
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -96,6 +100,22 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
               </button>
             ))}
           </div>
+
+          {/* Cloud Backend Sync Indicator */}
+          <button
+            onClick={() => syncWithBackend()}
+            disabled={isSyncing}
+            title={backendConnected ? 'Live Cloud Connected to Render (Click to refresh)' : 'Connecting to Render Cloud...'}
+            className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-colors ${
+              backendConnected
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                : 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${backendConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+            <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Syncing...' : backendConnected ? 'Cloud Live' : 'Connecting'}</span>
+          </button>
 
           {/* Quick Check-in Button */}
           {currentUser ? (

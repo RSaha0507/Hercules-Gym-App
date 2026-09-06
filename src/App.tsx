@@ -11,6 +11,7 @@ import { WorkoutsDietView } from './components/WorkoutsDietView';
 import { MessagesView } from './components/MessagesView';
 import { PaymentsView } from './components/PaymentsView';
 import { ProfileView } from './components/ProfileView';
+import { HgAiView } from './components/HgAiView';
 import { QrModal } from './components/QrModal';
 import { AuthModal } from './components/AuthModal';
 
@@ -40,6 +41,7 @@ const MainLayout: React.FC = () => {
           {activeTab === 'approvals' && <ApprovalsView />}
           {activeTab === 'attendance' && <AttendanceView onOpenQrModal={() => setIsQrModalOpen(true)} />}
           {activeTab === 'workouts' && <WorkoutsDietView />}
+          {activeTab === 'hg-ai' && <HgAiView />}
           {activeTab === 'shop' && <ShopView />}
           {activeTab === 'messages' && <MessagesView />}
           {activeTab === 'revenues' && <PaymentsView />}

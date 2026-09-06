@@ -105,7 +105,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }, 1500);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
@@ -116,20 +116,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
 
     if (mode === 'login') {
-      const ok = login(email, password);
+      const ok = await login(email, password);
       if (ok) {
         onClose();
       } else {
-        setError('Invalid credentials. (Hint: use admin@hercules.com, trainer@hercules.com, or rounak@hercules.com)');
+        setError('Invalid credentials. (Hint: use admin@hercules.com or your registered mobile/email)');
       }
     } else {
       if (!fullName || !email) {
         setError('Please fill all required fields.');
         return;
       }
-      register({
+      await register({
         full_name: fullName,
         email,
+        password,
         phone: phone || '+91 98300 00000',
         role,
         center,

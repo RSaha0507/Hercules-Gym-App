@@ -183,3 +183,24 @@ export interface PaymentRecord {
   payment_method: 'UPI' | 'Cash' | 'Card' | 'Bank Transfer';
   receipt_no: string;
 }
+
+export interface HGAiMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+export interface WorkoutLogItem {
+  exercise: string;
+  sets: number;
+  reps: number;
+  weight: number;
+}
+
+export interface WorkoutLogEntry {
+  id: string;
+  user_id?: string;
+  created_at: string;
+  items: WorkoutLogItem[];
+}

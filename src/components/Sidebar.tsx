@@ -54,6 +54,14 @@ export const Sidebar: React.FC = () => {
       roles: ['admin', 'trainer', 'member'],
     },
     {
+      id: 'hg-ai',
+      label: 'HG.AI Coach',
+      icon: Sparkles,
+      roles: ['admin', 'trainer', 'member'],
+      badge: 'AI',
+      badgeColor: 'bg-gradient-to-r from-rose-500 to-amber-500 text-white',
+    },
+    {
       id: 'shop',
       label: t('shop'),
       icon: ShoppingBag,

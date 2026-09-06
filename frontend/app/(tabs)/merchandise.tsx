@@ -243,12 +243,12 @@ export default function MerchandiseScreen() {
         <View style={styles.heroBlobOne} />
         <View style={styles.heroBlobTwo} />
         <View style={styles.heroContent}>
-          <Text style={[styles.heroTitle, { color: isDark ? '#EAF4FF' : '#1A2D45' }]}>GLASS STORE</Text>
-          <Text style={[styles.heroSubtitle, { color: isDark ? '#C7DCF7' : '#304D69' }]}>HERCULES GYM</Text>
-          <Text style={[styles.heroTagline, { color: isDark ? '#A6C2E7' : '#48657E' }]}>Fluid shop experience</Text>
+          <Text style={[styles.heroTitle, { color: isDark ? '#EAF4FF' : '#1A2D45' }]}>HERCULES STORE</Text>
+          <Text style={[styles.heroSubtitle, { color: isDark ? '#C7DCF7' : '#304D69' }]}>SUPPLEMENTS & APPAREL</Text>
+          <Text style={[styles.heroTagline, { color: isDark ? '#A6C2E7' : '#48657E' }]}>Certified authentic supplements, gym apparel, and powerlifting gear</Text>
         </View>
         <View style={styles.heroIcon}>
-          <Ionicons name="water-outline" size={80} color={isDark ? 'rgba(194,226,255,0.24)' : 'rgba(44,89,130,0.22)'} />
+          <Ionicons name="bag-handle-outline" size={80} color={isDark ? 'rgba(194,226,255,0.24)' : 'rgba(44,89,130,0.22)'} />
         </View>
       </LinearGradient>
 

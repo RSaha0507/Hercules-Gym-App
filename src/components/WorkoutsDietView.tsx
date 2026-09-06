@@ -16,6 +16,10 @@ import {
   Scale,
   LineChart as ChartIcon,
   X,
+  ClipboardList,
+  Check,
+  History,
+  Award,
 } from 'lucide-react';
 import {
   LineChart,
@@ -37,12 +41,22 @@ export const WorkoutsDietView: React.FC = () => {
     addFitnessMetric,
     currentUser,
     theme,
+    workoutLogs,
+    logWorkout,
   } = useGym();
 
-  const [activeSubTab, setActiveSubTab] = useState<'workouts' | 'diet' | 'metrics'>('workouts');
+  const [activeSubTab, setActiveSubTab] = useState<'workouts' | 'diet' | 'metrics' | 'logs'>('workouts');
   const [selectedDay, setSelectedDay] = useState<string>('Monday');
   const [completedExercises, setCompletedExercises] = useState<Record<string, boolean>>({});
   const [waterGlasses, setWaterGlasses] = useState<number>(10); // 10 x 250ml = 2.5L
+
+  // Workout Logger State (Mobile Parity)
+  const [logExercise, setLogExercise] = useState('Bench Press');
+  const [logSets, setLogSets] = useState('3');
+  const [logReps, setLogReps] = useState('10');
+  const [logWeight, setLogWeight] = useState('60');
+  const [isLoggingSet, setIsLoggingSet] = useState(false);
+  const [logFeedback, setLogFeedback] = useState('');
 
   // Rest Timer State
   const [timerSeconds, setTimerSeconds] = useState<number | null>(null);
@@ -106,6 +120,28 @@ export const WorkoutsDietView: React.FC = () => {
     setShowMetricModal(false);
   };
 
+  const handleLogSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!logExercise.trim()) return;
+    setIsLoggingSet(true);
+    try {
+      await logWorkout([
+        {
+          exercise: logExercise.trim(),
+          sets: parseInt(logSets, 10) || 1,
+          reps: parseInt(logReps, 10) || 1,
+          weight: parseFloat(logWeight) || 0,
+        },
+      ]);
+      setLogFeedback('Workout set recorded & synced to cloud!');
+      setTimeout(() => setLogFeedback(''), 3000);
+    } catch (err: any) {
+      setLogFeedback('Sync note: Log saved locally');
+    } finally {
+      setIsLoggingSet(false);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-20 md:pb-8">
       {/* Header & Sub-tab navigation */}
@@ -155,6 +191,18 @@ export const WorkoutsDietView: React.FC = () => {
           >
             <TrendingUp className="w-3.5 h-3.5" />
             <span>Body Metrics</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('logs')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeSubTab === 'logs'
+                ? 'bg-purple-600 text-white shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <ClipboardList className="w-3.5 h-3.5" />
+            <span>Workout Logger</span>
           </button>
         </div>
       </div>
@@ -490,6 +538,217 @@ export const WorkoutsDietView: React.FC = () => {
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: WORKOUT LOGGER & SET TRACKER (Mobile Parity) */}
+      {activeSubTab === 'logs' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Set Logging Form */}
+            <div
+              className={`p-5 rounded-3xl border shadow-sm ${
+                theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-purple-600/20 text-purple-400 border border-purple-500/30 flex items-center justify-center">
+                    <ClipboardList className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-sm font-black text-white">Log Exercise Set</h3>
+                </div>
+                <span className="text-[10px] uppercase font-bold text-zinc-500 px-2 py-0.5 rounded-full bg-zinc-800">
+                  Cloud Sync
+                </span>
+              </div>
+
+              {logFeedback && (
+                <div className="mb-3 p-2.5 rounded-xl bg-purple-950/40 border border-purple-800/40 text-purple-300 text-xs flex items-center gap-2">
+                  <Check className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  <span>{logFeedback}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleLogSubmit} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-zinc-400 mb-1">
+                    Exercise Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={logExercise}
+                    onChange={(e) => setLogExercise(e.target.value)}
+                    placeholder="e.g. Bench Press"
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white text-xs focus:outline-none focus:border-purple-500"
+                  />
+                  {/* Quick exercise pickers */}
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {[
+                      'Bench Press',
+                      'Squat',
+                      'Deadlift',
+                      'Overhead Press',
+                      'Lat Pulldown',
+                      'Bicep Curl',
+                    ].map((ex) => (
+                      <button
+                        key={ex}
+                        type="button"
+                        onClick={() => setLogExercise(ex)}
+                        className={`text-[10px] px-2 py-0.5 rounded-lg border transition-colors ${
+                          logExercise === ex
+                            ? 'bg-purple-600 border-purple-500 text-white font-bold'
+                            : 'bg-zinc-800/60 border-zinc-700/60 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {ex}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-zinc-400 mb-1">Sets</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={logSets}
+                      onChange={(e) => setLogSets(e.target.value)}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white text-xs focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-zinc-400 mb-1">Reps</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={logReps}
+                      onChange={(e) => setLogReps(e.target.value)}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white text-xs focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-zinc-400 mb-1">
+                      Weight (kg)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      required
+                      value={logWeight}
+                      onChange={(e) => setLogWeight(e.target.value)}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white text-xs focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Volume preview */}
+                <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 flex items-center justify-between text-xs">
+                  <span className="text-zinc-400">Total Volume</span>
+                  <span className="font-extrabold text-purple-400">
+                    {((parseInt(logSets, 10) || 0) *
+                      (parseInt(logReps, 10) || 0) *
+                      (parseFloat(logWeight) || 0)).toLocaleString()}{' '}
+                    kg
+                  </span>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoggingSet}
+                  className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-purple-900/30 transition-all"
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  <span>{isLoggingSet ? 'Recording...' : 'Record Set & Sync'}</span>
+                </button>
+              </form>
+            </div>
+
+            {/* Log History */}
+            <div
+              className={`lg:col-span-2 p-5 rounded-3xl border shadow-sm flex flex-col ${
+                theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-rose-600/20 text-rose-400 border border-rose-500/30 flex items-center justify-center">
+                    <History className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-white">Recent Workout Logs</h3>
+                    <p className="text-[11px] text-zinc-400">
+                      Synced with mobile app and Hercules cloud database
+                    </p>
+                  </div>
+                </div>
+                <span className="text-xs font-bold text-zinc-400">
+                  {workoutLogs.length} Sessions Logged
+                </span>
+              </div>
+
+              {workoutLogs.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center py-12 text-center">
+                  <Dumbbell className="w-10 h-10 text-zinc-600 mb-2" />
+                  <p className="text-sm font-bold text-zinc-400">No workout sets logged yet</p>
+                  <p className="text-xs text-zinc-500 mt-1 max-w-sm">
+                    Record your first exercise set on the left to track progressive overload and volume!
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3 overflow-y-auto max-h-[440px] pr-1">
+                  {workoutLogs.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-2 hover:border-zinc-700 transition-colors"
+                    >
+                      <div className="flex items-center justify-between text-xs pb-1.5 border-b border-zinc-800/80">
+                        <span className="font-bold text-zinc-400">
+                          {entry.created_at ? new Date(entry.created_at).toLocaleDateString([], {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          }) : 'Today'}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-950/60 text-purple-300 border border-purple-800/50">
+                          {entry.items?.length || 0} exercise{(entry.items?.length || 0) > 1 ? 's' : ''}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        {entry.items?.map((it, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between text-xs py-1"
+                          >
+                            <span className="font-bold text-white">{it.exercise}</span>
+                            <div className="flex items-center gap-3 text-zinc-400">
+                              <span>
+                                {it.sets} sets × {it.reps} reps
+                              </span>
+                              <span className="px-2 py-0.5 rounded-lg bg-zinc-800 text-rose-300 font-extrabold text-[11px]">
+                                {it.weight} kg
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
