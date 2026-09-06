@@ -462,7 +462,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (currentUser?.id === userId) {
       setCurrentUser(prev => (prev ? { ...prev, ...data } : null));
     }
-    webApi.updateMember(userId, data).catch(e => console.log('Update profile backend sync:', e));
+    webApi.updateMember(userId, data).catch((e: any) => console.log('Update profile backend sync:', e));
   };
 
   const addUser = (userData: Partial<User>) => {
@@ -487,7 +487,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       } : undefined,
     };
     setUsers(prev => [newUser, ...prev]);
-    webApi.createMember(newUser).catch(e => console.log('Add member backend sync:', e));
+    webApi.createMember(newUser).catch((e: any) => console.log('Add member backend sync:', e));
   };
 
   // Attendance
@@ -714,7 +714,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setOrders(prev => [newOrder, ...prev]);
     clearCart();
 
-    webApi.createOrder(newOrder).catch(e => console.log('Order backend sync:', e));
+    webApi.createOrder(newOrder).catch((e: any) => console.log('Order backend sync:', e));
     return newOrder;
   };
 
@@ -724,7 +724,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       id: `prod-${Date.now()}`,
     };
     setProducts(prev => [newProd, ...prev]);
-    webApi.createMerchandise(newProd).catch(e => console.log('Merchandise backend sync:', e));
+    webApi.createMerchandise(newProd).catch((e: any) => console.log('Merchandise backend sync:', e));
   };
 
   const updateProductStock = (productId: string, newStock: number) => {
