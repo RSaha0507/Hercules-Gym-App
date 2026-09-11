@@ -40,6 +40,7 @@ export const WorkoutsDietView: React.FC = () => {
     fitnessMetrics,
     addFitnessMetric,
     currentUser,
+    users,
     theme,
     workoutLogs,
     logWorkout,
@@ -98,7 +99,7 @@ export const WorkoutsDietView: React.FC = () => {
     return () => clearInterval(interval);
   }, [timerActive, timerSeconds]);
 
-  const currentWorkoutDay = workoutPlan.days.find(d => d.day === selectedDay) || workoutPlan.days[0];
+  const currentWorkoutDay = workoutPlan.days.find(d => d.day === selectedDay) || workoutPlan.days[0] || null;
 
   const handleAddMetricSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,236 +211,276 @@ export const WorkoutsDietView: React.FC = () => {
       {/* TAB 1: WORKOUT ROUTINE */}
       {activeSubTab === 'workouts' && (
         <div className="space-y-6">
-          {/* Day Selector Pills */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2">
-            {workoutPlan.days.map(d => (
-              <button
-                key={d.day}
-                onClick={() => setSelectedDay(d.day)}
-                className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
-                  selectedDay === d.day
-                    ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-lg shadow-rose-900/30'
-                    : theme === 'dark'
-                    ? 'bg-zinc-900/80 border border-zinc-800 text-zinc-400 hover:bg-zinc-800'
-                    : 'bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-100'
-                }`}
-              >
-                <span>{d.day}</span>
-                <span className="text-[10px] opacity-75 font-normal">({d.exercises.length} ex)</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Active Workout Day Header & Rest Timer HUD */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className={`lg:col-span-2 p-6 rounded-3xl border flex items-center justify-between ${
+          {workoutPlan.days.length === 0 || !currentWorkoutDay ? (
+            <div className={`p-12 rounded-3xl border text-center space-y-3 ${
               theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
             }`}>
-              <div>
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-500">
-                  {selectedDay} Split
-                </span>
-                <h3 className="text-xl font-black text-white mt-0.5">{currentWorkoutDay.title}</h3>
-                <p className="text-xs text-zinc-400 mt-1">{currentWorkoutDay.focus}</p>
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mx-auto">
+                <Dumbbell className="w-7 h-7" />
               </div>
-
-              <div className="text-right">
-                <span className="px-3 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-bold">
-                  {workoutPlan.level}
-                </span>
+              <div className="space-y-1">
+                <h3 className="text-lg font-black text-white">No Workout Split Assigned</h3>
+                <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                  Your certified branch trainer will assign your customized workout routine and progressive training program.
+                </p>
               </div>
             </div>
+          ) : (
+            <>
+              {/* Day Selector Pills */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-2">
+                {workoutPlan.days.map(d => (
+                  <button
+                    key={d.day}
+                    onClick={() => setSelectedDay(d.day)}
+                    className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
+                      selectedDay === d.day
+                        ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-lg shadow-rose-900/30'
+                        : theme === 'dark'
+                        ? 'bg-zinc-900/80 border border-zinc-800 text-zinc-400 hover:bg-zinc-800'
+                        : 'bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-100'
+                    }`}
+                  >
+                    <span>{d.day}</span>
+                    <span className="text-[10px] opacity-75 font-normal">({d.exercises.length} ex)</span>
+                  </button>
+                ))}
+              </div>
 
-            {/* Floating Rest Timer Component */}
-            <div className={`p-5 rounded-3xl border flex items-center justify-between ${
-              timerActive
-                ? 'bg-rose-950/40 border-rose-600/60 ring-2 ring-rose-500/30 animate-pulse'
-                : theme === 'dark'
-                ? 'bg-zinc-900/80 border-zinc-800'
-                : 'bg-white border-zinc-200 shadow-sm'
-            }`}>
-              <div>
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-rose-500" />
-                  Rest Interval Timer
-                </span>
-                <div className="text-2xl font-black font-mono text-white mt-1">
-                  {timerSeconds !== null ? `${timerSeconds}s` : 'Ready'}
+              {/* Active Workout Day Header & Rest Timer HUD */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className={`lg:col-span-2 p-6 rounded-3xl border flex items-center justify-between ${
+                  theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
+                }`}>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-500">
+                      {selectedDay} Split
+                    </span>
+                    <h3 className="text-xl font-black text-white mt-0.5">{currentWorkoutDay.title}</h3>
+                    <p className="text-xs text-zinc-400 mt-1">{currentWorkoutDay.focus}</p>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="px-3 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-bold">
+                      {workoutPlan.level}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Floating Rest Timer Component */}
+                <div className={`p-5 rounded-3xl border flex items-center justify-between ${
+                  timerActive
+                    ? 'bg-rose-950/40 border-rose-600/60 ring-2 ring-rose-500/30 animate-pulse'
+                    : theme === 'dark'
+                    ? 'bg-zinc-900/80 border-zinc-800'
+                    : 'bg-white border-zinc-200 shadow-sm'
+                }`}>
+                  <div>
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-rose-500" />
+                      Rest Interval Timer
+                    </span>
+                    <div className="text-2xl font-black font-mono text-white mt-1">
+                      {timerSeconds !== null ? `${timerSeconds}s` : 'Ready'}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => startRestTimer(60)}
+                      className="px-2.5 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-bold"
+                    >
+                      60s
+                    </button>
+                    <button
+                      onClick={() => startRestTimer(90)}
+                      className="px-2.5 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-bold"
+                    >
+                      90s
+                    </button>
+                    <button
+                      onClick={() => startRestTimer(120)}
+                      className="px-2.5 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-bold"
+                    >
+                      120s
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => startRestTimer(60)}
-                  className="px-2.5 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-bold"
-                >
-                  60s
-                </button>
-                <button
-                  onClick={() => startRestTimer(90)}
-                  className="px-2.5 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-bold"
-                >
-                  90s
-                </button>
-                <button
-                  onClick={() => startRestTimer(120)}
-                  className="px-2.5 py-1.5 rounded-xl bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs font-bold"
-                >
-                  120s
-                </button>
-              </div>
-            </div>
-          </div>
+              {/* Exercise Checklist Cards */}
+              <div className="space-y-3">
+                {currentWorkoutDay.exercises.map((ex, idx) => {
+                  const isDone = Boolean(completedExercises[ex.id]);
 
-          {/* Exercise Checklist Cards */}
-          <div className="space-y-3">
-            {currentWorkoutDay.exercises.map((ex, idx) => {
-              const isDone = Boolean(completedExercises[ex.id]);
-
-              return (
-                <div
-                  key={ex.id}
-                  className={`p-5 rounded-3xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-                    isDone
-                      ? 'bg-emerald-950/20 border-emerald-800/40 opacity-80'
-                      : theme === 'dark'
-                      ? 'bg-zinc-900/70 border-zinc-800 hover:border-zinc-700'
-                      : 'bg-white border-zinc-200 shadow-sm'
-                  }`}
-                >
-                  <div className="flex items-start gap-4">
-                    <button
-                      onClick={() => toggleExerciseComplete(ex.id)}
-                      className={`w-8 h-8 rounded-2xl flex items-center justify-center font-bold text-xs transition-all shrink-0 mt-0.5 ${
+                  return (
+                    <div
+                      key={ex.id}
+                      className={`p-5 rounded-3xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
                         isDone
-                          ? 'bg-emerald-500 text-white shadow-md shadow-emerald-900/30'
-                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                          ? 'bg-emerald-950/20 border-emerald-800/40 opacity-80'
+                          : theme === 'dark'
+                          ? 'bg-zinc-900/70 border-zinc-800 hover:border-zinc-700'
+                          : 'bg-white border-zinc-200 shadow-sm'
                       }`}
                     >
-                      {isDone ? <CheckCircle2 className="w-5 h-5" /> : idx + 1}
-                    </button>
+                      <div className="flex items-start gap-4">
+                        <button
+                          onClick={() => toggleExerciseComplete(ex.id)}
+                          className={`w-8 h-8 rounded-2xl flex items-center justify-center font-bold text-xs transition-all shrink-0 mt-0.5 ${
+                            isDone
+                              ? 'bg-emerald-500 text-white shadow-md shadow-emerald-900/30'
+                              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                          }`}
+                        >
+                          {isDone ? <CheckCircle2 className="w-5 h-5" /> : idx + 1}
+                        </button>
 
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className={`text-sm font-bold ${isDone ? 'line-through text-zinc-400' : 'text-white'}`}>
-                          {ex.name}
-                        </h4>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400">
-                          {ex.target_muscle}
-                        </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className={`text-sm font-bold ${isDone ? 'line-through text-zinc-400' : 'text-white'}`}>
+                              {ex.name}
+                            </h4>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400">
+                              {ex.target_muscle}
+                            </span>
+                          </div>
+                          {ex.notes && (
+                            <p className="text-xs text-zinc-400 mt-1">{ex.notes}</p>
+                          )}
+                        </div>
                       </div>
-                      {ex.notes && (
-                        <p className="text-xs text-zinc-400 mt-1">{ex.notes}</p>
-                      )}
-                    </div>
-                  </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-4 pl-12 sm:pl-0">
-                    <div className="text-right">
-                      <div className="text-xs font-black text-rose-400">{ex.sets} Working Sets</div>
-                      <div className="text-[11px] text-zinc-400">{ex.reps}</div>
-                    </div>
+                      <div className="flex items-center justify-between sm:justify-end gap-4 pl-12 sm:pl-0">
+                        <div className="text-right">
+                          <div className="text-xs font-black text-rose-400">{ex.sets} Working Sets</div>
+                          <div className="text-[11px] text-zinc-400">{ex.reps}</div>
+                        </div>
 
-                    <button
-                      onClick={() => startRestTimer(ex.rest_seconds)}
-                      className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold flex items-center gap-1"
-                    >
-                      <Clock className="w-3.5 h-3.5 text-rose-500" />
-                      <span>{ex.rest_seconds}s Rest</span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                        <button
+                          onClick={() => startRestTimer(ex.rest_seconds)}
+                          className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold flex items-center gap-1"
+                        >
+                          <Clock className="w-3.5 h-3.5 text-rose-500" />
+                          <span>{ex.rest_seconds}s Rest</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       )}
 
       {/* TAB 2: NUTRITION & DIET PLAN */}
       {activeSubTab === 'diet' && (
         <div className="space-y-6">
-          {/* Macro Targets Ring Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className={`p-5 rounded-3xl border ${
+          {dietPlan.meals.length === 0 && dietPlan.daily_calories_target === 0 ? (
+            <div className={`p-12 rounded-3xl border text-center space-y-3 ${
               theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
             }`}>
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-500">Daily Calorie Target</span>
-              <div className="text-3xl font-black text-white mt-1">{dietPlan.daily_calories_target}</div>
-              <p className="text-[11px] text-zinc-400 mt-0.5">kcal / day</p>
-            </div>
-
-            <div className={`p-5 rounded-3xl border ${
-              theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
-            }`}>
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400">Protein Goal</span>
-              <div className="text-3xl font-black text-emerald-400 mt-1">{dietPlan.daily_protein_target}g</div>
-              <p className="text-[11px] text-zinc-400 mt-0.5">2.2g per kg bodyweight</p>
-            </div>
-
-            <div className={`p-5 rounded-3xl border ${
-              theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
-            }`}>
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-400">Hydration Intake</span>
-              <div className="text-3xl font-black text-blue-400 mt-1">{(waterGlasses * 0.25).toFixed(1)}L / {dietPlan.daily_water_target_liters}L</div>
-              <div className="flex items-center gap-2 mt-2">
-                <button
-                  onClick={() => setWaterGlasses(prev => prev + 1)}
-                  className="px-3 py-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold"
-                >
-                  +250ml Glass
-                </button>
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+                <Apple className="w-7 h-7" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-black text-white">No Nutrition Blueprint Assigned</h3>
+                <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                  Your certified branch trainer will assign your customized daily calorie, protein, hydration goals, and meal schedule.
+                </p>
               </div>
             </div>
+          ) : (
+            <>
+              {/* Macro Targets Ring Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className={`p-5 rounded-3xl border ${
+                  theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
+                }`}>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-500">Daily Calorie Target</span>
+                  <div className="text-3xl font-black text-white mt-1">{dietPlan.daily_calories_target}</div>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">kcal / day</p>
+                </div>
 
-            <div className={`p-5 rounded-3xl border ${
-              theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
-            }`}>
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-400">Assigned Coach</span>
-              <div className="text-base font-black text-white mt-2">Rahul Das</div>
-              <p className="text-[11px] text-zinc-400 mt-0.5">Head Nutritionist (Ranaghat)</p>
-            </div>
-          </div>
+                <div className={`p-5 rounded-3xl border ${
+                  theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
+                }`}>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400">Protein Goal</span>
+                  <div className="text-3xl font-black text-emerald-400 mt-1">{dietPlan.daily_protein_target}g</div>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">2.2g per kg bodyweight</p>
+                </div>
 
-          {/* Meals Timeline */}
-          <div className="space-y-4">
-            <h3 className="text-base font-black text-white">Daily Meal Schedule & Macro Composition</h3>
-
-            <div className="space-y-3">
-              {dietPlan.meals.map(meal => (
-                <div
-                  key={meal.meal_type}
-                  className={`p-5 rounded-3xl border ${
-                    theme === 'dark' ? 'bg-zinc-900/70 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-800/80">
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                      <h4 className="text-sm font-bold text-white">{meal.meal_type}</h4>
-                    </div>
-                    <span className="text-xs font-mono font-semibold text-zinc-400">{meal.time}</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {meal.items.map(item => (
-                      <div
-                        key={item.id}
-                        className="p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800 text-xs space-y-1"
-                      >
-                        <div className="font-bold text-white">{item.name}</div>
-                        <div className="text-[11px] text-zinc-400">Portion: {item.portion}</div>
-                        <div className="flex items-center gap-2 pt-1 font-semibold text-[10px]">
-                          <span className="text-rose-400">{item.calories} kcal</span>
-                          <span>•</span>
-                          <span className="text-emerald-400">{item.protein}g Protein</span>
-                        </div>
-                      </div>
-                    ))}
+                <div className={`p-5 rounded-3xl border ${
+                  theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
+                }`}>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-400">Hydration Intake</span>
+                  <div className="text-3xl font-black text-blue-400 mt-1">{(waterGlasses * 0.25).toFixed(1)}L / {dietPlan.daily_water_target_liters}L</div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      onClick={() => setWaterGlasses(prev => prev + 1)}
+                      className="px-3 py-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold"
+                    >
+                      +250ml Glass
+                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
+
+                <div className={`p-5 rounded-3xl border ${
+                  theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
+                }`}>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-400">Assigned Coach</span>
+                  <div className="text-base font-black text-white mt-2">
+                    {users.find(u => u.id === currentUser?.assigned_trainer_id)?.full_name || (currentUser?.center ? `${currentUser.center} Branch Head Coach` : 'Assigned Coach')}
+                  </div>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    {currentUser?.center ? `${currentUser.center} Branch` : 'Certified Staff'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Meals Timeline */}
+              <div className="space-y-4">
+                <h3 className="text-base font-black text-white">Daily Meal Schedule & Macro Composition</h3>
+
+                <div className="space-y-3">
+                  {dietPlan.meals.map(meal => (
+                    <div
+                      key={meal.meal_type}
+                      className={`p-5 rounded-3xl border ${
+                        theme === 'dark' ? 'bg-zinc-900/70 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-800/80">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                          <h4 className="text-sm font-bold text-white">{meal.meal_type}</h4>
+                        </div>
+                        <span className="text-xs font-mono font-semibold text-zinc-400">{meal.time}</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {meal.items.map(item => (
+                          <div
+                            key={item.id}
+                            className="p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800 text-xs space-y-1"
+                          >
+                            <div className="font-bold text-white">{item.name}</div>
+                            <div className="text-[11px] text-zinc-400">Portion: {item.portion}</div>
+                            <div className="flex items-center gap-2 pt-1 font-semibold text-[10px]">
+                              <span className="text-rose-400">{item.calories} kcal</span>
+                              <span>•</span>
+                              <span className="text-emerald-400">{item.protein}g Protein</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

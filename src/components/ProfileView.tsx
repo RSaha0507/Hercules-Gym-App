@@ -43,11 +43,18 @@ export const ProfileView: React.FC = () => {
         <div className="lg:col-span-1 space-y-4">
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-900 via-rose-950/60 to-zinc-950 border border-rose-500/40 p-6 shadow-2xl space-y-6">
             <div className="flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-rose-400">
-                  HERCULES GYM PASS
-                </span>
-                <div className="text-xs text-zinc-400">Nadia Fitness Network</div>
+              <div className="flex items-center gap-2">
+                <img
+                  src="/hercules-logo-removebg-preview.png"
+                  alt="Hercules Gym"
+                  className="w-8 h-8 object-contain"
+                />
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+                    HERCULES GYM PASS
+                  </span>
+                  <div className="text-[10px] text-zinc-400">Nadia Fitness Network</div>
+                </div>
               </div>
               <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-extrabold uppercase">
                 {currentUser.membership?.status || 'Active'}

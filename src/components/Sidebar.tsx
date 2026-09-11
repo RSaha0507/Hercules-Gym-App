@@ -105,6 +105,7 @@ export const Sidebar: React.FC = () => {
           {visibleItems.map(item => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
+            const isHgAi = item.id === 'hg-ai';
 
             return (
               <button
@@ -112,16 +113,26 @@ export const Sidebar: React.FC = () => {
                 onClick={() => setActiveTab(item.id)}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all group ${
                   isActive
-                    ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/25 font-bold translate-x-1'
+                    ? 'bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-lg shadow-rose-950/40 font-bold translate-x-1'
                     : theme === 'dark'
                     ? 'hover:bg-zinc-900 hover:text-zinc-100 text-zinc-400'
                     : 'hover:bg-zinc-200 hover:text-zinc-900 text-zinc-600'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <Icon className={`w-4 h-4 transition-transform group-hover:scale-110 ${
-                    isActive ? 'text-white' : 'text-rose-500'
-                  }`} />
+                  {isHgAi ? (
+                    <img
+                      src="/hg-ai-logo.png"
+                      alt="HG.AI"
+                      className={`w-4 h-4 rounded object-cover transition-transform group-hover:scale-110 ${
+                        isActive ? 'ring-1 ring-white' : ''
+                      }`}
+                    />
+                  ) : (
+                    <Icon className={`w-4 h-4 transition-transform group-hover:scale-110 ${
+                      isActive ? 'text-white' : 'text-rose-500'
+                    }`} />
+                  )}
                   <span>{item.label}</span>
                 </div>
                 {item.badge !== undefined && (

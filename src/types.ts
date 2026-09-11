@@ -182,6 +182,12 @@ export interface PaymentRecord {
   status: 'paid' | 'pending' | 'overdue';
   payment_method: 'UPI' | 'Cash' | 'Card' | 'Bank Transfer';
   receipt_no: string;
+  screenshot_url?: string;
+  verification_status?: 'verified' | 'pending_verification' | 'rejected';
+  payment_mode?: 'online' | 'offline';
+  offline_note?: string;
+  verified_at?: string;
+  verified_by?: string;
 }
 
 export interface HGAiMessage {

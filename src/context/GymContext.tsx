@@ -39,7 +39,7 @@ interface GymContextType {
   activeTab: string;
   setActiveTab: (tab: string) => void;
 
-  // Backend Sync Status
+  // Backend Sync Status (MongoDB Atlas)
   backendConnected: boolean;
   isSyncing: boolean;
   syncWithBackend: () => Promise<void>;
@@ -47,11 +47,11 @@ interface GymContextType {
   // Users & Auth
   users: User[];
   login: (identifier: string, pass: string) => Promise<boolean>;
-  register: (data: Partial<User> & { password?: string }) => Promise<void>;
+  register: (data: Partial<User> & { password?: string }) => Promise<any>;
   logout: () => void;
   switchDemoUser: (userId: string) => void;
   approveUser: (userId: string) => Promise<void>;
-  rejectUser: (userId: string) => Promise<void>;
+  rejectUser: (userId: string, reason?: string) => Promise<void>;
   updateUserProfile: (userId: string, data: Partial<User>) => void;
   addUser: (userData: Partial<User>) => void;
 
@@ -104,6 +104,7 @@ interface GymContextType {
   // Payments & Revenues
   payments: PaymentRecord[];
   recordPayment: (payment: Omit<PaymentRecord, 'id' | 'receipt_no'>) => void;
+  verifyPayment: (paymentId: string, status: 'verified' | 'rejected') => void;
 
   // Theme & Language
   theme: 'dark' | 'light';
@@ -116,11 +117,42 @@ interface GymContextType {
 const GymContext = createContext<GymContextType | undefined>(undefined);
 
 export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Safe localStorage helper
+  // Safe localStorage helper with legacy mock data cleanup
   const loadLocal = <T,>(key: string, fallback: T): T => {
     try {
-      const stored = localStorage.getItem(`hercules_${key}`);
-      return stored ? JSON.parse(stored) : fallback;
+      // Check current v2 storage key first, then fallback to v1
+      const stored = localStorage.getItem(`hercules_v2_${key}`) || localStorage.getItem(`hercules_${key}`);
+      if (!stored) return fallback;
+      const parsed = JSON.parse(stored);
+
+      // Purge legacy mock workout data if present in user browser cache
+      if (key === 'workout_plan') {
+        if (
+          !parsed ||
+          parsed.id === 'plan-1' ||
+          (Array.isArray(parsed.days) && parsed.days.some((d: any) => d.title?.includes('Push Day') || d.title?.includes('Pull Day')))
+        ) {
+          localStorage.removeItem('hercules_workout_plan');
+          localStorage.removeItem('hercules_v2_workout_plan');
+          return fallback;
+        }
+      }
+
+      // Purge legacy mock diet data if present in user browser cache
+      if (key === 'diet_plan') {
+        if (
+          !parsed ||
+          parsed.id === 'diet-1' ||
+          parsed.daily_calories_target === 2450 ||
+          (Array.isArray(parsed.meals) && parsed.meals.some((m: any) => m.meal_type === 'Breakfast'))
+        ) {
+          localStorage.removeItem('hercules_diet_plan');
+          localStorage.removeItem('hercules_v2_diet_plan');
+          return fallback;
+        }
+      }
+
+      return parsed;
     } catch {
       return fallback;
     }
@@ -128,19 +160,15 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const saveLocal = <T,>(key: string, val: T) => {
     try {
-      localStorage.setItem(`hercules_${key}`, JSON.stringify(val));
+      localStorage.setItem(`hercules_v2_${key}`, JSON.stringify(val));
     } catch (e) {
       console.error(e);
     }
   };
 
-  // State initialization
+  // State initialization - no hardcoded mock users
   const [users, setUsers] = useState<User[]>(() => loadLocal('users', INITIAL_USERS));
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = loadLocal<User | null>('current_user', null);
-    if (saved) return saved;
-    return INITIAL_USERS[0];
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(() => loadLocal<User | null>('current_user', null));
 
   const [selectedCenter, setSelectedCenter] = useState<CenterType | 'All'>('All');
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -163,6 +191,21 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Sync / Connection state
   const [backendConnected, setBackendConnected] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Branch isolation: lock non-admin users to their assigned center
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'admin') {
+      setSelectedCenter(currentUser.center);
+    }
+  }, [currentUser]);
+
+  const handleSetSelectedCenter = (center: CenterType | 'All') => {
+    if (currentUser && currentUser.role !== 'admin') {
+      setSelectedCenter(currentUser.center);
+    } else {
+      setSelectedCenter(center);
+    }
+  };
 
   // Sync to local storage
   useEffect(() => { saveLocal('users', users); }, [users]);
@@ -188,116 +231,134 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return translations[language]?.[key] || translations.en[key] || key;
   };
 
-  // Sync With Live Backend
+  // Sync with MongoDB Atlas through live backend
   const syncWithBackend = useCallback(async () => {
     setIsSyncing(true);
     try {
-      // 1. Fetch live members
+      // 1. Fetch live members & profiles
       try {
         const liveMembers = await webApi.getMembers();
-        if (Array.isArray(liveMembers) && liveMembers.length > 0) {
-          setUsers(prev => {
-            const map = new Map(prev.map(u => [u.id, u]));
-            liveMembers.forEach(m => {
-              const existing = map.get(m.id);
-              map.set(m.id, {
-                ...existing,
-                ...m,
-                // normalize fields
-                role: m.role || existing?.role || 'member',
-                approval_status: m.approval_status || existing?.approval_status || 'approved',
-                center: m.center || existing?.center || 'Ranaghat',
-              });
-            });
-            return Array.from(map.values());
-          });
+        if (Array.isArray(liveMembers)) {
+          const normalized = liveMembers.map((m: any) => ({
+            id: m.id || m._id,
+            email: m.email || '',
+            phone: m.phone || '',
+            full_name: m.full_name || 'Member',
+            role: m.role || 'member',
+            center: m.center || 'Ranaghat',
+            created_at: m.created_at || new Date().toISOString(),
+            is_active: m.is_active ?? true,
+            approval_status: m.approval_status || 'approved',
+            profile_image: m.profile_image,
+            is_primary_admin: m.is_primary_admin,
+            achievements: m.achievements || [],
+            assigned_trainer_id: m.assigned_trainer_id,
+            membership: m.membership,
+          }));
+          setUsers(normalized);
           setBackendConnected(true);
         }
       } catch (e) {
-        console.log('Backend members fetch note:', e);
+        console.log('Backend members fetch notice:', e);
       }
 
-      // 2. Fetch live attendance
+      // 2. Fetch live attendance records
       try {
         const liveAtt = await webApi.getTodayAttendance();
         if (Array.isArray(liveAtt)) {
-          setAttendance(prev => {
-            const map = new Map(prev.map(a => [a.id, a]));
-            liveAtt.forEach((a: any) => {
-              map.set(a.id, {
-                id: a.id,
-                user_id: a.user_id,
-                user_name: a.user_name || a.member_name || 'Member',
-                user_role: a.user_role || 'member',
-                center: a.center || 'Ranaghat',
-                date: a.date || a.check_in_time?.slice(0, 10) || new Date().toISOString().slice(0, 10),
-                check_in_time: a.check_in_time || new Date().toISOString(),
-                check_out_time: a.check_out_time,
-                method: a.method || 'manual',
-                duration_minutes: a.duration_minutes,
-              });
-            });
-            return Array.from(map.values());
-          });
+          const normalizedAtt = liveAtt.map((a: any) => ({
+            id: a.id || a._id,
+            user_id: a.user_id,
+            user_name: a.user_name || a.member_name || 'Member',
+            user_role: a.user_role || 'member',
+            center: a.center || 'Ranaghat',
+            date: a.date || a.check_in_time?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+            check_in_time: a.check_in_time || new Date().toISOString(),
+            check_out_time: a.check_out_time,
+            method: a.method || 'manual',
+            duration_minutes: a.duration_minutes,
+          }));
+          setAttendance(normalizedAtt);
           setBackendConnected(true);
         }
       } catch (e) {
-        console.log('Attendance fetch note:', e);
+        console.log('Attendance fetch notice:', e);
       }
 
       // 3. Fetch announcements
       try {
         const liveAnn = await webApi.getAnnouncements();
-        if (Array.isArray(liveAnn) && liveAnn.length > 0) {
-          setAnnouncements(prev => {
-            const map = new Map(prev.map(a => [a.id, a]));
-            liveAnn.forEach(a => map.set(a.id, a));
-            return Array.from(map.values());
-          });
+        if (Array.isArray(liveAnn)) {
+          setAnnouncements(liveAnn);
         }
       } catch {}
 
-      // 4. Fetch merchandise
+      // 4. Fetch merchandise catalog
       try {
         const liveProd = await webApi.getMerchandise();
-        if (Array.isArray(liveProd) && liveProd.length > 0) {
-          setProducts(prev => {
-            const map = new Map(prev.map(p => [p.id, p]));
-            liveProd.forEach(p => map.set(p.id, p));
-            return Array.from(map.values());
-          });
+        if (Array.isArray(liveProd)) {
+          setProducts(liveProd);
         }
       } catch {}
 
       // 5. Fetch workout logs
       try {
         const liveLogs = await webApi.getWorkoutLogs();
-        if (Array.isArray(liveLogs) && liveLogs.length > 0) {
+        if (Array.isArray(liveLogs)) {
           setWorkoutLogs(liveLogs);
         }
       } catch {}
 
       setBackendConnected(true);
     } catch (err) {
-      console.warn('Backend sync deferred (cold-start or offline):', err);
+      console.warn('Backend sync note:', err);
     } finally {
       setIsSyncing(false);
     }
   }, []);
 
-  // Initial load sync
+  // Validate active auth token on startup & sync with MongoDB Atlas
   useEffect(() => {
+    const token = webApi.getToken();
+    if (token) {
+      webApi
+        .getMe()
+        .then((res: any) => {
+          if (res && res.id) {
+            const liveUser: User = {
+              id: res.id,
+              email: res.email || '',
+              phone: res.phone || '',
+              full_name: res.full_name || 'Member',
+              role: res.role || 'member',
+              center: res.center || 'Ranaghat',
+              created_at: res.created_at || new Date().toISOString(),
+              is_active: res.is_active ?? true,
+              approval_status: res.approval_status || 'approved',
+              profile_image: res.profile_image,
+              is_primary_admin: res.is_primary_admin,
+              achievements: res.achievements,
+              assigned_trainer_id: res.assigned_trainer_id,
+              membership: res.membership,
+            };
+            setCurrentUser(liveUser);
+            setBackendConnected(true);
+          }
+        })
+        .catch(() => {
+          // Token expired or invalid
+          webApi.setToken(null);
+          setCurrentUser(null);
+        });
+    }
+
     syncWithBackend();
-    // Refresh periodic check every 30 seconds
     const interval = setInterval(syncWithBackend, 30000);
     return () => clearInterval(interval);
   }, [syncWithBackend]);
 
-  // Auth operations
+  // Auth Operations matching Mobile Version
   const login = async (identifier: string, pass: string): Promise<boolean> => {
-    const trimmed = identifier.trim().toLowerCase();
-
-    // 1. Try real live backend login
     try {
       const authRes = await webApi.login(identifier, pass);
       if (authRes?.user) {
@@ -305,8 +366,8 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           id: authRes.user.id,
           email: authRes.user.email || '',
           phone: authRes.user.phone || '',
-          full_name: authRes.user.full_name || 'Admin',
-          role: authRes.user.role || 'admin',
+          full_name: authRes.user.full_name || 'Member',
+          role: authRes.user.role || 'member',
           center: authRes.user.center || 'Ranaghat',
           created_at: authRes.user.created_at || new Date().toISOString(),
           is_active: authRes.user.is_active ?? true,
@@ -314,91 +375,44 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           profile_image: authRes.user.profile_image,
           is_primary_admin: authRes.user.is_primary_admin,
           achievements: authRes.user.achievements,
+          assigned_trainer_id: authRes.user.assigned_trainer_id,
+          membership: authRes.user.membership,
         };
         setCurrentUser(liveUser);
         setBackendConnected(true);
-        // Sync fresh data after logging in
-        syncWithBackend();
+        await syncWithBackend();
         return true;
       }
-    } catch (backendErr: any) {
-      console.log('Backend login attempt:', backendErr?.message);
+      return false;
+    } catch (err: any) {
+      console.error('Login error:', err);
+      throw err;
     }
-
-    // 2. Local fallback for demo accounts
-    const found = users.find(u => u.email.toLowerCase() === trimmed || u.phone.includes(trimmed));
-    if (found) {
-      if (found.approval_status === 'rejected') {
-        alert('Your registration request was rejected. Please contact gym administration.');
-        return false;
-      }
-      setCurrentUser(found);
-      return true;
-    }
-
-    // 3. Fallback demo user
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      email: trimmed.includes('@') ? trimmed : `${trimmed}@gmail.com`,
-      phone: trimmed,
-      full_name: trimmed.split('@')[0],
-      role: 'member',
-      center: 'Ranaghat',
-      created_at: new Date().toISOString(),
-      is_active: true,
-      approval_status: 'approved',
-      membership: {
-        plan_name: 'Monthly Pass',
-        start_date: new Date().toISOString().slice(0, 10),
-        end_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-        status: 'active',
-        fee_paid: 700,
-        due_amount: 0,
-      },
-    };
-    setUsers(prev => [newUser, ...prev]);
-    setCurrentUser(newUser);
-    return true;
   };
 
   const register = async (data: Partial<User> & { password?: string }) => {
-    // 1. Try real backend register
     try {
-      await webApi.register({
-        email: data.email || `user${Date.now()}@gmail.com`,
-        password: data.password || 'Hercules@123',
-        full_name: data.full_name || 'New Member',
-        phone: data.phone || '+91 98300 00000',
+      const res = await webApi.register({
+        email: data.email,
+        password: data.password,
+        full_name: data.full_name,
+        phone: data.phone,
         role: data.role || 'member',
         center: data.center || 'Ranaghat',
         date_of_birth: data.date_of_birth,
         profile_image: data.profile_image,
       });
       setBackendConnected(true);
+      await syncWithBackend();
+      return res;
     } catch (err: any) {
-      console.log('Backend register note:', err?.message);
+      console.error('Registration error:', err);
+      throw err;
     }
-
-    // 2. Optimistic local state
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      email: data.email || `user${Date.now()}@gmail.com`,
-      phone: data.phone || '+91 98300 00000',
-      full_name: data.full_name || 'New Member',
-      role: data.role || 'member',
-      center: data.center || 'Ranaghat',
-      date_of_birth: data.date_of_birth,
-      created_at: new Date().toISOString(),
-      is_active: false,
-      approval_status: 'pending',
-      profile_image: data.profile_image || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300&auto=format&fit=crop&q=80',
-    };
-    setUsers(prev => [newUser, ...prev]);
-    alert('Registration submitted successfully! Your account is pending admin approval.');
   };
 
   const logout = () => {
-    webApi.setToken(null);
+    webApi.logout();
     setCurrentUser(null);
   };
 
@@ -410,48 +424,34 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const approveUser = async (userId: string) => {
-    // Optimistic UI update
-    setUsers(prev =>
-      prev.map(u =>
-        u.id === userId
-          ? {
-              ...u,
-              approval_status: 'approved' as const,
-              is_active: true,
-              membership: u.role === 'member' ? {
-                plan_name: 'Monthly Pass',
-                start_date: new Date().toISOString().slice(0, 10),
-                end_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-                status: 'active' as const,
-                fee_paid: 700,
-                due_amount: 0,
-              } : undefined,
-            }
-          : u
-      )
-    );
-
-    // Live backend call
     try {
       await webApi.approveRequest(userId);
+      setUsers(prev =>
+        prev.map(u =>
+          u.id === userId ? { ...u, approval_status: 'approved' as const, is_active: true } : u
+        )
+      );
       setBackendConnected(true);
+      await syncWithBackend();
     } catch (e: any) {
-      console.log('Backend approval sync:', e?.message);
+      console.error('Backend approval error:', e);
+      throw e;
     }
   };
 
-  const rejectUser = async (userId: string) => {
-    setUsers(prev =>
-      prev.map(u =>
-        u.id === userId ? { ...u, approval_status: 'rejected' as const, is_active: false } : u
-      )
-    );
-
+  const rejectUser = async (userId: string, reason?: string) => {
     try {
-      await webApi.rejectRequest(userId);
+      await webApi.rejectRequest(userId, reason);
+      setUsers(prev =>
+        prev.map(u =>
+          u.id === userId ? { ...u, approval_status: 'rejected' as const, is_active: false } : u
+        )
+      );
       setBackendConnected(true);
+      await syncWithBackend();
     } catch (e: any) {
-      console.log('Backend rejection sync:', e?.message);
+      console.error('Backend rejection error:', e);
+      throw e;
     }
   };
 
@@ -466,28 +466,9 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const addUser = (userData: Partial<User>) => {
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      email: userData.email || '',
-      phone: userData.phone || '',
-      full_name: userData.full_name || 'Member',
-      role: userData.role || 'member',
-      center: userData.center || 'Ranaghat',
-      created_at: new Date().toISOString(),
-      is_active: true,
-      approval_status: 'approved',
-      profile_image: userData.profile_image || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
-      membership: userData.role === 'member' ? {
-        plan_name: 'Monthly Fitness Pass',
-        start_date: new Date().toISOString().slice(0, 10),
-        end_date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-        status: 'active',
-        fee_paid: 700,
-        due_amount: 0,
-      } : undefined,
-    };
-    setUsers(prev => [newUser, ...prev]);
-    webApi.createMember(newUser).catch((e: any) => console.log('Add member backend sync:', e));
+    webApi.createMember(userData).then(() => {
+      syncWithBackend();
+    }).catch((e: any) => console.log('Add member backend sync:', e));
   };
 
   // Attendance
@@ -501,19 +482,6 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const checkIn = async (center: CenterType, method: 'qr_scanner' | 'admin_scan' | 'manual' | 'geofence' = 'qr_scanner') => {
     if (!currentUser || isCheckedIn) return;
 
-    const newRecord: AttendanceRecord = {
-      id: `att-${Date.now()}`,
-      user_id: currentUser.id,
-      user_name: currentUser.full_name,
-      user_role: currentUser.role,
-      center: center || currentUser.center,
-      date: todayStr,
-      check_in_time: new Date().toISOString(),
-      method,
-    };
-
-    setAttendance(prev => [newRecord, ...prev]);
-
     try {
       await webApi.checkIn({
         center: center || currentUser.center,
@@ -521,62 +489,37 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         user_id: currentUser.id,
       });
       setBackendConnected(true);
+      await syncWithBackend();
     } catch (e: any) {
-      console.log('Check-in backend sync:', e?.message);
+      console.error('Check-in error:', e);
+      throw e;
     }
   };
 
   const checkOut = async () => {
-    if (!activeCheckIn) return;
-    const now = new Date();
-    const checkInTime = new Date(activeCheckIn.check_in_time);
-    const duration = Math.round((now.getTime() - checkInTime.getTime()) / (1000 * 60));
-
-    setAttendance(prev =>
-      prev.map(a =>
-        a.id === activeCheckIn.id
-          ? {
-              ...a,
-              check_out_time: now.toISOString(),
-              duration_minutes: Math.max(1, duration),
-            }
-          : a
-      )
-    );
-
+    if (!activeCheckIn || !currentUser) return;
     try {
-      if (currentUser?.id) {
-        await webApi.checkOut(currentUser.id);
-      }
+      await webApi.checkOut(currentUser.id);
+      setBackendConnected(true);
+      await syncWithBackend();
     } catch (e: any) {
-      console.log('Checkout backend sync:', e?.message);
+      console.error('Checkout error:', e);
+      throw e;
     }
   };
 
   const manualCheckIn = async (userId: string, center: CenterType) => {
-    const target = users.find(u => u.id === userId);
-    if (!target) return;
-    const newRecord: AttendanceRecord = {
-      id: `att-${Date.now()}`,
-      user_id: target.id,
-      user_name: target.full_name,
-      user_role: target.role,
-      center,
-      date: todayStr,
-      check_in_time: new Date().toISOString(),
-      method: 'admin_scan',
-    };
-    setAttendance(prev => [newRecord, ...prev]);
-
     try {
       await webApi.checkIn({
-        user_id: target.id,
+        user_id: userId,
         center,
         method: 'admin_scan',
       });
       setBackendConnected(true);
+      await syncWithBackend();
     } catch (e: any) {
-      console.log('Manual checkin backend sync:', e?.message);
+      console.error('Manual checkin error:', e);
+      throw e;
     }
   };
 
@@ -610,19 +553,13 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const logWorkout = async (items: WorkoutLogItem[]) => {
-    const newEntry: WorkoutLogEntry = {
-      id: `wl-${Date.now()}`,
-      user_id: currentUser?.id,
-      created_at: new Date().toISOString(),
-      items,
-    };
-    setWorkoutLogs(prev => [newEntry, ...prev]);
-
     try {
       await webApi.createWorkoutLog(items);
       setBackendConnected(true);
+      await fetchWorkoutLogs();
     } catch (e: any) {
-      console.log('Workout log backend sync:', e?.message);
+      console.error('Workout log error:', e);
+      throw e;
     }
   };
 
@@ -638,16 +575,15 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return res.response;
       }
     } catch (err: any) {
-      console.log('AI backend response note:', err?.message);
+      console.log('AI backend response notice:', err?.message);
     }
 
-    // Intelligent fallback in case of cold-start or temporary network delay
     const lastMsg = msgs[msgs.length - 1]?.content.toLowerCase() || '';
     if (lastMsg.includes('push') || lastMsg.includes('pull') || lastMsg.includes('split')) {
-      return `### 🏋️‍♂️ Recommended 3-Day Push-Pull-Legs Split (Hercules Gym)\n\n**Day 1: Push (Chest, Shoulders, Triceps)**\n- Flat Barbell Bench Press: 4 sets x 8-10 reps (warm up thoroughly)\n- Incline Dumbbell Press: 3 sets x 10-12 reps\n- Standing Dumbbell Lateral Raises: 4 sets x 15 reps\n- Overhead Rope Tricep Extensions: 3 sets x 12 reps\n\n**Day 2: Pull (Back, Rear Delts, Biceps)**\n- Barbell Lat Pulldowns or Pull-ups: 4 sets x 8-10 reps\n- Seated Cable Rows: 3 sets x 10 reps\n- Face Pulls: 4 sets x 15 reps (focus on rotator cuff)\n- Incline Dumbbell Bicep Curls: 3 sets x 12 reps\n\n**Day 3: Legs & Abs**\n- Barbell Squats: 4 sets x 8 reps\n- Romanian Deadlifts: 3 sets x 10 reps\n- Leg Press or Walking Lunges: 3 sets x 12 reps per leg\n- Standing Calf Raises: 4 sets x 15 reps\n- Hanging Knee Raises: 3 sets x 15 reps\n\n*Progressive Overload Rule: Add 1-2.5 kg or 1 rep each week while preserving pristine form!*`;
+      return `### 🏋️‍♂️ Recommended 3-Day Push-Pull-Legs Split (Hercules Gym)\n\n**Day 1: Push (Chest, Shoulders, Triceps)**\n- Flat Barbell Bench Press: 4 sets x 8-10 reps\n- Incline Dumbbell Press: 3 sets x 10-12 reps\n- Standing Dumbbell Lateral Raises: 4 sets x 15 reps\n- Overhead Rope Tricep Extensions: 3 sets x 12 reps\n\n**Day 2: Pull (Back, Rear Delts, Biceps)**\n- Barbell Lat Pulldowns or Pull-ups: 4 sets x 8-10 reps\n- Seated Cable Rows: 3 sets x 10 reps\n- Face Pulls: 4 sets x 15 reps\n- Incline Dumbbell Bicep Curls: 3 sets x 12 reps\n\n**Day 3: Legs & Abs**\n- Barbell Squats: 4 sets x 8 reps\n- Romanian Deadlifts: 3 sets x 10 reps\n- Leg Press or Walking Lunges: 3 sets x 12 reps per leg\n- Standing Calf Raises: 4 sets x 15 reps\n- Hanging Knee Raises: 3 sets x 15 reps`;
     }
     if (lastMsg.includes('veg') || lastMsg.includes('diet') || lastMsg.includes('protein')) {
-      return `### 🥗 High-Protein Vegetarian Meal Blueprint (140g+ Target)\n\n- **Breakfast (8:30 AM)**: 300ml Soy Milk + 1 scoop plant protein or 100g Paneer bhurji with 2 whole wheat rotis + handful of soaked almonds.\n- **Mid-Morning Snack (11:30 AM)**: Sprouted green moong dal salad with chopped cucumbers, tomatoes, lemon juice, and black pepper.\n- **Lunch (1:30 PM)**: 150g Low-fat Paneer curry or Soya chunks curry (50g raw soya chunks) + 1 bowl thick Dal + 1 cup brown rice/2 chapatis + green salad.\n- **Pre-Workout (5:00 PM)**: 1 medium banana + 1 cup black coffee or 2 brown bread slices with 1 tbsp peanut butter.\n- **Dinner (8:30 PM)**: Grilled tofu/paneer stir-fry with broccoli, bell peppers, beans + 1 bowl mixed dal tadka.\n\n*Hydration Target: 3.5 Liters of water daily.*`;
+      return `### 🥗 High-Protein Vegetarian Meal Blueprint (140g+ Target)\n\n- **Breakfast (8:30 AM)**: 300ml Soy Milk + 1 scoop plant protein or 100g Paneer bhurji with 2 whole wheat rotis + handful of soaked almonds.\n- **Mid-Morning Snack (11:30 AM)**: Sprouted green moong dal salad with chopped cucumbers, tomatoes, lemon juice, and black pepper.\n- **Lunch (1:30 PM)**: 150g Low-fat Paneer curry or Soya chunks curry (50g raw soya chunks) + 1 bowl thick Dal + 1 cup brown rice/2 chapatis + green salad.\n- **Pre-Workout (5:00 PM)**: 1 medium banana + 1 cup black coffee or 2 brown bread slices with 1 tbsp peanut butter.\n- **Dinner (8:30 PM)**: Grilled tofu/paneer stir-fry with broccoli, bell peppers, beans + 1 bowl mixed dal tadka.`;
     }
     return `Hello ${currentUser?.full_name || 'Champion'}! As your HG.AI fitness coach at Hercules Gym, I am fully equipped to customize your training split, calorie deficit, supplement protocol, and recovery strategy. What specific goal are we conquering today?`;
   };
@@ -688,7 +624,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const newOrder: Order = {
       id: `ord-${Date.now().toString().slice(-6)}`,
       user_id: currentUser?.id || 'guest',
-      user_name: currentUser?.full_name || 'Guest User',
+      user_name: currentUser?.full_name || 'Member',
       center: currentUser?.center || 'Ranaghat',
       items: cart.map(c => ({
         product_id: c.product.id,
@@ -704,13 +640,6 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       created_at: new Date().toISOString(),
     };
 
-    setProducts(prev =>
-      prev.map(p => {
-        const bought = cart.find(c => c.product.id === p.id);
-        return bought ? { ...p, stock: Math.max(0, p.stock - bought.quantity) } : p;
-      })
-    );
-
     setOrders(prev => [newOrder, ...prev]);
     clearCart();
 
@@ -719,12 +648,9 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const addProduct = (prod: Omit<MerchandiseItem, 'id'>) => {
-    const newProd: MerchandiseItem = {
-      ...prod,
-      id: `prod-${Date.now()}`,
-    };
-    setProducts(prev => [newProd, ...prev]);
-    webApi.createMerchandise(newProd).catch((e: any) => console.log('Merchandise backend sync:', e));
+    webApi.createMerchandise(prod).then(() => {
+      syncWithBackend();
+    }).catch((e: any) => console.log('Merchandise backend sync:', e));
   };
 
   const updateProductStock = (productId: string, newStock: number) => {
@@ -759,13 +685,6 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Announcements
   const createAnnouncement = async (ann: Omit<Announcement, 'id' | 'created_at'>) => {
-    const newAnn: Announcement = {
-      ...ann,
-      id: `ann-${Date.now()}`,
-      created_at: new Date().toISOString(),
-    };
-    setAnnouncements(prev => [newAnn, ...prev]);
-
     try {
       await webApi.createAnnouncement({
         title: ann.title,
@@ -775,8 +694,10 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         is_pinned: ann.is_pinned,
       });
       setBackendConnected(true);
+      await syncWithBackend();
     } catch (e: any) {
-      console.log('Announcement backend sync:', e?.message);
+      console.error('Announcement creation error:', e);
+      throw e;
     }
   };
 
@@ -784,8 +705,10 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setAnnouncements(prev => prev.filter(a => a.id !== id));
     try {
       await webApi.deleteAnnouncement(id);
+      setBackendConnected(true);
+      await syncWithBackend();
     } catch (e: any) {
-      console.log('Delete announcement backend sync:', e?.message);
+      console.log('Delete announcement error:', e?.message);
     }
   };
 
@@ -796,25 +719,25 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ...p,
       id: `pay-${Date.now()}`,
       receipt_no: receiptNo,
+      verification_status: p.verification_status || 'pending_verification',
     };
     setPayments(prev => [newPay, ...prev]);
+  };
 
-    setUsers(prev =>
-      prev.map(u =>
-        u.id === p.user_id
-          ? {
-              ...u,
-              membership: {
-                plan_name: p.plan_name,
-                start_date: p.payment_date,
-                end_date: p.due_date,
-                status: 'active',
-                fee_paid: p.amount,
-                due_amount: 0,
-              },
-            }
-          : u
-      )
+  const verifyPayment = (paymentId: string, status: 'verified' | 'rejected') => {
+    setPayments(prev =>
+      prev.map(p => {
+        if (p.id === paymentId) {
+          return {
+            ...p,
+            status: status === 'verified' ? 'paid' : 'pending',
+            verification_status: status,
+            verified_at: new Date().toISOString(),
+            verified_by: currentUser?.full_name || 'Admin',
+          };
+        }
+        return p;
+      })
     );
   };
 
@@ -823,7 +746,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       value={{
         currentUser,
         selectedCenter,
-        setSelectedCenter,
+        setSelectedCenter: handleSetSelectedCenter,
         activeTab,
         setActiveTab,
         backendConnected,
@@ -871,6 +794,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         deleteAnnouncement,
         payments,
         recordPayment,
+        verifyPayment,
         theme,
         toggleTheme,
         language,

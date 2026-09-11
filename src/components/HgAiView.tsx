@@ -254,8 +254,12 @@ export const HgAiView: React.FC = () => {
         }`}
       >
         <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 flex items-center justify-center text-white shadow-lg shadow-rose-600/30">
-            <Sparkles className="w-6 h-6 animate-pulse" />
+          <div className="relative">
+            <img
+              src="/hg-ai-logo.png"
+              alt="HG.AI Logo"
+              className="w-12 h-12 rounded-2xl object-cover ring-2 ring-rose-500/40 shadow-lg shadow-rose-950/40"
+            />
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -294,8 +298,8 @@ export const HgAiView: React.FC = () => {
       >
         {messages.length === 0 ? (
           <div className="h-full flex flex-col justify-center items-center text-center max-w-2xl mx-auto py-8">
-            <div className="w-16 h-16 rounded-3xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center mb-4">
-              <Bot className="w-8 h-8" />
+            <div className="w-16 h-16 rounded-3xl p-1 bg-gradient-to-tr from-amber-500/20 to-rose-500/20 border border-rose-500/30 flex items-center justify-center mb-4 shadow-xl">
+              <img src="/hg-ai-logo.png" alt="HG.AI" className="w-12 h-12 rounded-2xl object-cover" />
             </div>
             <h2 className="text-lg sm:text-xl font-black text-white">
               How can HG.AI assist your workout & diet today?
@@ -340,8 +344,8 @@ export const HgAiView: React.FC = () => {
                 className={`flex gap-3 max-w-3xl ${isUser ? 'ml-auto justify-end' : 'mr-auto justify-start'}`}
               >
                 {!isUser && (
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-rose-600 to-amber-500 text-white flex items-center justify-center shrink-0 shadow-md">
-                    <Bot className="w-4 h-4" />
+                  <div className="w-8 h-8 rounded-xl overflow-hidden shrink-0 ring-1 ring-rose-500/40 shadow-md">
+                    <img src="/hg-ai-logo.png" alt="HG.AI" className="w-full h-full object-cover" />
                   </div>
                 )}
 

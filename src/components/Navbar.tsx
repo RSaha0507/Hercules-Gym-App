@@ -7,15 +7,12 @@ import {
   Moon,
   Sun,
   Globe,
-  UserCheck,
   QrCode,
   LogOut,
-  Sparkles,
-  ShieldAlert,
-  ChevronDown,
   CheckCircle2,
-  Clock,
   RefreshCw,
+  User,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -28,8 +25,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
     currentUser,
     selectedCenter,
     setSelectedCenter,
-    users,
-    switchDemoUser,
     logout,
     theme,
     toggleTheme,
@@ -45,7 +40,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
   } = useGym();
 
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showDemoMenu, setShowDemoMenu] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
 
   const centers: (CenterType | 'All')[] = ['All', 'Ranaghat', 'Chakdah', 'Madanpur'];
@@ -59,16 +53,20 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
         {/* Brand Logo */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-700 via-red-600 to-rose-500 flex items-center justify-center shadow-lg shadow-rose-900/30 text-white font-extrabold tracking-wider">
-            <Dumbbell className="w-6 h-6" />
+          <div className="relative">
+            <img
+              src="/hercules-logo-removebg-preview.png"
+              alt="Hercules Gym Logo"
+              className="w-10 h-10 object-contain drop-shadow-[0_2px_8px_rgba(244,63,94,0.35)]"
+            />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-black text-xl tracking-tight bg-gradient-to-r from-rose-500 via-red-400 to-orange-400 bg-clip-text text-transparent">
+            <div className="flex items-center gap-1.5">
+              <span className="font-black text-xl tracking-tight bg-gradient-to-r from-amber-400 via-rose-500 to-red-500 bg-clip-text text-transparent">
                 HERCULES
               </span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20">
-                GYM & FITNESS
+              <span className="text-xs font-black px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                GYM
               </span>
             </div>
             <p className="text-[11px] text-zinc-400 font-medium hidden sm:block">
@@ -101,11 +99,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
             ))}
           </div>
 
-          {/* Cloud Backend Sync Indicator */}
+          {/* Cloud Sync Status Indicator */}
           <button
             onClick={() => syncWithBackend()}
             disabled={isSyncing}
-            title={backendConnected ? 'Live Cloud Connected to Render (Click to refresh)' : 'Connecting to Render Cloud...'}
+            title={backendConnected ? 'Live Cloud Sync Connected' : 'Connecting to Cloud...'}
             className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-colors ${
               backendConnected
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
@@ -114,7 +112,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
           >
             <span className={`w-2 h-2 rounded-full ${backendConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
             <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Syncing...' : backendConnected ? 'Cloud Live' : 'Connecting'}</span>
+            <span>{isSyncing ? 'Syncing...' : backendConnected ? 'Connected' : 'Connecting'}</span>
           </button>
 
           {/* Quick Check-in Button */}
@@ -204,61 +202,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
             {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
 
-          {/* Demo User Switcher Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowDemoMenu(!showDemoMenu)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 text-xs font-bold transition-all"
-              title="Switch demo persona for testing"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden lg:inline">{t('switchRole')}</span>
-              <span className="lg:hidden uppercase text-[10px]">Demo</span>
-              <ChevronDown className="w-3 h-3" />
-            </button>
-
-            {showDemoMenu && (
-              <div className={`absolute right-0 mt-2 w-64 rounded-2xl border shadow-2xl p-2 z-50 ${
-                theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-800'
-              }`}>
-                <div className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-                  Switch Persona (Demo Accounts)
-                </div>
-                <div className="space-y-1">
-                  {users.slice(0, 5).map(u => (
-                    <button
-                      key={u.id}
-                      onClick={() => {
-                        switchDemoUser(u.id);
-                        setShowDemoMenu(false);
-                      }}
-                      className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-left transition-colors ${
-                        currentUser?.id === u.id
-                          ? 'bg-rose-500/15 border border-rose-500/30 text-rose-400'
-                          : 'hover:bg-zinc-800/50'
-                      }`}
-                    >
-                      <img
-                        src={u.profile_image}
-                        alt={u.full_name}
-                        className="w-7 h-7 rounded-lg object-cover"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-bold truncate">{u.full_name}</div>
-                        <div className="text-[10px] text-zinc-400 flex items-center gap-1.5">
-                          <span className="capitalize font-semibold text-rose-400">{u.role}</span>
-                          <span>•</span>
-                          <span>{u.center}</span>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Current User Profile / Log in */}
+          {/* Current User Profile & Menu */}
           {currentUser ? (
             <div className="relative">
               <button
@@ -268,18 +212,24 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
                 }`}
               >
                 <div className="text-right hidden sm:block">
-                  <div className="text-xs font-bold leading-tight truncate max-w-[100px]">
+                  <div className="text-xs font-bold leading-tight truncate max-w-[120px]">
                     {currentUser.full_name}
                   </div>
                   <div className="text-[10px] text-zinc-400 capitalize font-medium">
                     {currentUser.role}
                   </div>
                 </div>
-                <img
-                  src={currentUser.profile_image || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80'}
-                  alt={currentUser.full_name}
-                  className="w-8 h-8 rounded-lg object-cover ring-1 ring-rose-500"
-                />
+                {currentUser.profile_image ? (
+                  <img
+                    src={currentUser.profile_image}
+                    alt={currentUser.full_name}
+                    className="w-8 h-8 rounded-lg object-cover ring-1 ring-rose-500"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-lg bg-rose-600/20 text-rose-500 flex items-center justify-center font-bold text-xs ring-1 ring-rose-500">
+                    {currentUser.full_name?.charAt(0) || 'U'}
+                  </div>
+                )}
               </button>
 
               {showUserMenu && (
@@ -288,7 +238,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
                 }`}>
                   <div className="p-2 border-b border-zinc-800 mb-1">
                     <p className="text-xs font-bold">{currentUser.full_name}</p>
-                    <p className="text-[11px] text-zinc-400 truncate">{currentUser.email}</p>
+                    <p className="text-[11px] text-zinc-400 truncate">{currentUser.email || currentUser.phone}</p>
                     <div className="mt-1 flex items-center gap-1.5">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 capitalize">
                         {currentUser.role}

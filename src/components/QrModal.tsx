@@ -47,12 +47,16 @@ export const QrModal: React.FC<QrModalProps> = ({ isOpen, onClose }) => {
         theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
       }`}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-rose-500/15 text-rose-500">
-              <QrCode className="w-5 h-5" />
-            </div>
+          <div className="flex items-center gap-2.5">
+            <img
+              src="/hercules-logo-removebg-preview.png"
+              alt="Hercules Gym"
+              className="w-9 h-9 object-contain"
+            />
             <div>
-              <h3 className="text-base font-black">Gym QR Check-In</h3>
+              <h3 className="text-base font-black bg-gradient-to-r from-amber-400 to-rose-500 bg-clip-text text-transparent">
+                Gym QR Check-In
+              </h3>
               <p className="text-xs text-zinc-400">Scan reception QR code to log entry</p>
             </div>
           </div>
