@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useGym } from '../context/GymContext';
 import { MerchandiseItem, CenterType } from '../types';
 import {
@@ -22,6 +22,10 @@ import {
   Image as ImageIcon,
   Check,
   AlertCircle,
+  Upload,
+  UploadCloud,
+  AlertTriangle,
+  FileImage,
 } from 'lucide-react';
 
 export const ShopView: React.FC = () => {
@@ -66,11 +70,12 @@ export const ShopView: React.FC = () => {
   const [prodStock, setProdStock] = useState<number>(15);
   const [prodBadge, setProdBadge] = useState('Certified Authentic');
 
-  // Image list (at least 1 mandatory)
-  const [imageUrls, setImageUrls] = useState<string[]>([
-    'https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=600&auto=format&fit=crop&q=80',
-  ]);
+  // Image list (at least 1 mandatory) - upload from device or URL
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [imageError, setImageError] = useState<string>('');
   const [newImageUrl, setNewImageUrl] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Flavours / Choices list (at least 1 mandatory)
   const [choicesList, setChoicesList] = useState<string[]>(['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha']);
@@ -125,18 +130,77 @@ export const ShopView: React.FC = () => {
     setChoicesList(choicesList.filter((_, i) => i !== index));
   };
 
-  const handleAddImage = () => {
+  const processImageFiles = (files: FileList | File[]) => {
+    const validFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (validFiles.length === 0) {
+      setImageError('Please select valid image files (PNG, JPG, JPEG, WEBP).');
+      return;
+    }
+
+    const readers: Promise<string>[] = validFiles.map(file => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          if (e.target?.result) {
+            resolve(e.target.result as string);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+
+    Promise.all(readers).then(results => {
+      setImageUrls(prev => [...prev, ...results]);
+      setImageError('');
+    });
+  };
+
+  const handleDeviceFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processImageFiles(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processImageFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleAddImageFromUrl = () => {
     if (!newImageUrl.trim()) return;
     setImageUrls([...imageUrls, newImageUrl.trim()]);
     setNewImageUrl('');
+    setImageError('');
   };
 
   const handleRemoveImage = (index: number) => {
-    if (imageUrls.length <= 1) {
-      alert('At least one product image is mandatory.');
-      return;
+    const updated = imageUrls.filter((_, i) => i !== index);
+    setImageUrls(updated);
+    if (updated.length === 0) {
+      setImageError('Please add an image before publishing to store (at least 1 image is required).');
     }
-    setImageUrls(imageUrls.filter((_, i) => i !== index));
+  };
+
+  const openAddProductModal = () => {
+    setShowAddModal(true);
+    setImageError('');
+    if (imageUrls.length === 0) {
+      // Keep empty so user is guided to upload an image
+    }
   };
 
   const handleCreateProductSubmit = (e: React.FormEvent) => {
@@ -149,8 +213,12 @@ export const ShopView: React.FC = () => {
       alert('A valid product price is mandatory.');
       return;
     }
-    if (imageUrls.length === 0 || !imageUrls[0].trim()) {
-      alert('At least one product image is mandatory.');
+    if (imageUrls.length === 0 || !imageUrls[0]?.trim()) {
+      setImageError('Please add an image before publishing to store.');
+      const imageSection = document.getElementById('product-image-upload-section');
+      if (imageSection) {
+        imageSection.scrollIntoView({ behavior: 'smooth' });
+      }
       return;
     }
     if (choicesList.length === 0) {
@@ -188,7 +256,8 @@ export const ShopView: React.FC = () => {
     setIsPriceRange(false);
     setProdDescription('');
     setProdStock(15);
-    setImageUrls(['https://images.unsplash.com/photo-1584017911766-d451b3d0e843?w=600&auto=format&fit=crop&q=80']);
+    setImageUrls([]);
+    setImageError('');
     setChoicesList(['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha']);
     setBranchTarget('All');
   };
@@ -226,7 +295,7 @@ export const ShopView: React.FC = () => {
           {/* Admin Add Product Button */}
           {isUserAdmin && (
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={openAddProductModal}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs shadow-lg shadow-orange-900/30 transition-all active:scale-95 shrink-0"
             >
               <PlusCircle className="w-4 h-4" />
@@ -496,296 +565,408 @@ export const ShopView: React.FC = () => {
 
       {/* Admin Add Product Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className={`w-full max-w-xl rounded-3xl border shadow-2xl p-6 my-8 ${
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div className={`w-full max-w-2xl max-h-[92vh] flex flex-col rounded-3xl border shadow-2xl overflow-hidden my-auto ${
             theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
           }`}>
-            <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
-              <div className="flex items-center gap-2">
-                <PlusCircle className="w-5 h-5 text-rose-500" />
-                <h3 className="text-base font-black">Add Product to Store & Supplements</h3>
+            {/* Modal Header (Sticky) */}
+            <div className={`flex items-center justify-between px-6 py-4 border-b shrink-0 ${
+              theme === 'dark' ? 'bg-zinc-900/95 border-zinc-800' : 'bg-white/95 border-zinc-200'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-600 to-orange-600 flex items-center justify-center text-white shadow-md shadow-orange-900/30">
+                  <PlusCircle className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black tracking-tight">Add Product to Store & Supplements</h3>
+                  <p className="text-[11px] text-zinc-400">Configure merchandise with branch isolation and device photos</p>
+                </div>
               </div>
               <button
+                type="button"
                 onClick={() => setShowAddModal(false)}
-                className="p-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400"
+                className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateProductSubmit} className="py-4 space-y-4 text-xs">
-              {/* Product Name (Mandatory) */}
-              <div>
-                <label className="block text-zinc-300 font-bold mb-1">
-                  Product Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={prodName}
-                  onChange={e => setProdName(e.target.value)}
-                  placeholder="e.g. Optimum Nutrition Gold Standard Whey 2kg"
-                  className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-rose-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Category */}
-                <div>
-                  <label className="block text-zinc-300 font-bold mb-1">Category</label>
-                  <select
-                    value={prodCategory}
-                    onChange={e => setProdCategory(e.target.value as any)}
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none"
-                  >
-                    <option value="Supplements">Supplements</option>
-                    <option value="Apparel">Apparel</option>
-                    <option value="Accessories">Accessories</option>
-                    <option value="Equipment">Equipment</option>
-                  </select>
-                </div>
-
-                {/* Gym Available Stock Counter (Mandatory) */}
+            {/* Scrollable Form Container */}
+            <form onSubmit={handleCreateProductSubmit} className="flex flex-col flex-1 overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 text-xs">
+                {/* Product Name (Mandatory) */}
                 <div>
                   <label className="block text-zinc-300 font-bold mb-1">
-                    Gym Stock Counter <span className="text-rose-500">*</span>
+                    Product Name <span className="text-rose-500">*</span>
                   </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setProdStock(Math.max(0, prodStock - 1))}
-                      className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <input
-                      type="number"
-                      min={0}
-                      required
-                      value={prodStock}
-                      onChange={e => setProdStock(Number(e.target.value))}
-                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-center font-bold text-white focus:outline-none focus:ring-2 focus:ring-rose-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setProdStock(prodStock + 1)}
-                      className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Price or Price Range (Mandatory) */}
-              <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-zinc-300 font-bold">
-                    Product Pricing <span className="text-rose-500">*</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer text-zinc-400">
-                    <input
-                      type="checkbox"
-                      checked={isPriceRange}
-                      onChange={e => setIsPriceRange(e.target.checked)}
-                      className="accent-rose-600 rounded"
-                    />
-                    <span>Allow Price Range (Min – Max)</span>
-                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={prodName}
+                    onChange={e => setProdName(e.target.value)}
+                    placeholder="e.g. Optimum Nutrition Gold Standard 100% Whey 2kg"
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-rose-500 font-medium"
+                  />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Category */}
                   <div>
-                    <span className="text-[11px] text-zinc-400 mb-1 block">
-                      {isPriceRange ? 'Minimum Price (₹)' : 'Fixed Price (₹)'}
-                    </span>
-                    <input
-                      type="number"
-                      required
-                      min={1}
-                      value={prodPriceMin}
-                      onChange={e => setProdPriceMin(e.target.value === '' ? '' : Number(e.target.value))}
-                      placeholder="e.g. 2499"
-                      className="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold focus:outline-none focus:ring-2 focus:ring-rose-500"
-                    />
+                    <label className="block text-zinc-300 font-bold mb-1">Category</label>
+                    <select
+                      value={prodCategory}
+                      onChange={e => setProdCategory(e.target.value as any)}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none font-medium"
+                    >
+                      <option value="Supplements">Supplements</option>
+                      <option value="Apparel">Apparel</option>
+                      <option value="Accessories">Accessories</option>
+                      <option value="Equipment">Equipment</option>
+                    </select>
                   </div>
 
-                  {isPriceRange && (
-                    <div>
-                      <span className="text-[11px] text-zinc-400 mb-1 block">Maximum Price (₹)</span>
+                  {/* Gym Available Stock Counter (Mandatory) */}
+                  <div>
+                    <label className="block text-zinc-300 font-bold mb-1">
+                      Gym Available Stock Counter <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setProdStock(Math.max(0, prodStock - 1))}
+                        className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold active:scale-95 transition-all"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
                       <input
                         type="number"
-                        min={Number(prodPriceMin) || 1}
-                        value={prodPriceMax}
-                        onChange={e => setProdPriceMax(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="e.g. 2999"
-                        className="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-bold focus:outline-none focus:ring-2 focus:ring-rose-500"
+                        min={0}
+                        required
+                        value={prodStock}
+                        onChange={e => setProdStock(Number(e.target.value))}
+                        className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-center font-black text-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
                       />
+                      <button
+                        type="button"
+                        onClick={() => setProdStock(prodStock + 1)}
+                        className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold active:scale-95 transition-all"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Price or Price Range (Mandatory) */}
+                <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-zinc-300 font-bold">
+                      Product Pricing <span className="text-rose-500">*</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer text-zinc-400 select-none text-[11px] font-semibold">
+                      <input
+                        type="checkbox"
+                        checked={isPriceRange}
+                        onChange={e => setIsPriceRange(e.target.checked)}
+                        className="accent-rose-600 rounded w-4 h-4 cursor-pointer"
+                      />
+                      <span>Allow Price Range (Min – Max)</span>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-[11px] text-zinc-400 mb-1 block">
+                        {isPriceRange ? 'Minimum Price (₹)' : 'Fixed Price (₹)'}
+                      </span>
+                      <input
+                        type="number"
+                        required
+                        min={1}
+                        value={prodPriceMin}
+                        onChange={e => setProdPriceMin(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 2499"
+                        className="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-black text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                      />
+                    </div>
+
+                    {isPriceRange && (
+                      <div>
+                        <span className="text-[11px] text-zinc-400 mb-1 block">Maximum Price (₹)</span>
+                        <input
+                          type="number"
+                          min={Number(prodPriceMin) || 1}
+                          value={prodPriceMax}
+                          onChange={e => setProdPriceMax(e.target.value === '' ? '' : Number(e.target.value))}
+                          placeholder="e.g. 2999"
+                          className="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-black text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Product Images (Device Upload & Multi-Image Support) */}
+                <div id="product-image-upload-section" className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-zinc-300 font-bold flex items-center gap-1.5">
+                      <ImageIcon className="w-4 h-4 text-rose-500" />
+                      <span>Product Images <span className="text-rose-500">* (at least 1 required)</span></span>
+                    </label>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                      imageUrls.length > 0 ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/40' : 'bg-rose-950/80 text-rose-400 border border-rose-800/40'
+                    }`}>
+                      {imageUrls.length} image(s) uploaded
+                    </span>
+                  </div>
+
+                  {/* Hidden File Input for Device Upload */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleDeviceFileUpload}
+                    className="hidden"
+                  />
+
+                  {/* Drag & Drop / Device Upload Area */}
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 ${
+                      isDragging
+                        ? 'border-rose-500 bg-rose-500/10'
+                        : imageUrls.length === 0
+                        ? 'border-zinc-700 hover:border-rose-500/60 bg-zinc-900/60 hover:bg-zinc-900'
+                        : 'border-zinc-800 hover:border-zinc-700 bg-zinc-900/40'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-rose-600/20 to-orange-600/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                      <UploadCloud className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-white block">
+                        Upload Image from your Device
+                      </span>
+                      <span className="text-[11px] text-zinc-400">
+                        Click to browse files or drag and drop photos here (PNG, JPG, WEBP)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                      className="mt-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-orange-600 text-white font-bold text-[11px] shadow-md shadow-rose-900/20 hover:brightness-110 active:scale-95 transition-all flex items-center gap-1.5"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Choose From Device</span>
+                    </button>
+                  </div>
+
+                  {/* Secondary URL Option */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="url"
+                      value={newImageUrl}
+                      onChange={e => setNewImageUrl(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddImageFromUrl();
+                        }
+                      }}
+                      placeholder="Or enter image URL (https://...)"
+                      className="flex-1 p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddImageFromUrl}
+                      className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs shrink-0 transition-colors"
+                    >
+                      + Add URL
+                    </button>
+                  </div>
+
+                  {/* Image Validation Warning Notice */}
+                  {imageUrls.length === 0 && (
+                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center gap-2.5 animate-pulse">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                      <span className="text-[11px] font-bold">
+                        Please add an image before publishing to store (at least 1 image is mandatory).
+                      </span>
+                    </div>
+                  )}
+
+                  {imageError && imageUrls.length === 0 && (
+                    <div className="p-2.5 rounded-xl bg-red-950/80 border border-red-800 text-red-300 text-[11px] font-bold flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
+                      <span>{imageError}</span>
+                    </div>
+                  )}
+
+                  {/* Image List Preview Gallery */}
+                  {imageUrls.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[11px] text-zinc-400 font-semibold block">
+                        Product Gallery Preview (First image is primary main card image):
+                      </span>
+                      <div className="flex flex-wrap gap-2.5">
+                        {imageUrls.map((url, idx) => (
+                          <div key={idx} className="relative group w-20 h-20 rounded-2xl overflow-hidden border border-zinc-700 shadow-md bg-zinc-900">
+                            <img src={url} alt={`Product preview ${idx + 1}`} className="w-full h-full object-cover" />
+                            {idx === 0 ? (
+                              <span className="absolute bottom-0 inset-x-0 bg-rose-600/95 text-[9px] font-black text-white text-center py-0.5 tracking-wider">
+                                MAIN
+                              </span>
+                            ) : (
+                              <span className="absolute bottom-0 inset-x-0 bg-black/75 text-[8px] font-bold text-zinc-300 text-center py-0.5">
+                                #{idx + 1}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveImage(idx)}
+                              className="absolute top-1 right-1 p-1 rounded-full bg-black/80 text-white hover:bg-rose-600 transition-colors shadow-sm"
+                              title="Remove image"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+
+                        {/* Add More Button inside Gallery */}
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="w-20 h-20 rounded-2xl border-2 border-dashed border-zinc-700 hover:border-rose-500/60 bg-zinc-900/50 hover:bg-zinc-900 flex flex-col items-center justify-center gap-1 text-zinc-400 hover:text-white transition-all"
+                        >
+                          <Plus className="w-4 h-4 text-rose-500" />
+                          <span className="text-[9px] font-bold">Add More</span>
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
-              </div>
 
-              {/* Product Images (At least one mandatory, option for more) */}
-              <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-zinc-300 font-bold flex items-center gap-1.5">
-                    <ImageIcon className="w-4 h-4 text-rose-500" />
-                    <span>Product Images <span className="text-rose-500">* (at least 1 required)</span></span>
-                  </label>
-                  <span className="text-[11px] text-zinc-500">{imageUrls.length} image(s) added</span>
-                </div>
+                {/* Flavours / Choices / Sizes (Mandatory - at least one, option to add more) */}
+                <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-zinc-300 font-bold flex items-center gap-1.5">
+                      <Tag className="w-4 h-4 text-amber-400" />
+                      <span>
+                        {prodCategory === 'Supplements' ? 'Flavours' : 'Sizes / Choices'}{' '}
+                        <span className="text-rose-500">* (at least 1 required)</span>
+                      </span>
+                    </label>
+                    <span className="text-[11px] text-zinc-500">{choicesList.length} option(s)</span>
+                  </div>
 
-                <div className="flex items-center gap-2">
-                  <input
-                    type="url"
-                    value={newImageUrl}
-                    onChange={e => setNewImageUrl(e.target.value)}
-                    placeholder="Enter additional Image URL (e.g. https://...)"
-                    className="flex-1 p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white text-xs placeholder-zinc-500 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddImage}
-                    className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs"
-                  >
-                    + Add Image
-                  </button>
-                </div>
-
-                {/* Image List Preview */}
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {imageUrls.map((url, idx) => (
-                    <div key={idx} className="relative group w-16 h-16 rounded-xl overflow-hidden border border-zinc-700">
-                      <img src={url} alt="prod" className="w-full h-full object-cover" />
-                      {idx === 0 && (
-                        <span className="absolute bottom-0 inset-x-0 bg-rose-600/90 text-[8px] font-black text-white text-center py-0.5">
-                          MAIN
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveImage(idx)}
-                        className="absolute top-1 right-1 p-1 rounded-full bg-black/80 text-white hover:bg-red-600 transition-colors"
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Flavours / Choices / Sizes (Mandatory - at least one, option to add more) */}
-              <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-zinc-300 font-bold flex items-center gap-1.5">
-                    <Tag className="w-4 h-4 text-amber-400" />
-                    <span>
-                      {prodCategory === 'Supplements' ? 'Flavours' : 'Sizes / Choices'}{' '}
-                      <span className="text-rose-500">* (at least 1 required)</span>
-                    </span>
-                  </label>
-                  <span className="text-[11px] text-zinc-500">{choicesList.length} options</span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={newChoiceInput}
-                    onChange={e => setNewChoiceInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddChoice();
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newChoiceInput}
+                      onChange={e => setNewChoiceInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddChoice();
+                        }
+                      }}
+                      placeholder={
+                        prodCategory === 'Supplements'
+                          ? 'e.g. Double Rich Chocolate, Strawberry, Café Mocha...'
+                          : 'e.g. S, M, L, XL, 10mm, Lever Belt...'
                       }
-                    }}
-                    placeholder={
-                      prodCategory === 'Supplements'
-                        ? 'e.g. Double Rich Chocolate, Strawberry...'
-                        : 'e.g. S, M, L, XL, 10mm...'
-                    }
-                    className="flex-1 p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white text-xs placeholder-zinc-500 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddChoice}
-                    className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs"
-                  >
-                    + Add Option
-                  </button>
-                </div>
-
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {choicesList.map((ch, idx) => (
-                    <span
-                      key={idx}
-                      className="px-2.5 py-1 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 font-bold text-xs flex items-center gap-1.5"
-                    >
-                      <span>{ch}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveChoice(idx)}
-                        className="hover:text-white"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Intended Branches (4 options: All centers, Ranaghat, Chakdah, Madanpur) */}
-              <div className="p-3.5 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2">
-                <label className="text-zinc-300 font-bold flex items-center gap-1.5">
-                  <Building2 className="w-4 h-4 text-emerald-400" />
-                  <span>Intended Branch Visibility <span className="text-rose-500">*</span></span>
-                </label>
-                <p className="text-[11px] text-zinc-400">
-                  Select which center branch members will have access to purchase this product.
-                </p>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                  {(['All', 'Ranaghat', 'Chakdah', 'Madanpur'] as const).map(branch => (
+                      className="flex-1 p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                    />
                     <button
-                      key={branch}
                       type="button"
-                      onClick={() => setBranchTarget(branch)}
-                      className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
-                        branchTarget === branch
-                          ? 'bg-emerald-600/20 border-emerald-500 text-emerald-400 shadow-md'
-                          : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-white'
-                      }`}
+                      onClick={handleAddChoice}
+                      className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs shrink-0 transition-colors"
                     >
-                      {branch === 'All' ? 'All Centers' : `${branch}`}
+                      + Add Option
                     </button>
-                  ))}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {choicesList.map((ch, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2.5 py-1 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 font-bold text-xs flex items-center gap-1.5"
+                      >
+                        <span>{ch}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveChoice(idx)}
+                          className="hover:text-white transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Intended Branches (4 options: All centers, Ranaghat, Chakdah, Madanpur) */}
+                <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2.5">
+                  <label className="text-zinc-300 font-bold flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-emerald-400" />
+                    <span>Intended Branch Visibility <span className="text-rose-500">*</span></span>
+                  </label>
+                  <p className="text-[11px] text-zinc-400">
+                    Select which center branch members will have access to purchase this product.
+                  </p>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                    {(['All', 'Ranaghat', 'Chakdah', 'Madanpur'] as const).map(branch => (
+                      <button
+                        key={branch}
+                        type="button"
+                        onClick={() => setBranchTarget(branch)}
+                        className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
+                          branchTarget === branch
+                            ? 'bg-emerald-600/20 border-emerald-500 text-emerald-400 shadow-md ring-1 ring-emerald-500/50'
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        {branch === 'All' ? 'All Centers' : `${branch}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Product Description (Optional) */}
+                <div>
+                  <label className="block text-zinc-300 font-bold mb-1">Product Description (Optional)</label>
+                  <textarea
+                    rows={2}
+                    value={prodDescription}
+                    onChange={e => setProdDescription(e.target.value)}
+                    placeholder="e.g. 24g 100% Whey Protein with 5.5g BCAAs and 4g Glutamine per serving."
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-rose-500 font-medium"
+                  />
                 </div>
               </div>
 
-              {/* Product Description (Optional) */}
-              <div>
-                <label className="block text-zinc-300 font-bold mb-1">Product Description (Optional)</label>
-                <textarea
-                  rows={2}
-                  value={prodDescription}
-                  onChange={e => setProdDescription(e.target.value)}
-                  placeholder="e.g. 24g 100% Whey Protein with 5.5g BCAAs and 4g Glutamine per serving."
-                  className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-rose-500"
-                />
-              </div>
-
-              {/* Modal Actions */}
-              <div className="pt-2 flex items-center gap-3">
+              {/* Modal Actions (Sticky Bottom) */}
+              <div className={`p-4 sm:p-5 border-t flex items-center gap-3 shrink-0 ${
+                theme === 'dark' ? 'bg-zinc-900/95 border-zinc-800' : 'bg-white/95 border-zinc-200'
+              }`}>
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="flex-1 py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold"
+                  className="flex-1 py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black shadow-xl shadow-rose-900/30 transition-all"
+                  className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black shadow-xl shadow-rose-900/30 transition-all active:scale-[0.98]"
                 >
                   Publish to Store
                 </button>
