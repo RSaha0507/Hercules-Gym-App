@@ -12,6 +12,9 @@ import {
   ChevronRight,
   MapPin,
   Flame,
+  Receipt,
+  CreditCard,
+  BellRing,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -58,6 +61,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
     workoutPlan,
     dietPlan,
     setActiveTab,
+    currentUser,
   } = useGym();
 
   const [activeSlide, setActiveSlide] = useState(0);
@@ -98,6 +102,64 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
     <div className="space-y-8 pb-20 md:pb-8">
       {/* 1. Hero Showcase with 3D HG Logo Centerpiece */}
       <Hero3DShowcase onOpenQrModal={onOpenQrModal} />
+
+      {/* Official Refund Notice Banner */}
+      {currentUser?.refund_record && (
+        <div className="p-5 rounded-3xl bg-amber-950/40 border border-amber-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs text-white shadow-xl">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 shrink-0">
+              <Receipt className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-amber-400">
+                Official Gym Discharge & Refund Notice (Ref: {currentUser.refund_record.id})
+              </div>
+              <p className="text-zinc-300 mt-0.5">
+                Total Refund Amount: <strong>₹{currentUser.refund_record.amount.toLocaleString()}</strong> ({currentUser.refund_record.percentage}% of original fee). Disbursed within <strong>{currentUser.refund_record.days_to_refund} business days</strong>.
+              </p>
+              <p className="text-[11px] text-zinc-400 mt-1">
+                <strong>Reason:</strong> {currentUser.refund_record.reason}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveTab('payments')}
+            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shrink-0"
+          >
+            View Details
+          </button>
+        </div>
+      )}
+
+      {/* Active Membership Status Banner for Members */}
+      {currentUser?.membership && currentUser.membership.status === 'active' && (
+        <div className="p-4 rounded-3xl bg-gradient-to-r from-zinc-900 via-zinc-900 to-rose-950/30 border border-rose-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-2xl bg-rose-600/20 text-rose-500 border border-rose-500/30 shrink-0">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-white text-sm">{currentUser.membership.plan_name}</span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase">
+                  ACTIVE
+                </span>
+              </div>
+              <p className="text-zinc-400 text-[11px]">
+                Valid through: <strong>{currentUser.membership.end_date}</strong> • Reminder Schedule: <span className="text-amber-400 capitalize">{currentUser.membership.reminder_frequency || currentUser.membership.plan_duration}</span>
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setActiveTab('payments')}
+            className="text-xs font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 shrink-0"
+          >
+            <span>View Subscription</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* 2. Interactive Navigation Hub Tabs */}
       <NavigationHub3D />

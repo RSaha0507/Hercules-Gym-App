@@ -19,10 +19,25 @@ import {
   ChevronRight,
   X,
   CreditCard,
+  Trash2,
+  DollarSign,
+  AlertTriangle,
+  Receipt,
+  Clock,
+  Send,
 } from 'lucide-react';
 
 export const MembersView: React.FC = () => {
-  const { users, selectedCenter, addUser, theme, t, currentUser } = useGym();
+  const {
+    users,
+    selectedCenter,
+    addUser,
+    deleteUser,
+    refundMember,
+    theme,
+    t,
+    currentUser,
+  } = useGym();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'member' | 'trainer' | 'admin'>('all');
@@ -32,6 +47,16 @@ export const MembersView: React.FC = () => {
 
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // Refund Modal State
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [refundTargetUser, setRefundTargetUser] = useState<User | null>(null);
+  const [refundPercent, setRefundPercent] = useState<number>(100);
+  const [refundAmount, setRefundAmount] = useState<number>(0);
+  const [refundReason, setRefundReason] = useState<string>('Member voluntary discontinuation / relocation');
+  const [refundDays, setRefundDays] = useState<number>(3);
+  const [alsoDeleteProfile, setAlsoDeleteProfile] = useState<boolean>(false);
+  const [refundSuccessNotice, setRefundSuccessNotice] = useState<string | null>(null);
 
   // Synchronize centerFilter whenever selectedCenter changes in context
   useEffect(() => {
@@ -47,6 +72,8 @@ export const MembersView: React.FC = () => {
     center: 'Ranaghat' as CenterType,
     profile_image: '',
   });
+
+  const isUserAdmin = currentUser?.role === 'admin';
 
   const filtered = users.filter(u => {
     const matchesSearch =
@@ -80,6 +107,60 @@ export const MembersView: React.FC = () => {
     });
   };
 
+  const handleOpenRefundModal = (user: User) => {
+    setRefundTargetUser(user);
+    const originalFee = user.membership?.fee_paid || (user.membership?.status === 'active' ? 1900 : 700);
+    setRefundPercent(100);
+    setRefundAmount(originalFee);
+    setRefundReason('Member voluntary withdrawal / gym discontinuation request');
+    setRefundDays(3);
+    setAlsoDeleteProfile(false);
+    setShowRefundModal(true);
+  };
+
+  const handlePercentChange = (pct: number) => {
+    setRefundPercent(pct);
+    if (!refundTargetUser) return;
+    const originalFee = refundTargetUser.membership?.fee_paid || 1900;
+    setRefundAmount(Math.round((originalFee * pct) / 100));
+  };
+
+  const handleProcessRefundSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!refundTargetUser) return;
+
+    const originalFee = refundTargetUser.membership?.fee_paid || refundAmount || 1900;
+
+    const refundRec = refundMember({
+      user_id: refundTargetUser.id,
+      user_name: refundTargetUser.full_name,
+      amount: refundAmount,
+      total_original_fee: originalFee,
+      percentage: refundPercent,
+      reason: refundReason.trim(),
+      days_to_refund: refundDays,
+      processed_by: currentUser?.full_name || 'Admin',
+    });
+
+    if (alsoDeleteProfile) {
+      deleteUser(refundTargetUser.id);
+    }
+
+    setRefundSuccessNotice(
+      `Official refund of ₹${refundAmount.toLocaleString()} (${refundPercent}%) issued to ${refundTargetUser.full_name}. Notification dispatched for reimbursement within ${refundDays} business days (Ref: ${refundRec.id}).`
+    );
+
+    setShowRefundModal(false);
+    setSelectedUser(null);
+  };
+
+  const handleDeleteUserDirect = (user: User) => {
+    if (confirm(`Are you sure you want to permanently delete the profile for ${user.full_name} from the gym roster?`)) {
+      deleteUser(user.id);
+      setSelectedUser(null);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-20 md:pb-8">
       {/* Header & Controls */}
@@ -91,7 +172,7 @@ export const MembersView: React.FC = () => {
           </p>
         </div>
 
-        {currentUser?.role === 'admin' && (
+        {isUserAdmin && (
           <button
             onClick={() => setShowAddModal(true)}
             className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-bold text-xs shadow-lg shadow-rose-900/30 transition-all active:scale-95 shrink-0"
@@ -101,6 +182,27 @@ export const MembersView: React.FC = () => {
           </button>
         )}
       </div>
+
+      {/* Success Banner */}
+      {refundSuccessNotice && (
+        <div className="p-4 rounded-3xl bg-emerald-950/40 border border-emerald-800/60 flex items-center justify-between text-xs text-white">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-2xl bg-emerald-500/20 text-emerald-400">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-bold">Refund Processed & Member Notified</div>
+              <div className="text-[11px] text-zinc-300">{refundSuccessNotice}</div>
+            </div>
+          </div>
+          <button
+            onClick={() => setRefundSuccessNotice(null)}
+            className="text-xs font-bold text-emerald-400 hover:underline shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Search and Filters Bar */}
       <div className={`p-4 rounded-2xl border flex flex-col md:flex-row gap-3 ${
@@ -195,9 +297,14 @@ export const MembersView: React.FC = () => {
               </div>
             </div>
 
-            {/* Membership badge or trainer details */}
+            {/* Membership badge or refund record notice */}
             <div className="mt-3 pt-3 border-t border-zinc-800/80 flex items-center justify-between text-[11px]">
-              {user.membership ? (
+              {user.refund_record ? (
+                <div className="flex items-center gap-1 text-amber-400 font-bold">
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>Refunded (₹{user.refund_record.amount})</span>
+                </div>
+              ) : user.membership ? (
                 <div className="flex items-center gap-1.5 text-zinc-400">
                   <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
                   <span className="truncate max-w-[130px] font-medium">{user.membership.plan_name}</span>
@@ -263,6 +370,27 @@ export const MembersView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Refund Notice if previously discharged */}
+              {selectedUser.refund_record && (
+                <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-800/50 space-y-2 text-xs">
+                  <div className="flex justify-between items-center text-amber-400 font-black uppercase tracking-wider">
+                    <span className="flex items-center gap-1.5">
+                      <Receipt className="w-4 h-4" />
+                      Discharge & Refund Notice
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold">
+                      {selectedUser.refund_record.percentage}% REFUND
+                    </span>
+                  </div>
+                  <div className="text-sm font-bold text-white">
+                    ₹{selectedUser.refund_record.amount.toLocaleString()} will be refunded within {selectedUser.refund_record.days_to_refund} business days.
+                  </div>
+                  <div className="text-zinc-300 text-[11px]">
+                    <strong>Reason:</strong> {selectedUser.refund_record.reason}
+                  </div>
+                </div>
+              )}
+
               {selectedUser.membership && (
                 <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-950/30 to-red-950/20 border border-rose-800/40 space-y-2">
                   <div className="flex justify-between items-center text-xs">
@@ -273,9 +401,15 @@ export const MembersView: React.FC = () => {
                   </div>
                   <div className="text-sm font-black text-white">{selectedUser.membership.plan_name}</div>
                   <div className="text-xs text-zinc-400 flex justify-between">
-                    <span>Valid from: {selectedUser.membership.start_date}</span>
-                    <span>Expires: {selectedUser.membership.end_date}</span>
+                    <span>Effective: {selectedUser.membership.start_date}</span>
+                    <span>Valid Until: {selectedUser.membership.end_date}</span>
                   </div>
+                  {selectedUser.membership.fee_paid && (
+                    <div className="text-xs text-zinc-300 pt-1 border-t border-rose-900/40 flex justify-between">
+                      <span>Total Membership Fee Paid:</span>
+                      <span className="font-bold text-white">₹{selectedUser.membership.fee_paid.toLocaleString()}</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -297,7 +431,194 @@ export const MembersView: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Admin Member Management Controls */}
+              {isUserAdmin && selectedUser.role !== 'admin' && (
+                <div className="pt-4 border-t border-zinc-800 space-y-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                    Admin Member Departure & Refund Tools
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenRefundModal(selectedUser)}
+                      className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs shadow-lg shadow-amber-900/30 flex items-center justify-center gap-2"
+                    >
+                      <DollarSign className="w-4 h-4" />
+                      <span>Issue Refund & Departure</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteUserDirect(selectedUser)}
+                      className="py-2.5 px-4 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-800/60 font-bold text-xs flex items-center justify-center gap-1.5"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete Profile</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Refund & Discontinuation Modal */}
+      {showRefundModal && refundTargetUser && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className={`w-full max-w-lg rounded-3xl border shadow-2xl p-6 ${
+            theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
+          }`}>
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-amber-500" />
+                <h3 className="text-base font-black">Process Member Refund & Departure</h3>
+              </div>
+              <button
+                onClick={() => setShowRefundModal(false)}
+                className="p-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleProcessRefundSubmit} className="py-4 space-y-4 text-xs">
+              {/* Member Summary Header */}
+              <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 flex justify-between items-center">
+                <div>
+                  <div className="font-bold text-white text-sm">{refundTargetUser.full_name}</div>
+                  <div className="text-zinc-400">{refundTargetUser.center} Center • {refundTargetUser.phone}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-zinc-400">Total Fee Paid</div>
+                  <div className="font-bold text-white">
+                    ₹{(refundTargetUser.membership?.fee_paid || 1900).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Refund Percentage Presets */}
+              <div className="space-y-2">
+                <label className="block text-zinc-300 font-bold">
+                  Select Refund Ratio <span className="text-amber-400">*</span>
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[100, 75, 50, 25].map(pct => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => handlePercentChange(pct)}
+                      className={`p-2 rounded-xl border font-bold text-xs transition-all text-center ${
+                        refundPercent === pct
+                          ? 'bg-amber-500/20 border-amber-500 text-amber-400 shadow-md'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      {pct === 100 ? 'Full (100%)' : `${pct}%`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Exact Amount to be Refunded */}
+              <div>
+                <label className="block text-zinc-300 font-bold mb-1">
+                  Total Amount to be Refunded (₹) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  required
+                  value={refundAmount}
+                  onChange={e => {
+                    const amt = Number(e.target.value);
+                    setRefundAmount(amt);
+                    const originalFee = refundTargetUser.membership?.fee_paid || 1900;
+                    setRefundPercent(Math.min(100, Math.round((amt / originalFee) * 100)));
+                  }}
+                  className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-black text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              {/* Reason (Mandatory/Optional with presets) */}
+              <div>
+                <label className="block text-zinc-300 font-bold mb-1">
+                  Reason for Refund / Discontinuation <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  value={refundReason}
+                  onChange={e => setRefundReason(e.target.value)}
+                  placeholder="e.g. Relocating to another district, medical reasons, or voluntary departure"
+                  className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              {/* Refund Timeline / Days */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-zinc-300 font-bold mb-1">
+                    Disbursement Window (Days) <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      required
+                      value={refundDays}
+                      onChange={e => setRefundDays(Number(e.target.value))}
+                      className="w-full p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-bold focus:outline-none"
+                    />
+                    <span className="text-zinc-400 shrink-0 font-medium">Days</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <label className="flex items-center gap-2 cursor-pointer pt-4">
+                    <input
+                      type="checkbox"
+                      checked={alsoDeleteProfile}
+                      onChange={e => setAlsoDeleteProfile(e.target.checked)}
+                      className="accent-rose-600 rounded"
+                    />
+                    <span className="text-zinc-300 font-medium">Permanently delete user profile from roster</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Notification Summary Preview */}
+              <div className="p-3 rounded-2xl bg-amber-950/20 border border-amber-800/40 text-[11px] text-amber-300 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Member Notification Preview:</span>
+                </div>
+                <p className="text-zinc-300">
+                  User will receive an official notification detailing a refund of <strong>₹{refundAmount.toLocaleString()}</strong> ({refundPercent}%) to be credited within <strong>{refundDays} business days</strong>.
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowRefundModal(false)}
+                  className="flex-1 py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-black shadow-xl shadow-amber-900/30 transition-all"
+                >
+                  Issue Refund & Notify Member
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

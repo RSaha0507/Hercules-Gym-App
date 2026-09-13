@@ -19,6 +19,10 @@ import {
   Filter,
   ArrowRight,
   FileCheck,
+  Lock,
+  Calendar,
+  BellRing,
+  Receipt,
 } from 'lucide-react';
 
 export const PaymentsView: React.FC = () => {
@@ -32,7 +36,7 @@ export const PaymentsView: React.FC = () => {
   } = useGym();
 
   const [activeTab, setActiveTab] = useState<'plans' | 'history' | 'admin_verification'>('plans');
-  const [selectedPlan, setSelectedPlan] = useState<{ id: string; name: string; price: number; period: string; months: number } | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<{ id: string; name: string; price: number; period: string; months: number; reminder_scheme: string } | null>(null);
   const [paymentMode, setPaymentMode] = useState<'online' | 'offline'>('online');
   const [screenshotData, setScreenshotData] = useState<string | null>(null);
   const [offlineNote, setOfflineNote] = useState<string>('');
@@ -43,6 +47,7 @@ export const PaymentsView: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 4 Official Membership Plan Tiers
   const plans = [
     {
       id: 'monthly',
@@ -51,6 +56,7 @@ export const PaymentsView: React.FC = () => {
       period: '1 Month',
       months: 1,
       popular: false,
+      reminder_scheme: 'Monthly automated renewal reminder',
       features: [
         'Access to selected branch facilities',
         'Standard fitness induction & orientation',
@@ -65,6 +71,7 @@ export const PaymentsView: React.FC = () => {
       period: '3 Months',
       months: 3,
       popular: true,
+      reminder_scheme: 'Quarterly automated renewal reminder',
       features: [
         'Multi-center access privileges',
         'Personalized workout split design',
@@ -79,6 +86,7 @@ export const PaymentsView: React.FC = () => {
       period: '6 Months',
       months: 6,
       popular: false,
+      reminder_scheme: 'Semi-annual automated renewal reminder',
       features: [
         'Full branch privileges & priority access',
         'Dedicated trainer check-ins & progress review',
@@ -93,6 +101,7 @@ export const PaymentsView: React.FC = () => {
       period: '12 Months',
       months: 12,
       popular: false,
+      reminder_scheme: 'Annual automated renewal reminder',
       features: [
         'Unlimited VIP access across all locations',
         '1-on-1 personal training sessions included',
@@ -179,6 +188,23 @@ export const PaymentsView: React.FC = () => {
     .filter(p => p.status === 'paid' || p.verification_status === 'verified')
     .reduce((sum, p) => sum + p.amount, 0);
 
+  // Check if member has an active protected plan
+  const memberShipObj = currentUser?.membership;
+  const isMemberActive =
+    userRole !== 'admin' &&
+    memberShipObj &&
+    memberShipObj.status === 'active' &&
+    memberShipObj.end_date &&
+    new Date(memberShipObj.end_date) >= new Date();
+
+  // Days remaining calculation
+  let daysRemaining = 0;
+  if (isMemberActive && memberShipObj?.end_date) {
+    const end = new Date(memberShipObj.end_date).getTime();
+    const now = new Date().getTime();
+    daysRemaining = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)));
+  }
+
   return (
     <div className="space-y-6 pb-20 md:pb-8">
       {/* Header */}
@@ -186,7 +212,7 @@ export const PaymentsView: React.FC = () => {
         <div>
           <h2 className="text-2xl font-black text-white tracking-tight">Memberships & Fee Payments</h2>
           <p className="text-xs text-zinc-400">
-            Official memberships, QR UPI payments, offline desk receipts, and automated payment verification
+            Monthly, Quarterly, Semi-Annual, and Annual plans with automated renewal reminder cycles
           </p>
         </div>
 
@@ -238,6 +264,28 @@ export const PaymentsView: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Refund Notice Banner if member has an approved refund */}
+      {currentUser?.refund_record && (
+        <div className="p-4 rounded-3xl bg-amber-950/40 border border-amber-800/60 flex items-start justify-between gap-3 text-xs text-white">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-2xl bg-amber-500/20 text-amber-400 shrink-0">
+              <Receipt className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="font-bold text-amber-400">
+                Official Gym Discharge & Refund Confirmation (Ref: {currentUser.refund_record.id})
+              </div>
+              <p className="text-zinc-300 mt-0.5">
+                Total Refund Amount: <strong>₹{currentUser.refund_record.amount.toLocaleString()}</strong> ({currentUser.refund_record.percentage}% of paid fee). Expected credit window: <strong>within {currentUser.refund_record.days_to_refund} business days</strong>.
+              </p>
+              <p className="text-[11px] text-zinc-400 mt-1">
+                <strong>Reason:</strong> {currentUser.refund_record.reason}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Admin Revenue Overview if Admin */}
       {userRole === 'admin' && (
@@ -297,64 +345,144 @@ export const PaymentsView: React.FC = () => {
       {/* TAB 1: MEMBERSHIP PLANS */}
       {activeTab === 'plans' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-black text-white">Choose Your Plan Tier</h3>
-            <span className="text-xs text-zinc-400">
-              Branch: <strong className="text-white">{currentUser?.center || 'Ranaghat'} Branch</strong>
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {plans.map(plan => (
-              <div
-                key={plan.id}
-                className={`p-6 rounded-3xl border flex flex-col justify-between transition-all relative ${
-                  plan.popular
-                    ? 'bg-gradient-to-b from-rose-950/30 to-zinc-900 border-rose-500/60 shadow-xl ring-1 ring-rose-500/30'
-                    : theme === 'dark'
-                    ? 'bg-zinc-900/70 border-zinc-800'
-                    : 'bg-white border-zinc-200 shadow-sm'
-                }`}
-              >
-                {plan.popular && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-rose-600 text-white font-extrabold text-[10px] uppercase tracking-wider shadow-md">
-                    Most Popular Choice
-                  </span>
-                )}
-
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-base font-bold text-white">{plan.name}</h4>
-                    <div className="flex items-baseline gap-1 mt-2">
-                      <span className="text-3xl font-black text-white">₹{plan.price}</span>
-                      <span className="text-xs text-zinc-400">/ {plan.period}</span>
+          {/* Active Plan Protection Rule: If member has an active paid plan, show ONLY their current plan */}
+          {isMemberActive ? (
+            <div className="space-y-4">
+              <div className="p-6 rounded-3xl bg-gradient-to-br from-zinc-900 via-zinc-900 to-rose-950/40 border border-rose-500/50 shadow-2xl relative overflow-hidden">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-2xl bg-rose-600/20 text-rose-500 border border-rose-500/30">
+                      <Lock className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-black text-white">{memberShipObj?.plan_name}</h3>
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black uppercase tracking-wider">
+                          ACTIVE & PROTECTED
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        {currentUser?.center} Branch • Effective from approval date
+                      </p>
                     </div>
                   </div>
 
-                  <div className="space-y-2 pt-3 border-t border-zinc-800/80 text-xs">
-                    {plan.features.map((feat, i) => (
-                      <div key={i} className="flex items-start gap-2 text-zinc-300">
-                        <Check className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
-                        <span className="leading-snug">{feat}</span>
-                      </div>
-                    ))}
+                  <div className="text-left sm:text-right">
+                    <span className="text-[11px] text-zinc-400">Time Remaining</span>
+                    <div className="text-2xl font-black text-rose-400">{daysRemaining} Days Left</div>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setSelectedPlan(plan)}
-                  className={`w-full py-2.5 rounded-2xl font-bold text-xs shadow-lg transition-all mt-6 flex items-center justify-center gap-2 ${
-                    plan.popular
-                      ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/40'
-                      : 'bg-zinc-800 hover:bg-zinc-700 text-white'
-                  }`}
-                >
-                  <span>Pay / Renew Plan</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 text-xs">
+                  <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800">
+                    <div className="text-zinc-400 font-semibold mb-1 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Effective Start Date</span>
+                    </div>
+                    <div className="font-bold text-white text-sm">{memberShipObj?.start_date}</div>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">Verified & Approved by Branch Admin</p>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800">
+                    <div className="text-zinc-400 font-semibold mb-1 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Valid Until (Expiry)</span>
+                    </div>
+                    <div className="font-bold text-white text-sm">{memberShipObj?.end_date}</div>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">Full access active through expiry date</p>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800">
+                    <div className="text-zinc-400 font-semibold mb-1 flex items-center gap-1.5">
+                      <BellRing className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Payment Reminder Scheme</span>
+                    </div>
+                    <div className="font-bold text-emerald-400 text-sm capitalize">
+                      {memberShipObj?.reminder_frequency || memberShipObj?.plan_duration || 'Plan'} Reminder
+                    </div>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">
+                      Next reminder: {memberShipObj?.next_reminder_date || '5 days before renewal'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs text-zinc-300 flex items-center gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>
+                    Your active plan is secured for the entire subscribed cycle. No secondary plan purchases are available until your scheduled renewal window opens.
+                  </span>
+                </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-black text-white">Choose Your Plan Tier</h3>
+                <span className="text-xs text-zinc-400">
+                  Branch: <strong className="text-white">{currentUser?.center || 'Ranaghat'} Branch</strong>
+                </span>
+              </div>
+
+              {/* 4 Plan Cards: Monthly, Quarterly, Semi-Annual, Annual */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {plans.map(plan => (
+                  <div
+                    key={plan.id}
+                    className={`p-6 rounded-3xl border flex flex-col justify-between transition-all relative ${
+                      plan.popular
+                        ? 'bg-gradient-to-b from-rose-950/30 to-zinc-900 border-rose-500/60 shadow-xl ring-1 ring-rose-500/30'
+                        : theme === 'dark'
+                        ? 'bg-zinc-900/70 border-zinc-800'
+                        : 'bg-white border-zinc-200 shadow-sm'
+                    }`}
+                  >
+                    {plan.popular && (
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-rose-600 text-white font-extrabold text-[10px] uppercase tracking-wider shadow-md">
+                        Most Popular Choice
+                      </span>
+                    )}
+
+                    <div className="space-y-4">
+                      <div>
+                        <h4 className="text-base font-bold text-white">{plan.name}</h4>
+                        <div className="flex items-baseline gap-1 mt-2">
+                          <span className="text-3xl font-black text-white">₹{plan.price}</span>
+                          <span className="text-xs text-zinc-400">/ {plan.period}</span>
+                        </div>
+
+                        {/* Reminder Scheme Indicator */}
+                        <div className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-950/80 border border-zinc-800 text-[10px] text-amber-400 font-bold">
+                          <BellRing className="w-3 h-3 text-amber-400" />
+                          <span>{plan.reminder_scheme}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 pt-3 border-t border-zinc-800/80 text-xs">
+                        {plan.features.map((feat, i) => (
+                          <div key={i} className="flex items-start gap-2 text-zinc-300">
+                            <Check className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+                            <span className="leading-snug">{feat}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setSelectedPlan(plan)}
+                      className={`w-full py-2.5 rounded-2xl font-bold text-xs shadow-lg transition-all mt-6 flex items-center justify-center gap-2 ${
+                        plan.popular
+                          ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/40'
+                          : 'bg-zinc-800 hover:bg-zinc-700 text-white'
+                      }`}
+                    >
+                      <span>Select & Pay Plan</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -388,88 +516,52 @@ export const PaymentsView: React.FC = () => {
             )}
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="divide-y divide-zinc-800/60">
             {displayedPayments.length === 0 ? (
-              <div className="p-12 text-center text-zinc-500 text-xs space-y-2">
-                <CreditCard className="w-8 h-8 opacity-40 mx-auto" />
-                <p>No payment records found.</p>
+              <div className="p-8 text-center text-zinc-500 text-xs">
+                No payment transactions recorded yet.
               </div>
             ) : (
-              <table className="w-full text-left text-xs">
-                <thead className={`border-b text-[11px] font-extrabold uppercase tracking-wider text-zinc-400 ${
-                  theme === 'dark' ? 'bg-zinc-950/80 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
-                }`}>
-                  <tr>
-                    <th className="px-6 py-3.5">Athlete</th>
-                    <th className="px-6 py-3.5">Branch</th>
-                    <th className="px-6 py-3.5">Plan</th>
-                    <th className="px-6 py-3.5">Amount</th>
-                    <th className="px-6 py-3.5">Method</th>
-                    <th className="px-6 py-3.5">Receipt No</th>
-                    <th className="px-6 py-3.5">Verification</th>
-                    <th className="px-6 py-3.5 text-right">Receipt Image</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/60">
-                  {displayedPayments.map(item => (
-                    <tr key={item.id} className="hover:bg-zinc-800/30">
-                      <td className="px-6 py-4 font-bold text-white">{item.user_name}</td>
-                      <td className="px-6 py-4 text-zinc-300">{item.center} Branch</td>
-                      <td className="px-6 py-4 text-zinc-300">{item.plan_name}</td>
-                      <td className="px-6 py-4 font-mono font-bold text-rose-400">₹{item.amount}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                          item.payment_mode === 'offline'
-                            ? 'bg-purple-500/20 text-purple-400'
-                            : 'bg-blue-500/20 text-blue-400'
-                        }`}>
-                          {item.payment_mode === 'offline' ? 'Desk (Offline)' : 'UPI (Online)'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 font-mono text-zinc-400">{item.receipt_no}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase inline-flex items-center gap-1 ${
-                          item.verification_status === 'verified' || item.status === 'paid'
-                            ? 'bg-emerald-500/20 text-emerald-400'
-                            : item.verification_status === 'rejected'
-                            ? 'bg-red-500/20 text-red-400'
-                            : 'bg-amber-500/20 text-amber-400 animate-pulse'
-                        }`}>
-                          {item.verification_status === 'verified' || item.status === 'paid' ? (
-                            <>
-                              <CheckCircle2 className="w-3 h-3" />
-                              Verified
-                            </>
-                          ) : item.verification_status === 'rejected' ? (
-                            <>
-                              <X className="w-3 h-3" />
-                              Rejected
-                            </>
-                          ) : (
-                            <>
-                              <Clock className="w-3 h-3" />
-                              Pending Verification
-                            </>
-                          )}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {item.screenshot_url ? (
-                          <button
-                            onClick={() => setPreviewImage(item.screenshot_url || null)}
-                            className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] font-bold inline-flex items-center gap-1 transition-colors"
-                          >
-                            <Eye className="w-3 h-3 text-rose-400" />
-                            <span>View Proof</span>
-                          </button>
-                        ) : (
-                          <span className="text-zinc-500 text-[11px] italic">No image</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              displayedPayments.map(p => (
+                <div key={p.id} className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-zinc-800/30 transition-colors">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white text-sm">{p.plan_name}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                        p.verification_status === 'verified' || p.status === 'paid'
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : p.verification_status === 'rejected'
+                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      }`}>
+                        {p.verification_status === 'verified' || p.status === 'paid' ? 'VERIFIED & ACTIVE' : p.verification_status || 'PENDING'}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-zinc-400">
+                      Receipt #{p.receipt_no} • {p.user_name} ({p.center} Branch) • Method: {p.payment_method}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between sm:justify-end gap-4">
+                    <div className="text-right">
+                      <div className="text-base font-black text-rose-500">₹{p.amount.toLocaleString()}</div>
+                      <div className="text-[11px] text-zinc-500">{p.payment_date}</div>
+                    </div>
+
+                    {p.screenshot_url && (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewImage(p.screenshot_url || null)}
+                        className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                        title="View Receipt Screenshot"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </div>
@@ -479,19 +571,15 @@ export const PaymentsView: React.FC = () => {
       {activeTab === 'admin_verification' && userRole === 'admin' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-black text-white">Pending Payment Screenshot Submissions</h3>
-            <span className="text-xs text-zinc-400">
-              {pendingVerifications.length} submissions awaiting review
-            </span>
+            <h3 className="text-base font-black text-white">Pending Receipt Verifications ({pendingVerifications.length})</h3>
+            <span className="text-xs text-zinc-400">Approve to make plan active from current timestamp</span>
           </div>
 
           {pendingVerifications.length === 0 ? (
-            <div className={`p-12 rounded-3xl border text-center space-y-2 ${
-              theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800 text-zinc-400' : 'bg-white border-zinc-200 text-zinc-600'
-            }`}>
-              <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto" />
-              <h4 className="text-base font-bold text-white">All Payments Verified</h4>
-              <p className="text-xs">There are no pending screenshot submissions to verify right now.</p>
+            <div className="p-12 text-center rounded-3xl border border-zinc-800 bg-zinc-950/60 space-y-2">
+              <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
+              <div className="text-sm font-bold text-white">All Payments Up to Date</div>
+              <p className="text-xs text-zinc-500">No member submissions currently awaiting receipt verification.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -566,7 +654,7 @@ export const PaymentsView: React.FC = () => {
                       className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md shadow-emerald-900/30 flex items-center justify-center gap-1.5"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Approve & Verify</span>
+                      <span>Approve & Activate Plan</span>
                     </button>
                   </div>
                 </div>
@@ -779,12 +867,8 @@ export const PaymentsView: React.FC = () => {
             <div className="flex gap-2 pt-2 border-t border-zinc-800">
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedPlan(null);
-                  setScreenshotData(null);
-                  setOfflineNote('');
-                }}
-                className="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold text-xs"
+                onClick={() => setSelectedPlan(null)}
+                className="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition-all"
               >
                 Cancel
               </button>
@@ -793,34 +877,34 @@ export const PaymentsView: React.FC = () => {
                 type="button"
                 onClick={handleSubmitVerification}
                 disabled={!screenshotData || isSubmitting}
-                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 disabled:opacity-40 text-white font-bold text-xs shadow-lg shadow-rose-900/30 flex items-center justify-center gap-1.5"
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 disabled:opacity-40 text-white text-xs font-bold transition-all shadow-lg shadow-rose-900/30 flex items-center justify-center gap-1.5"
               >
-                <ShieldCheck className="w-4 h-4" />
-                <span>Submit for Verification</span>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{isSubmitting ? 'Submitting...' : 'Submit for Verification'}</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* FULL-SIZE IMAGE PREVIEW MODAL */}
+      {/* ENLARGED PROOF IMAGE MODAL */}
       {previewImage && (
         <div
           onClick={() => setPreviewImage(null)}
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out"
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
         >
-          <div className="relative max-w-3xl max-h-[90vh] bg-zinc-950 rounded-3xl overflow-hidden border border-zinc-800 p-2">
+          <div className="relative max-w-2xl max-h-[85vh] p-2 bg-zinc-900 rounded-3xl border border-zinc-700">
+            <img
+              src={previewImage}
+              alt="Enlarged Payment Proof"
+              className="max-w-full max-h-[80vh] object-contain rounded-2xl"
+            />
             <button
               onClick={() => setPreviewImage(null)}
-              className="absolute top-4 right-4 p-2 rounded-full bg-black/70 hover:bg-black text-white z-10"
+              className="absolute top-4 right-4 p-2 rounded-full bg-black/80 text-white hover:bg-red-600"
             >
               <X className="w-5 h-5" />
             </button>
-            <img
-              src={previewImage}
-              alt="Full Size Proof"
-              className="max-w-full max-h-[85vh] object-contain mx-auto rounded-2xl"
-            />
           </div>
         </div>
       )}

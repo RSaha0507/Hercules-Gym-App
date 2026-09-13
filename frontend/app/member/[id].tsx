@@ -50,6 +50,16 @@ export default function MemberDetailScreen() {
   const [savingWeight, setSavingWeight] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<any>(null);
 
+  // Discharge & Refund Modal
+  const [showDischargeModal, setShowDischargeModal] = useState(false);
+  const [refundPercentage, setRefundPercentage] = useState<number | 'custom'>(100);
+  const [customRefundAmount, setCustomRefundAmount] = useState('');
+  const [departureReason, setDepartureReason] = useState('Relocation / Moved away');
+  const [customReason, setCustomReason] = useState('');
+  const [disbursementDays, setDisbursementDays] = useState(3);
+  const [removeProfileOnDischarge, setRemoveProfileOnDischarge] = useState(false);
+  const [discharging, setDischarging] = useState(false);
+
   const loadMonthlyWeights = useCallback(async () => {
     if (!id) return;
     try {
@@ -147,6 +157,45 @@ export default function MemberDetailScreen() {
         },
       ]
     );
+  };
+
+  const originalFee = Number(memberData?.profile?.membership?.amount) || 700;
+  const calculatedRefundAmount = refundPercentage === 'custom'
+    ? (parseFloat(customRefundAmount) || 0)
+    : Math.round((originalFee * (refundPercentage as number)) / 100);
+
+  const handleProcessDischarge = async () => {
+    if (calculatedRefundAmount < 0) {
+      Alert.alert('Invalid Amount', 'Refund amount cannot be negative');
+      return;
+    }
+    const finalReason = departureReason === 'Other' ? (customReason.trim() || 'Voluntary departure') : departureReason;
+    
+    setDischarging(true);
+    try {
+      const res = await api.dischargeMember(id, {
+        amount: calculatedRefundAmount,
+        total_original_fee: originalFee,
+        percentage: typeof refundPercentage === 'number' ? refundPercentage : Math.round((calculatedRefundAmount / (originalFee || 1)) * 100),
+        reason: finalReason,
+        days_to_refund: disbursementDays,
+        remove_profile: removeProfileOnDischarge,
+      });
+
+      if (res.deleted) {
+        Alert.alert('Success', 'Member discharged, refund recorded, and profile removed.');
+        setShowDischargeModal(false);
+        router.back();
+      } else {
+        Alert.alert('Success', `Discharge processed. Refund of ₹${calculatedRefundAmount} recorded (disbursement in ${disbursementDays} business days).`);
+        setShowDischargeModal(false);
+        await loadMember();
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.detail || 'Failed to process discharge and refund');
+    } finally {
+      setDischarging(false);
+    }
   };
 
   const handleToggleActivation = async () => {
@@ -250,6 +299,44 @@ export default function MemberDetailScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Refund Status Banner */}
+        {memberUser?.refund_record && (
+          <View style={[styles.refundBanner, { backgroundColor: theme.warning + '18', borderColor: theme.warning }]}>
+            <View style={styles.refundBannerHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="receipt" size={20} color={theme.warning} />
+                <Text style={[styles.refundBannerTitle, { color: theme.text }]}>Discharge & Refund Notice</Text>
+              </View>
+              <View style={[styles.refundBadge, { backgroundColor: theme.warning }]}>
+                <Text style={styles.refundBadgeText}>REFUND RECORDED</Text>
+              </View>
+            </View>
+            <View style={styles.refundGrid}>
+              <View style={styles.refundItem}>
+                <Text style={[styles.refundLabel, { color: theme.textSecondary }]}>Refund ID</Text>
+                <Text style={[styles.refundValue, { color: theme.text }]}>{memberUser.refund_record.refund_id || 'REF-ACTIVE'}</Text>
+              </View>
+              <View style={styles.refundItem}>
+                <Text style={[styles.refundLabel, { color: theme.textSecondary }]}>Amount</Text>
+                <Text style={[styles.refundValue, { color: theme.warning, fontWeight: '700' }]}>₹{memberUser.refund_record.amount} ({memberUser.refund_record.percentage || 100}%)</Text>
+              </View>
+              <View style={styles.refundItem}>
+                <Text style={[styles.refundLabel, { color: theme.textSecondary }]}>Disbursement Window</Text>
+                <Text style={[styles.refundValue, { color: theme.text }]}>{memberUser.refund_record.days_to_refund || 3} Business Days</Text>
+              </View>
+              <View style={styles.refundItem}>
+                <Text style={[styles.refundLabel, { color: theme.textSecondary }]}>Reason</Text>
+                <Text style={[styles.refundValue, { color: theme.text }]}>{memberUser.refund_record.reason}</Text>
+              </View>
+            </View>
+            {memberUser.refund_record.processed_at && (
+              <Text style={[styles.refundDateText, { color: theme.textSecondary }]}>
+                Processed on {format(toSystemDate(memberUser.refund_record.processed_at), 'dd MMM yyyy, hh:mm a')}
+              </Text>
+            )}
+          </View>
+        )}
+
         {/* Profile Card */}
         <View style={[styles.profileCard, { backgroundColor: theme.card }]}>
           <View style={[styles.avatar, { backgroundColor: theme.primary + '20' }]}>
@@ -453,7 +540,7 @@ export default function MemberDetailScreen() {
           </Text>
           {(!analyticsData?.monthly_weights || analyticsData.monthly_weights.length === 0) ? (
             <Text style={[styles.notesText, { color: theme.textSecondary }]}>
-              No monthly weight logged yet. Tap &quot;+ Log Weight&quot; above to record this month's check-in.
+              No monthly weight logged yet. Tap &quot;+ Log Weight&quot; above to record this month&apos;s check-in.
             </Text>
           ) : (
             analyticsData.monthly_weights.map((w: any, idx: number) => (
@@ -508,6 +595,15 @@ export default function MemberDetailScreen() {
                 >
                   <Ionicons name={memberUser.is_active ? 'pause-circle-outline' : 'play-circle-outline'} size={20} color="#FFF" />
                   <Text style={styles.actionButtonText}>{memberUser.is_active ? 'Deactivate' : 'Activate'}</Text>
+                </TouchableOpacity>
+              )}
+              {user?.role === 'admin' && (
+                <TouchableOpacity
+                  style={[styles.actionButton, { backgroundColor: '#EF4444' }]}
+                  onPress={() => setShowDischargeModal(true)}
+                >
+                  <Ionicons name="exit-outline" size={20} color="#FFF" />
+                  <Text style={styles.actionButtonText}>Discharge & Refund</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity 
@@ -672,6 +768,222 @@ export default function MemberDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Discharge & Refund Modal */}
+      <Modal visible={showDischargeModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.dischargeModalCard, { backgroundColor: theme.card }]}>
+            <View style={styles.dischargeModalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="exit-outline" size={24} color="#EF4444" />
+                <Text style={[styles.dischargeModalTitle, { color: theme.text }]}>Member Discharge & Refund</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowDischargeModal(false)}>
+                <Ionicons name="close" size={24} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 500 }}>
+              <Text style={[styles.dischargeSectionLabel, { color: theme.textSecondary }]}>
+                DISCHARGE SUMMARY & ORIGINAL PLAN
+              </Text>
+              <View style={[styles.dischargePlanBox, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                <View style={styles.dischargePlanRow}>
+                  <Text style={[styles.dischargePlanText, { color: theme.textSecondary }]}>Member:</Text>
+                  <Text style={[styles.dischargePlanValue, { color: theme.text }]}>{memberUser.full_name}</Text>
+                </View>
+                <View style={styles.dischargePlanRow}>
+                  <Text style={[styles.dischargePlanText, { color: theme.textSecondary }]}>Plan / Fee Paid:</Text>
+                  <Text style={[styles.dischargePlanValue, { color: theme.text }]}>{profile?.membership?.plan_name || 'Standard'} (₹{originalFee})</Text>
+                </View>
+                <View style={styles.dischargePlanRow}>
+                  <Text style={[styles.dischargePlanText, { color: theme.textSecondary }]}>Branch Center:</Text>
+                  <Text style={[styles.dischargePlanValue, { color: theme.text }]}>{memberUser.center || 'Ranaghat'}</Text>
+                </View>
+              </View>
+
+              <Text style={[styles.dischargeSectionLabel, { color: theme.textSecondary, marginTop: 16 }]}>
+                REFUND PERCENTAGE
+              </Text>
+              <View style={styles.pillRow}>
+                {[100, 75, 50, 25].map((pct) => (
+                  <TouchableOpacity
+                    key={pct}
+                    style={[
+                      styles.pillButton,
+                      {
+                        backgroundColor: refundPercentage === pct ? theme.primary : theme.background,
+                        borderColor: refundPercentage === pct ? theme.primary : theme.border,
+                      },
+                    ]}
+                    onPress={() => setRefundPercentage(pct)}
+                  >
+                    <Text
+                      style={[
+                        styles.pillText,
+                        { color: refundPercentage === pct ? '#FFF' : theme.text },
+                      ]}
+                    >
+                      {pct}% (₹{Math.round((originalFee * pct) / 100)})
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={[
+                    styles.pillButton,
+                    {
+                      backgroundColor: refundPercentage === 'custom' ? theme.primary : theme.background,
+                      borderColor: refundPercentage === 'custom' ? theme.primary : theme.border,
+                    },
+                  ]}
+                  onPress={() => setRefundPercentage('custom')}
+                >
+                  <Text
+                    style={[
+                      styles.pillText,
+                      { color: refundPercentage === 'custom' ? '#FFF' : theme.text },
+                    ]}
+                  >
+                    Custom ₹
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {refundPercentage === 'custom' && (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>Custom Refund Amount (₹)</Text>
+                  <TextInput
+                    style={[styles.singleInput, { borderColor: theme.border, color: theme.text, backgroundColor: theme.background }]}
+                    value={customRefundAmount}
+                    onChangeText={setCustomRefundAmount}
+                    placeholder="e.g. 500"
+                    placeholderTextColor={theme.textSecondary}
+                    keyboardType="numeric"
+                  />
+                </View>
+              )}
+
+              <View style={[styles.refundHighlightBox, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
+                <Text style={{ fontSize: 13, color: '#92400E', fontWeight: '600' }}>
+                  Total Refund To Process:
+                </Text>
+                <Text style={{ fontSize: 24, fontWeight: '800', color: '#B45309' }}>
+                  ₹{calculatedRefundAmount}
+                </Text>
+              </View>
+
+              <Text style={[styles.dischargeSectionLabel, { color: theme.textSecondary, marginTop: 16 }]}>
+                EXPECTED DISBURSEMENT WINDOW
+              </Text>
+              <View style={styles.pillRow}>
+                {[3, 5, 7].map((days) => (
+                  <TouchableOpacity
+                    key={days}
+                    style={[
+                      styles.pillButton,
+                      {
+                        backgroundColor: disbursementDays === days ? '#F59E0B' : theme.background,
+                        borderColor: disbursementDays === days ? '#F59E0B' : theme.border,
+                      },
+                    ]}
+                    onPress={() => setDisbursementDays(days)}
+                  >
+                    <Text
+                      style={[
+                        styles.pillText,
+                        { color: disbursementDays === days ? '#FFF' : theme.text },
+                      ]}
+                    >
+                      {days} Business Days
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={[styles.dischargeSectionLabel, { color: theme.textSecondary, marginTop: 16 }]}>
+                REASON FOR LEAVING
+              </Text>
+              <View style={styles.pillRow}>
+                {['Relocation / Moved away', 'Medical / Health Reason', 'Voluntary Departure', 'Other'].map((r) => (
+                  <TouchableOpacity
+                    key={r}
+                    style={[
+                      styles.pillButton,
+                      {
+                        backgroundColor: departureReason === r ? theme.primary : theme.background,
+                        borderColor: departureReason === r ? theme.primary : theme.border,
+                      },
+                    ]}
+                    onPress={() => setDepartureReason(r)}
+                  >
+                    <Text
+                      style={[
+                        styles.pillText,
+                        { color: departureReason === r ? '#FFF' : theme.text, fontSize: 12 },
+                      ]}
+                    >
+                      {r}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {departureReason === 'Other' && (
+                <View style={{ marginTop: 10 }}>
+                  <TextInput
+                    style={[styles.singleInput, { borderColor: theme.border, color: theme.text, backgroundColor: theme.background }]}
+                    value={customReason}
+                    onChangeText={setCustomReason}
+                    placeholder="Enter specific departure reason"
+                    placeholderTextColor={theme.textSecondary}
+                  />
+                </View>
+              )}
+
+              {/* Profile Removal Option */}
+              <TouchableOpacity
+                style={[styles.checkboxRow, { borderColor: theme.border }]}
+                onPress={() => setRemoveProfileOnDischarge(!removeProfileOnDischarge)}
+              >
+                <Ionicons
+                  name={removeProfileOnDischarge ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={removeProfileOnDischarge ? '#EF4444' : theme.textSecondary}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.checkboxTitle, { color: theme.text }]}>Permanently delete member profile</Text>
+                  <Text style={[styles.checkboxSubtitle, { color: theme.textSecondary }]}>
+                    If checked, removes profile completely after recording discharge. If unchecked, member is marked inactive with active refund record.
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </ScrollView>
+
+            <View style={styles.dischargeModalActions}>
+              <TouchableOpacity
+                style={[styles.dischargeCancelBtn, { borderColor: theme.border }]}
+                onPress={() => setShowDischargeModal(false)}
+                disabled={discharging}
+              >
+                <Text style={{ color: theme.text, fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.dischargeConfirmBtn, { backgroundColor: '#EF4444' }]}
+                onPress={handleProcessDischarge}
+                disabled={discharging}
+              >
+                {discharging ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 15 }}>
+                    Confirm & Record Refund
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -711,6 +1023,55 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 20,
     fontWeight: 'bold',
+  },
+  refundBanner: {
+    marginHorizontal: 20,
+    marginTop: 12,
+    marginBottom: 4,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1.5,
+  },
+  refundBannerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  refundBannerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  refundBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  refundBadgeText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  refundGrid: {
+    gap: 6,
+  },
+  refundItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  refundLabel: {
+    fontSize: 13,
+  },
+  refundValue: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  refundDateText: {
+    fontSize: 11,
+    marginTop: 8,
+    fontStyle: 'italic',
   },
   profileCard: {
     marginHorizontal: 20,
@@ -833,7 +1194,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -859,6 +1220,18 @@ const styles = StyleSheet.create({
     padding: 10,
     fontSize: 14,
   },
+  singleInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -878,4 +1251,105 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  dischargeModalCard: {
+    width: '100%',
+    borderRadius: 20,
+    padding: 20,
+  },
+  dischargeModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  dischargeModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  dischargeSectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  dischargePlanBox: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 6,
+  },
+  dischargePlanRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  dischargePlanText: {
+    fontSize: 13,
+  },
+  dischargePlanValue: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  pillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  pillButton: {
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  pillText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  refundHighlightBox: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginTop: 16,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+  },
+  checkboxTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  checkboxSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  dischargeModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 18,
+  },
+  dischargeCancelBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+  },
+  dischargeConfirmBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
+

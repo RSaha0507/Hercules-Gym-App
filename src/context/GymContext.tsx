@@ -16,6 +16,7 @@ import {
   Language,
   WorkoutLogEntry,
   WorkoutLogItem,
+  RefundRecord,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -54,6 +55,9 @@ interface GymContextType {
   rejectUser: (userId: string, reason?: string) => Promise<void>;
   updateUserProfile: (userId: string, data: Partial<User>) => void;
   addUser: (userData: Partial<User>) => void;
+  deleteUser: (userId: string) => Promise<void>;
+  refundMember: (refundData: Omit<RefundRecord, 'id' | 'refund_date' | 'status'>) => RefundRecord;
+  refunds: RefundRecord[];
 
   // Attendance
   attendance: AttendanceRecord[];
@@ -91,7 +95,9 @@ interface GymContextType {
   clearCart: () => void;
   orders: Order[];
   placeOrder: (paymentMethod: 'upi' | 'cash_at_desk' | 'card') => Order;
-  addProduct: (product: Omit<MerchandiseItem, 'id'>) => void;
+  addProduct: (product: Omit<MerchandiseItem, 'id'>) => MerchandiseItem;
+  updateProduct: (productId: string, data: Partial<MerchandiseItem>) => void;
+  deleteProduct: (productId: string) => void;
   updateProductStock: (productId: string, newStock: number) => void;
 
   // Messages & Announcements
@@ -180,6 +186,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadLocal('messages', INITIAL_MESSAGES));
   const [announcements, setAnnouncements] = useState<Announcement[]>(() => loadLocal('announcements', INITIAL_ANNOUNCEMENTS));
   const [payments, setPayments] = useState<PaymentRecord[]>(() => loadLocal('payments', INITIAL_PAYMENTS));
+  const [refunds, setRefunds] = useState<RefundRecord[]>(() => loadLocal('refunds', []));
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan>(() => loadLocal('workout_plan', INITIAL_WORKOUT_PLAN));
   const [dietPlan, setDietPlan] = useState<DietPlan>(() => loadLocal('diet_plan', INITIAL_DIET_PLAN));
   const [fitnessMetrics, setFitnessMetrics] = useState<FitnessMetricEntry[]>(() => loadLocal('metrics', INITIAL_METRICS));
@@ -217,6 +224,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => { saveLocal('messages', messages); }, [messages]);
   useEffect(() => { saveLocal('announcements', announcements); }, [announcements]);
   useEffect(() => { saveLocal('payments', payments); }, [payments]);
+  useEffect(() => { saveLocal('refunds', refunds); }, [refunds]);
   useEffect(() => { saveLocal('workout_plan', workoutPlan); }, [workoutPlan]);
   useEffect(() => { saveLocal('diet_plan', dietPlan); }, [dietPlan]);
   useEffect(() => { saveLocal('metrics', fitnessMetrics); }, [fitnessMetrics]);
@@ -471,6 +479,71 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }).catch((e: any) => console.log('Add member backend sync:', e));
   };
 
+  const deleteUser = async (userId: string) => {
+    setUsers(prev => prev.filter(u => u.id !== userId));
+    if (currentUser?.id === userId) {
+      setCurrentUser(null);
+    }
+    try {
+      await webApi.deleteMember?.(userId);
+      setBackendConnected(true);
+      await syncWithBackend();
+    } catch (e: any) {
+      console.log('Member delete sync notice:', e?.message);
+    }
+  };
+
+  const refundMember = (refundData: Omit<RefundRecord, 'id' | 'refund_date' | 'status'>): RefundRecord => {
+    const refundRecord: RefundRecord = {
+      ...refundData,
+      id: `ref-${Date.now()}`,
+      refund_date: new Date().toISOString(),
+      status: 'approved',
+    };
+
+    setRefunds(prev => [refundRecord, ...prev]);
+
+    // Update user record with refund notification receipt and deactivate membership
+    setUsers(prev =>
+      prev.map(u => {
+        if (u.id === refundData.user_id) {
+          return {
+            ...u,
+            refund_record: refundRecord,
+            membership: u.membership
+              ? {
+                  ...u.membership,
+                  status: 'expired' as const,
+                  due_amount: 0,
+                }
+              : undefined,
+          };
+        }
+        return u;
+      })
+    );
+
+    if (currentUser?.id === refundData.user_id) {
+      setCurrentUser(prev =>
+        prev
+          ? {
+              ...prev,
+              refund_record: refundRecord,
+              membership: prev.membership
+                ? {
+                    ...prev.membership,
+                    status: 'expired' as const,
+                    due_amount: 0,
+                  }
+                : undefined,
+            }
+          : null
+      );
+    }
+
+    return refundRecord;
+  };
+
   // Attendance
   const todayStr = new Date().toISOString().slice(0, 10);
   const activeCheckIn = attendance.find(
@@ -641,16 +714,45 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     setOrders(prev => [newOrder, ...prev]);
+    
+    // Decrement inventory stock count for ordered items
+    setProducts(prev =>
+      prev.map(p => {
+        const boughtItem = cart.find(c => c.product.id === p.id);
+        if (boughtItem) {
+          return { ...p, stock: Math.max(0, p.stock - boughtItem.quantity) };
+        }
+        return p;
+      })
+    );
+
     clearCart();
 
     webApi.createOrder(newOrder).catch((e: any) => console.log('Order backend sync:', e));
     return newOrder;
   };
 
-  const addProduct = (prod: Omit<MerchandiseItem, 'id'>) => {
-    webApi.createMerchandise(prod).then(() => {
+  const addProduct = (prod: Omit<MerchandiseItem, 'id'>): MerchandiseItem => {
+    const newProd: MerchandiseItem = {
+      ...prod,
+      id: `prod-${Date.now()}`,
+    };
+    setProducts(prev => [newProd, ...prev]);
+    webApi.createMerchandise(newProd).then(() => {
       syncWithBackend();
     }).catch((e: any) => console.log('Merchandise backend sync:', e));
+    return newProd;
+  };
+
+  const updateProduct = (productId: string, data: Partial<MerchandiseItem>) => {
+    setProducts(prev =>
+      prev.map(p => (p.id === productId ? { ...p, ...data } : p))
+    );
+  };
+
+  const deleteProduct = (productId: string) => {
+    setProducts(prev => prev.filter(p => p.id !== productId));
+    setCart(prev => prev.filter(item => item.product.id !== productId));
   };
 
   const updateProductStock = (productId: string, newStock: number) => {
@@ -725,20 +827,87 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const verifyPayment = (paymentId: string, status: 'verified' | 'rejected') => {
+    let targetPayment: PaymentRecord | undefined;
+    
     setPayments(prev =>
       prev.map(p => {
         if (p.id === paymentId) {
-          return {
+          targetPayment = {
             ...p,
             status: status === 'verified' ? 'paid' : 'pending',
             verification_status: status,
             verified_at: new Date().toISOString(),
             verified_by: currentUser?.full_name || 'Admin',
           };
+          return targetPayment;
         }
         return p;
       })
     );
+
+    if (status === 'verified' && targetPayment) {
+      const pay = targetPayment;
+      const planName = pay.plan_name || 'Monthly Standard';
+      const lower = planName.toLowerCase();
+
+      let months = 1;
+      let plan_duration: 'monthly' | 'quarterly' | 'semi_annual' | 'annual' = 'monthly';
+
+      if (lower.includes('annual') || lower.includes('year')) {
+        months = 12;
+        plan_duration = 'annual';
+      } else if (lower.includes('half') || lower.includes('semi') || lower.includes('6 month')) {
+        months = 6;
+        plan_duration = 'semi_annual';
+      } else if (lower.includes('quarter') || lower.includes('3 month')) {
+        months = 3;
+        plan_duration = 'quarterly';
+      } else {
+        months = 1;
+        plan_duration = 'monthly';
+      }
+
+      // Plans are strictly effective from the approval date
+      const approvalDate = new Date();
+      const startDateStr = approvalDate.toISOString().slice(0, 10);
+      
+      const expiryDate = new Date(approvalDate);
+      expiryDate.setMonth(expiryDate.getMonth() + months);
+      const endDateStr = expiryDate.toISOString().slice(0, 10);
+
+      const reminderDate = new Date(expiryDate);
+      reminderDate.setDate(reminderDate.getDate() - 5);
+      const reminderDateStr = reminderDate.toISOString().slice(0, 10);
+
+      const newMembership = {
+        plan_name: planName,
+        plan_duration,
+        start_date: startDateStr,
+        end_date: endDateStr,
+        status: 'active' as const,
+        fee_paid: pay.amount,
+        due_amount: 0,
+        approved_at: approvalDate.toISOString(),
+        reminder_frequency: plan_duration,
+        next_reminder_date: reminderDateStr,
+      };
+
+      setUsers(prev =>
+        prev.map(u => {
+          if (u.id === pay.user_id) {
+            return {
+              ...u,
+              membership: newMembership,
+            };
+          }
+          return u;
+        })
+      );
+
+      if (currentUser?.id === pay.user_id) {
+        setCurrentUser(prev => (prev ? { ...prev, membership: newMembership } : null));
+      }
+    }
   };
 
   return (
@@ -761,6 +930,9 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         rejectUser,
         updateUserProfile,
         addUser,
+        deleteUser,
+        refundMember,
+        refunds,
         attendance,
         checkIn,
         checkOut,
@@ -786,6 +958,8 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         orders,
         placeOrder,
         addProduct,
+        updateProduct,
+        deleteProduct,
         updateProductStock,
         messages,
         sendMessage,

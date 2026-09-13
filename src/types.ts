@@ -3,6 +3,24 @@ export type CenterType = 'Ranaghat' | 'Chakdah' | 'Madanpur';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type Language = 'en' | 'bn' | 'hi';
 
+export interface RefundRecord {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_phone?: string;
+  center?: CenterType;
+  amount: number;
+  total_original_fee?: number;
+  percentage?: number;
+  reason: string;
+  days_to_refund?: number;
+  payment_mode?: 'online' | 'offline';
+  refund_date: string;
+  status: 'approved' | 'processed';
+  processed_by: string;
+  notes?: string;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -20,12 +38,17 @@ export interface User {
   assigned_trainer_id?: string;
   membership?: {
     plan_name: string;
+    plan_duration?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
     start_date: string;
     end_date: string;
     status: 'active' | 'expired' | 'due_soon';
     fee_paid: number;
     due_amount: number;
+    approved_at?: string;
+    reminder_frequency?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
+    next_reminder_date?: string;
   };
+  refund_record?: RefundRecord;
 }
 
 export interface AttendanceRecord {
@@ -113,18 +136,26 @@ export interface MerchandiseItem {
   name: string;
   category: 'Supplements' | 'Apparel' | 'Accessories' | 'Equipment';
   price: number;
+  price_min?: number;
+  price_max?: number; // Supports price range e.g. min - max
   original_price?: number;
-  stock: number;
-  image_url: string;
-  description: string;
+  stock: number; // Gym inventory counter
+  image_url: string; // Primary mandatory image
+  additional_images?: string[]; // Optional secondary images
+  description?: string;
   badge?: string;
-  available_centers: CenterType[];
+  flavours_or_choices?: string[]; // Mandatory at least 1 (e.g. flavours for supplements or sizes/options for others)
+  flavours?: string[];
+  sizes?: string[];
+  available_centers: (CenterType | 'All')[]; // All centers, Ranaghat, Chakdah, Madanpur
+  created_by?: string;
 }
 
 export interface CartItem {
   product: MerchandiseItem;
   quantity: number;
   selected_size?: string;
+  size?: string;
 }
 
 export interface Order {

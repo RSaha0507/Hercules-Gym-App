@@ -368,6 +368,19 @@ class ApiService {
     return response.data;
   }
 
+  async dischargeMember(userId: string, data: {
+    amount: number;
+    total_original_fee?: number;
+    percentage?: number;
+    reason: string;
+    days_to_refund?: number;
+    remove_profile?: boolean;
+    notes?: string;
+  }) {
+    const response = await this.client.post(`/members/${userId}/discharge`, data);
+    return response.data;
+  }
+
   async deactivateMember(userId: string) {
     const response = await this.client.put(`/members/${userId}/deactivate`);
     return response.data;
@@ -758,7 +771,13 @@ class ApiService {
     return response.data;
   }
 
-  async payMembership(payment_method: string = "upi", proof_image?: string) {
+  async payMembership(
+    payment_method: string = "upi",
+    proof_image?: string,
+    plan_type?: string,
+    amount?: number,
+    notes?: string,
+  ) {
     await this.ensureRouteAvailable(
       "/payments/membership/pay",
       "Membership payment proof submission",
@@ -767,6 +786,9 @@ class ApiService {
       const response = await this.client.post("/payments/membership/pay", {
         payment_method,
         proof_image,
+        plan_type,
+        amount,
+        notes,
       });
       return response.data;
     } catch (error: any) {

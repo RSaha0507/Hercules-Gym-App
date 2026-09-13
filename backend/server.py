@@ -315,6 +315,7 @@ class UserResponse(UserBase):
     approval_status: ApprovalStatus = "approved"
     push_token: Optional[str] = None
     achievements: List[str] = []
+    refund_record: Optional[dict] = None
 
 class UserInDB(UserBase):
     id: str
@@ -326,6 +327,16 @@ class UserInDB(UserBase):
     approval_status: ApprovalStatus = "approved"
     push_token: Optional[str] = None
     achievements: List[str] = []
+    refund_record: Optional[dict] = None
+
+class RefundDischargeRequest(BaseModel):
+    amount: float
+    total_original_fee: Optional[float] = None
+    percentage: Optional[float] = None
+    reason: str
+    days_to_refund: int = 3
+    remove_profile: bool = False
+    notes: Optional[str] = None
 
 class UserProfileUpdate(BaseModel):
     full_name: Optional[str] = None
@@ -526,32 +537,53 @@ class AnnouncementUpdate(BaseModel):
 class MerchandiseItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
-    description: str
+    description: Optional[str] = ""
     price: float
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
+    original_price: Optional[float] = None
     category: str
     sizes: List[str] = ["S", "M", "L", "XL"]
-    stock: dict = {}  # {"S": 10, "M": 15, ...}
-    image: Optional[str] = None  # Base64
+    flavours_or_choices: Optional[List[str]] = None
+    stock: Any = {}  # {"S": 10, ...} or number
+    available_centers: Optional[List[str]] = ["All"]
+    image: Optional[str] = None  # Base64 or URL
+    image_url: Optional[str] = None
+    additional_images: Optional[List[str]] = []
     is_active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class MerchandiseCreate(BaseModel):
     name: str
-    description: str
+    description: Optional[str] = ""
     price: float
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
+    original_price: Optional[float] = None
     category: str
-    sizes: List[str] = ["S", "M", "L", "XL"]
-    stock: dict = {}
+    sizes: Optional[List[str]] = None
+    flavours_or_choices: Optional[List[str]] = None
+    stock: Any = {}
+    available_centers: Optional[List[str]] = ["All"]
     image: Optional[str] = None
+    image_url: Optional[str] = None
+    additional_images: Optional[List[str]] = []
 
 class MerchandiseUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     price: Optional[float] = None
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
+    original_price: Optional[float] = None
     category: Optional[str] = None
     sizes: Optional[List[str]] = None
-    stock: Optional[dict] = None
+    flavours_or_choices: Optional[List[str]] = None
+    stock: Optional[Any] = None
+    available_centers: Optional[List[str]] = None
     image: Optional[str] = None
+    image_url: Optional[str] = None
+    additional_images: Optional[List[str]] = None
     is_active: Optional[bool] = None
 
 class CartItem(BaseModel):
@@ -616,6 +648,10 @@ class PaymentCreate(BaseModel):
 class MembershipPaymentRequest(BaseModel):
     payment_method: str = "upi"
     proof_image: str
+    plan_type: Optional[str] = None
+    amount: Optional[float] = None
+    plan_duration_months: Optional[int] = None
+    notes: Optional[str] = None
 
 class AchievementUpdate(BaseModel):
     achievements: List[str] = []
@@ -3080,6 +3116,89 @@ async def activate_member(user_id: str, current_user: UserInDB = Depends(require
         "next_payment_date": next_due_date.isoformat() if isinstance(next_due_date, datetime) else None,
     }
 
+@api_router.post("/members/{user_id}/discharge")
+async def discharge_member(
+    user_id: str,
+    payload: RefundDischargeRequest,
+    current_user: UserInDB = Depends(require_admin)
+):
+    existing_member = await db.users.find_one({"id": user_id, "role": "member"})
+    if not existing_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    now = datetime.utcnow()
+    ref_id = f"REF-{uuid.uuid4().hex[:8].upper()}"
+    refund_record = {
+        "refund_id": ref_id,
+        "amount": payload.amount,
+        "total_original_fee": payload.total_original_fee or payload.amount,
+        "percentage": payload.percentage or round((payload.amount / (payload.total_original_fee or payload.amount or 1)) * 100),
+        "reason": payload.reason,
+        "days_to_refund": payload.days_to_refund,
+        "status": "approved",
+        "processed_at": now.isoformat(),
+        "processed_by": current_user.full_name,
+        "notes": payload.notes,
+    }
+
+    # Record in payments collection as refund
+    await db.payments.insert_one({
+        "id": str(uuid.uuid4()),
+        "member_id": user_id,
+        "amount": -abs(payload.amount),
+        "payment_type": "refund",
+        "payment_method": "upi_or_desk",
+        "payment_date": now,
+        "status": "completed",
+        "center": existing_member.get("center"),
+        "description": f"Discharge & Refund: {payload.reason} (Ref: {ref_id})",
+        "created_at": now,
+    })
+
+    if payload.remove_profile:
+        deleted = {}
+        deleted["member_profiles"] = (await db.member_profiles.delete_many({"user_id": user_id})).deleted_count
+        deleted["attendance"] = (await db.attendance.delete_many({"user_id": user_id})).deleted_count
+        deleted["workouts"] = (await db.workouts.delete_many({"member_id": user_id})).deleted_count
+        deleted["diets"] = (await db.diets.delete_many({"member_id": user_id})).deleted_count
+        deleted["approval_requests"] = (await db.approval_requests.delete_many({"user_id": user_id})).deleted_count
+        deleted["users"] = (await db.users.delete_many({"id": user_id, "role": "member"})).deleted_count
+        await sync_member_assignments_for_center(existing_member.get("center"))
+        return {"message": "Member discharged, refunded, and profile removed", "refund_record": refund_record, "deleted": True}
+
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"is_active": False, "refund_record": refund_record, "updated_at": now}}
+    )
+
+    profile = await db.member_profiles.find_one({"user_id": user_id}, {"membership": 1})
+    if profile and profile.get("membership"):
+        membership = profile.get("membership") or {}
+        membership["payment_status"] = "discharged"
+        membership["status"] = "discharged"
+        membership["deactivated_at"] = now
+        await db.member_profiles.update_one(
+            {"user_id": user_id},
+            {"$set": {"membership": membership}}
+        )
+
+    # Create notification for member
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "title": "Gym Discharge & Refund Processed",
+        "message": f"Your departure request has been processed. Refund amount: Rs.{int(payload.amount)} ({refund_record['percentage']}%) will be disbursed within {payload.days_to_refund} business days. Ref: {ref_id}",
+        "type": "refund",
+        "read": False,
+        "created_at": now
+    })
+
+    return {
+        "message": "Member discharged and refund recorded successfully",
+        "refund_record": refund_record,
+        "deleted": False
+    }
+
 @api_router.put("/members/{user_id}/center")
 async def change_member_center(
     user_id: str,
@@ -4661,16 +4780,23 @@ async def create_merchandise(
 ):
     merchandise = MerchandiseItem(
         name=item.name,
-        description=item.description,
+        description=item.description or "",
         price=item.price,
+        price_min=item.price_min,
+        price_max=item.price_max,
+        original_price=item.original_price,
         category=item.category,
-        sizes=item.sizes,
-        stock=item.stock,
-        image=item.image
+        sizes=item.sizes or ["S", "M", "L", "XL"],
+        flavours_or_choices=item.flavours_or_choices or [],
+        stock=item.stock or {},
+        available_centers=item.available_centers or ["All"],
+        image=item.image,
+        image_url=item.image_url,
+        additional_images=item.additional_images or []
     )
     
     await db.merchandise.insert_one(merchandise.dict())
-    return merchandise.dict()
+    return sanitize_mongo_doc(merchandise.dict())
 
 @api_router.get("/merchandise")
 async def get_merchandise(current_user: UserInDB = Depends(get_current_user)):
@@ -4947,29 +5073,26 @@ async def pay_membership_fee(
         raise HTTPException(status_code=400, detail="Membership plan not found")
 
     due_details = get_membership_due_details(membership)
-    if not due_details:
-        raise HTTPException(status_code=400, detail="Unable to determine payment due details")
-
-    if not due_details["is_due_now"]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Membership payment is not due yet. Next due date is {due_details['due_date'].date().isoformat()}",
-        )
+    total_amount = request.amount or (due_details["total_amount"] if due_details else 700.0)
+    base_amount = request.amount or (due_details["base_amount"] if due_details else 700.0)
+    late_fee = 0.0 if request.amount else (due_details["late_fee"] if due_details else 0.0)
+    due_date = due_details["due_date"] if due_details else datetime.utcnow()
 
     payment_proof_image = normalize_payment_proof_image(request.proof_image)
     payment_reference = f"MEM-{uuid.uuid4().hex[:10].upper()}"
+    plan_desc = f" ({request.plan_type})" if request.plan_type else ""
     payment = Payment(
         member_id=current_user.id,
-        amount=due_details["total_amount"],
+        amount=total_amount,
         payment_type="membership",
         payment_method=request.payment_method,
-        description=f"Membership fee payment due on {due_details['due_date'].date().isoformat()}",
+        description=f"Membership fee payment{plan_desc} due on {due_date.date().isoformat()}",
         status="pending",
         recorded_by=current_user.id,
         center=current_user.center or "Ranaghat",
-        base_amount=due_details["base_amount"],
-        late_fee=due_details["late_fee"],
-        membership_due_date=due_details["due_date"],
+        base_amount=base_amount,
+        late_fee=late_fee,
+        membership_due_date=due_date,
         payment_reference=payment_reference,
         proof_image=payment_proof_image,
     )
@@ -4979,10 +5102,11 @@ async def pay_membership_fee(
         "Membership Payment Proof Submitted",
         (
             f"{current_user.full_name} from {current_user.center} submitted membership payment proof "
-            f"for Rs.{due_details['total_amount']}."
+            f"for Rs.{int(total_amount)}{plan_desc}."
         ),
         "payment",
-        {"payment_id": payment.id, "member_id": current_user.id, "payment_type": "membership"},
+        {"payment_id": payment.id, "member_id": current_user.id, "amount": total_amount},
+        target_center=current_user.center,
     )
     await send_notification_to_user(
         current_user.id,
@@ -6397,13 +6521,13 @@ HG.AI:"""
 
         preferred_model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip()
         candidate_models = [
-                    preferred_model,
-                    "gemini-3.1-flash-lite",
-                    "gemini-3.5-flash-lite",
-                    "gemini-flash-lite-latest",
-                    "gemini-3.8-flash",
-                    "gemini-3.5-flash",
-                ]
+            preferred_model,
+            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash-lite",
+            "gemini-flash-lite-latest",
+            "gemini-3.8-flash",
+            "gemini-3.5-flash",
+        ]
         unique_models = []
         for m in candidate_models:
             if m and m not in unique_models:
@@ -6425,9 +6549,18 @@ HG.AI:"""
                 last_err = mod_err
 
         if not response or not response.text:
-            raise last_err or RuntimeError("No response received from any Gemini model candidate")
-
-        reply_text = response.text.strip()
+            logger.error(f"All Gemini models exhausted in HG.AI chat. Last error: {last_err}")
+            # If all candidates encounter temporary 503 high-demand, provide graceful guidance rather than crashing
+            reply_text = (
+                "**HG.AI Performance Notice**: Google's AI servers are temporarily experiencing high global traffic. "
+                "Here are immediate principles to keep your fitness goals on track:\n\n"
+                "• **Training Split**: Stay consistent with progressive overload, tracking weight and reps across 3-4 working sets.\n"
+                "• **Nutrition Fuel**: Aim for 1.6–2.2g of protein per kg of bodyweight, coupled with clean carbohydrates around your training window.\n"
+                "• **Rest & Recovery**: Aim for 7–8 hours of quality sleep to maximize muscle tissue repair.\n\n"
+                "Please retry your question in a few moments for full personalized programming!"
+            )
+        else:
+            reply_text = response.text.strip()
 
         # Update chat rate limit
         await db.member_profiles.update_one(
