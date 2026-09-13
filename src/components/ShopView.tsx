@@ -375,7 +375,34 @@ export const ShopView: React.FC = () => {
             const allImages = [prod.image_url, ...(prod.additional_images || [])];
             const activeImgIdx = activeImageIndices[prod.id] || 0;
             const currentImg = allImages[activeImgIdx] || prod.image_url;
-            const choices = prod.flavours || prod.sizes || [];
+            const isSupplement = prod.category === 'Supplements' || prod.category?.toLowerCase() === 'supplements';
+            
+            // Flavours strictly for supplements, choices/sizes strictly for other products
+            let choices: string[] = [];
+            if (isSupplement) {
+              if (prod.flavours && Array.isArray(prod.flavours) && prod.flavours.length > 0) {
+                choices = prod.flavours.filter((f: string) => !['S', 'M', 'L', 'XL', 'XXL', 'XS'].includes(f.toUpperCase()));
+              }
+              if (choices.length === 0 && prod.flavours_or_choices && Array.isArray(prod.flavours_or_choices) && prod.flavours_or_choices.length > 0) {
+                choices = prod.flavours_or_choices.filter((f: string) => !['S', 'M', 'L', 'XL', 'XXL', 'XS'].includes(f.toUpperCase()));
+              }
+              if (choices.length === 0) {
+                if (prod.name?.toLowerCase().includes('tiger') || prod.name?.toLowerCase().includes('pre')) {
+                  choices = ['Fruit Punch', 'Watermelon Blast', 'Blue Raspberry'];
+                } else {
+                  choices = ['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha'];
+                }
+              }
+            } else {
+              if (prod.sizes && Array.isArray(prod.sizes) && prod.sizes.length > 0) {
+                choices = prod.sizes;
+              } else if (prod.flavours_or_choices && Array.isArray(prod.flavours_or_choices) && prod.flavours_or_choices.length > 0) {
+                choices = prod.flavours_or_choices;
+              } else {
+                choices = prod.category === 'Apparel' ? ['S', 'M', 'L', 'XL'] : ['Standard'];
+              }
+            }
+
             const activeChoice = selectedChoices[prod.id] || (choices.length > 0 ? choices[0] : '');
 
             const branchLabel = prod.available_centers.includes('All')
@@ -458,7 +485,7 @@ export const ShopView: React.FC = () => {
                         {prod.category}
                       </span>
 
-                      {/* Admin Quick Stock Adjuster */}
+                      {/* Admin Quick Stock Adjuster & Delete Action */}
                       {isUserAdmin && (
                         <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 rounded-lg p-0.5">
                           <button
@@ -481,14 +508,15 @@ export const ShopView: React.FC = () => {
                           <button
                             type="button"
                             title="Delete Product"
-                            onClick={() => {
-                              if (confirm(`Are you sure you want to remove ${prod.name} from the store?`)) {
-                                deleteProduct(prod.id);
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`Are you sure you want to remove "${prod.name}" from the store?`)) {
+                                await deleteProduct(prod.id);
                               }
                             }}
-                            className="p-1 text-zinc-500 hover:text-rose-400 ml-1 border-l border-zinc-800"
+                            className="p-1.5 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors ml-1 border-l border-zinc-800"
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       )}
@@ -497,11 +525,11 @@ export const ShopView: React.FC = () => {
                     <h3 className="text-sm font-bold text-white leading-snug">{prod.name}</h3>
                     <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">{prod.description}</p>
 
-                    {/* Flavours / Choices Chips (Mandatory Selection) */}
+                    {/* Flavours (Supplements) vs Choices/Sizes (Other Products) */}
                     {choices.length > 0 && (
                       <div className="space-y-1.5 pt-1">
                         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                          {prod.category === 'Supplements' ? 'Select Flavour:' : 'Select Size / Option:'}
+                          {isSupplement ? 'Select Flavour:' : 'Select Choice / Size:'}
                         </span>
                         <div className="flex flex-wrap gap-1.5">
                           {choices.map((choice: string) => (
@@ -615,13 +643,25 @@ export const ShopView: React.FC = () => {
                     <label className="block text-zinc-300 font-bold mb-1">Category</label>
                     <select
                       value={prodCategory}
-                      onChange={e => setProdCategory(e.target.value as any)}
+                      onChange={e => {
+                        const val = e.target.value as 'Supplements' | 'Apparel' | 'Accessories' | 'Equipment';
+                        setProdCategory(val);
+                        if (val === 'Supplements') {
+                          setChoicesList(['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha']);
+                        } else if (val === 'Apparel') {
+                          setChoicesList(['S', 'M', 'L', 'XL', 'XXL']);
+                        } else if (val === 'Accessories') {
+                          setChoicesList(['Standard', 'Heavy Duty', '10mm', '13mm']);
+                        } else {
+                          setChoicesList(['Standard', 'Heavy Duty']);
+                        }
+                      }}
                       className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none font-medium"
                     >
-                      <option value="Supplements">Supplements</option>
-                      <option value="Apparel">Apparel</option>
-                      <option value="Accessories">Accessories</option>
-                      <option value="Equipment">Equipment</option>
+                      <option value="Supplements">Supplements (Flavours only)</option>
+                      <option value="Apparel">Apparel (Sizes S, M, L, XL...)</option>
+                      <option value="Accessories">Accessories (Options)</option>
+                      <option value="Equipment">Equipment (Options)</option>
                     </select>
                   </div>
 

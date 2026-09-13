@@ -543,13 +543,17 @@ class MerchandiseItem(BaseModel):
     price_max: Optional[float] = None
     original_price: Optional[float] = None
     category: str
-    sizes: List[str] = ["S", "M", "L", "XL"]
+    sizes: Optional[List[str]] = None
+    flavours: Optional[List[str]] = None
     flavours_or_choices: Optional[List[str]] = None
-    stock: Any = {}  # {"S": 10, ...} or number
+    stock: Any = 0  # {"S": 10, ...} or number
+    badge: Optional[str] = None
     available_centers: Optional[List[str]] = ["All"]
     image: Optional[str] = None  # Base64 or URL
     image_url: Optional[str] = None
     additional_images: Optional[List[str]] = []
+    rating: Optional[float] = 4.9
+    reviews_count: Optional[int] = 12
     is_active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -562,12 +566,16 @@ class MerchandiseCreate(BaseModel):
     original_price: Optional[float] = None
     category: str
     sizes: Optional[List[str]] = None
+    flavours: Optional[List[str]] = None
     flavours_or_choices: Optional[List[str]] = None
-    stock: Any = {}
+    stock: Any = 0
+    badge: Optional[str] = None
     available_centers: Optional[List[str]] = ["All"]
     image: Optional[str] = None
     image_url: Optional[str] = None
     additional_images: Optional[List[str]] = []
+    rating: Optional[float] = 4.9
+    reviews_count: Optional[int] = 12
 
 class MerchandiseUpdate(BaseModel):
     name: Optional[str] = None
@@ -578,8 +586,10 @@ class MerchandiseUpdate(BaseModel):
     original_price: Optional[float] = None
     category: Optional[str] = None
     sizes: Optional[List[str]] = None
+    flavours: Optional[List[str]] = None
     flavours_or_choices: Optional[List[str]] = None
     stock: Optional[Any] = None
+    badge: Optional[str] = None
     available_centers: Optional[List[str]] = None
     image: Optional[str] = None
     image_url: Optional[str] = None
@@ -4778,6 +4788,20 @@ async def create_merchandise(
     item: MerchandiseCreate,
     current_user: UserInDB = Depends(require_admin)
 ):
+    # Strictly isolate Flavours vs Sizes/Choices based on category
+    is_supp = item.category == "Supplements" or item.category.lower() == "supplements"
+    
+    if is_supp:
+        # Flavours only for supplements
+        flavours_val = item.flavours or item.flavours_or_choices or []
+        if not flavours_val:
+            flavours_val = ["Double Rich Chocolate", "Vanilla Ice Cream", "Café Mocha"]
+        sizes_val = []
+    else:
+        # Sizes / choices for rest of the products (Apparel, Accessories, Equipment)
+        flavours_val = []
+        sizes_val = item.sizes or item.flavours_or_choices or ["S", "M", "L", "XL"]
+
     merchandise = MerchandiseItem(
         name=item.name,
         description=item.description or "",
@@ -4786,13 +4810,17 @@ async def create_merchandise(
         price_max=item.price_max,
         original_price=item.original_price,
         category=item.category,
-        sizes=item.sizes or ["S", "M", "L", "XL"],
-        flavours_or_choices=item.flavours_or_choices or [],
-        stock=item.stock or {},
+        sizes=sizes_val,
+        flavours=flavours_val,
+        flavours_or_choices=flavours_val if is_supp else sizes_val,
+        stock=item.stock or 0,
+        badge=item.badge,
         available_centers=item.available_centers or ["All"],
         image=item.image,
         image_url=item.image_url,
-        additional_images=item.additional_images or []
+        additional_images=item.additional_images or [],
+        rating=item.rating or 4.9,
+        reviews_count=item.reviews_count or 12
     )
     
     await db.merchandise.insert_one(merchandise.dict())
@@ -4800,12 +4828,37 @@ async def create_merchandise(
 
 @api_router.get("/merchandise")
 async def get_merchandise(current_user: UserInDB = Depends(get_current_user)):
-    items = await db.merchandise.find({"is_active": True}).to_list(100)
-    return [sanitize_mongo_doc(item) for item in items]
+    items = await db.merchandise.find({"is_active": {"$ne": False}}).to_list(100)
+    cleaned = []
+    for item in items:
+        doc = sanitize_mongo_doc(item)
+        is_supp = doc.get("category") == "Supplements" or str(doc.get("category", "")).lower() == "supplements"
+        if is_supp:
+            # Supplements MUST NOT have apparel sizes (S, M, L, XL)
+            doc["sizes"] = []
+            flavours = doc.get("flavours") or []
+            # If flavours was erroneously set to apparel sizes or empty, fix it
+            if not flavours or (isinstance(flavours, list) and all(x in ["S", "M", "L", "XL", "XXL", "XS"] for x in flavours)):
+                f_or_c = doc.get("flavours_or_choices") or []
+                if f_or_c and not all(x in ["S", "M", "L", "XL", "XXL", "XS"] for x in f_or_c):
+                    doc["flavours"] = f_or_c
+                elif "tiger" in str(doc.get("name", "")).lower() or "pre" in str(doc.get("name", "")).lower():
+                    doc["flavours"] = ["Fruit Punch", "Watermelon Blast", "Blue Raspberry"]
+                else:
+                    doc["flavours"] = ["Double Rich Chocolate", "Vanilla Ice Cream", "Café Mocha"]
+            doc["flavours_or_choices"] = doc["flavours"]
+        else:
+            # Rest of products: choices / sizes only
+            doc["flavours"] = []
+            if not doc.get("sizes"):
+                doc["sizes"] = doc.get("flavours_or_choices") or ["S", "M", "L", "XL"]
+            doc["flavours_or_choices"] = doc.get("sizes")
+        cleaned.append(doc)
+    return cleaned
 
 @api_router.get("/merchandise/{item_id}")
 async def get_merchandise_item(item_id: str, current_user: UserInDB = Depends(get_current_user)):
-    item = await db.merchandise.find_one({"id": item_id, "is_active": True})
+    item = await db.merchandise.find_one({"$or": [{"id": item_id}, {"_id": item_id}], "is_active": {"$ne": False}})
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return sanitize_mongo_doc(item)
@@ -4818,13 +4871,22 @@ async def update_merchandise(
 ):
     update_dict = {k: v for k, v in update.dict(exclude_unset=True).items()}
     if update_dict:
-        await db.merchandise.update_one({"id": item_id}, {"$set": update_dict})
+        await db.merchandise.update_many({"$or": [{"id": item_id}, {"_id": item_id}]}, {"$set": update_dict})
     return {"message": "Merchandise updated"}
 
 @api_router.delete("/merchandise/{item_id}")
-async def delete_merchandise(item_id: str, current_user: UserInDB = Depends(require_admin)):
-    await db.merchandise.update_one({"id": item_id}, {"$set": {"is_active": False}})
-    return {"message": "Merchandise deleted"}
+async def delete_merchandise(item_id: str, current_user: UserInDB = Depends(get_current_user)):
+    # Verify admin role
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin authorization required to delete merchandise")
+    
+    # Mark inactive and delete from database collection
+    await db.merchandise.update_many(
+        {"$or": [{"id": item_id}, {"_id": item_id}]},
+        {"$set": {"is_active": False}}
+    )
+    delete_result = await db.merchandise.delete_many({"$or": [{"id": item_id}, {"_id": item_id}]})
+    return {"message": "Merchandise removed successfully", "deleted_count": delete_result.deleted_count}
 
 @api_router.post("/merchandise/order")
 async def create_merchandise_order(

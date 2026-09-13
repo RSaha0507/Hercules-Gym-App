@@ -305,7 +305,39 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       try {
         const liveProd = await webApi.getMerchandise();
         if (Array.isArray(liveProd)) {
-          setProducts(liveProd);
+          const normalizedProd: MerchandiseItem[] = liveProd.map((p: any) => {
+            const isSupp = p.category === 'Supplements' || p.category?.toLowerCase() === 'supplements';
+            let flavours = p.flavours;
+            let sizes = p.sizes;
+
+            if (isSupp) {
+              sizes = [];
+              if (!flavours || !Array.isArray(flavours) || flavours.length === 0 || flavours.every((f: string) => ['S', 'M', 'L', 'XL', 'XXL', 'XS'].includes(f))) {
+                if (p.flavours_or_choices && Array.isArray(p.flavours_or_choices) && !p.flavours_or_choices.every((f: string) => ['S', 'M', 'L', 'XL'].includes(f))) {
+                  flavours = p.flavours_or_choices;
+                } else if (p.name?.toLowerCase().includes('tiger') || p.name?.toLowerCase().includes('pre')) {
+                  flavours = ['Fruit Punch', 'Watermelon Blast', 'Blue Raspberry'];
+                } else {
+                  flavours = ['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha'];
+                }
+              }
+            } else {
+              flavours = [];
+              if (!sizes || !Array.isArray(sizes) || sizes.length === 0) {
+                sizes = p.flavours_or_choices || ['S', 'M', 'L', 'XL'];
+              }
+            }
+
+            return {
+              ...p,
+              id: p.id || p._id || `prod-${Math.random()}`,
+              category: p.category || 'Supplements',
+              flavours: isSupp ? flavours : undefined,
+              sizes: !isSupp ? sizes : undefined,
+              available_centers: p.available_centers || ['All'],
+            };
+          });
+          setProducts(normalizedProd);
         }
       } catch {}
 
@@ -750,9 +782,14 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
   };
 
-  const deleteProduct = (productId: string) => {
-    setProducts(prev => prev.filter(p => p.id !== productId));
-    setCart(prev => prev.filter(item => item.product.id !== productId));
+  const deleteProduct = async (productId: string) => {
+    setProducts(prev => prev.filter(p => p.id !== productId && (p as any)._id !== productId));
+    setCart(prev => prev.filter(item => item.product.id !== productId && (item.product as any)._id !== productId));
+    try {
+      await webApi.deleteMerchandise(productId);
+    } catch (e: any) {
+      console.log('Delete merchandise sync note:', e);
+    }
   };
 
   const updateProductStock = (productId: string, newStock: number) => {

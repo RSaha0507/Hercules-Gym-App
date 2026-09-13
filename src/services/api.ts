@@ -291,6 +291,19 @@ class WebApiService {
       body: JSON.stringify(data),
     });
   }
+  
+  async updateMerchandise(id: string, data: any) {
+    return await this.request<any>(`/merchandise/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteMerchandise(id: string) {
+    return await this.request<any>(`/merchandise/${id}`, {
+      method: 'DELETE',
+    });
+  }
 
   async createOrder(orderData: any) {
     return await this.request<any>('/merchandise/orders', {
