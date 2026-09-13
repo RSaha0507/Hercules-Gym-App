@@ -72,7 +72,7 @@ const MainLayout: React.FC = () => {
               {activeTab === 'attendance' && <AttendanceView onOpenQrModal={() => setIsQrModalOpen(true)} />}
               {activeTab === 'workouts' && <WorkoutsDietView />}
               {activeTab === 'hg-ai' && <HgAiView />}
-              {activeTab === 'shop' && <ShopView />}
+              {(activeTab === 'shop' || activeTab === 'shop/cart' || activeTab === 'cart') && <ShopView />}
               {activeTab === 'messages' && <MessagesView />}
               {activeTab === 'revenues' && <PaymentsView />}
               {activeTab === 'profile' && <ProfileView />}

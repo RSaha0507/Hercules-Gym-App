@@ -96,8 +96,8 @@ interface GymContextType {
   orders: Order[];
   placeOrder: (paymentMethod: 'upi' | 'cash_at_desk' | 'card') => Order;
   addProduct: (product: Omit<MerchandiseItem, 'id'>) => MerchandiseItem;
-  updateProduct: (productId: string, data: Partial<MerchandiseItem>) => void;
-  deleteProduct: (productId: string) => void;
+  updateProduct: (productId: string, data: Partial<MerchandiseItem>) => Promise<void> | void;
+  deleteProduct: (productId: string) => Promise<void> | void;
   updateProductStock: (productId: string, newStock: number) => void;
 
   // Messages & Announcements
@@ -176,8 +176,52 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [users, setUsers] = useState<User[]>(() => loadLocal('users', INITIAL_USERS));
   const [currentUser, setCurrentUser] = useState<User | null>(() => loadLocal<User | null>('current_user', null));
 
+  // Safe hash-based MPA router initialization
+  const getInitialTab = (): string => {
+    try {
+      const hash = window.location.hash.replace(/^#\/?/, '').trim();
+      return hash || 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  };
+
   const [selectedCenter, setSelectedCenter] = useState<CenterType | 'All'>('All');
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTabState] = useState<string>(getInitialTab);
+
+  // Sync activeTab with URL hash for MPA experience & back/forward history navigation
+  useEffect(() => {
+    const handleHashAndPopState = () => {
+      try {
+        const rawHash = window.location.hash.replace(/^#\/?/, '').trim();
+        const tab = rawHash || 'dashboard';
+        setActiveTabState(tab);
+      } catch (e) {
+        console.error('Hash route parse error:', e);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashAndPopState);
+    window.addEventListener('popstate', handleHashAndPopState);
+
+    // If initial load has no hash, establish #/dashboard in history
+    if (!window.location.hash || window.location.hash === '#') {
+      window.history.replaceState(null, '', '#/dashboard');
+    }
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashAndPopState);
+      window.removeEventListener('popstate', handleHashAndPopState);
+    };
+  }, []);
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab);
+    const targetHash = `#/${tab}`;
+    if (window.location.hash !== targetHash) {
+      window.history.pushState(null, '', targetHash);
+    }
+  };
 
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(() => loadLocal('attendance', INITIAL_ATTENDANCE));
   const [products, setProducts] = useState<MerchandiseItem[]>(() => loadLocal('products', INITIAL_PRODUCTS));
@@ -776,10 +820,35 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return newProd;
   };
 
-  const updateProduct = (productId: string, data: Partial<MerchandiseItem>) => {
+  const updateProduct = async (productId: string, data: Partial<MerchandiseItem>) => {
     setProducts(prev =>
-      prev.map(p => (p.id === productId ? { ...p, ...data } : p))
+      prev.map(p => {
+        if (p.id === productId || (p as any)._id === productId) {
+          return { ...p, ...data };
+        }
+        return p;
+      })
     );
+    // Update any items in cart referencing this product
+    setCart(prev =>
+      prev.map(item => {
+        if (item.product.id === productId || (item.product as any)._id === productId) {
+          return {
+            ...item,
+            product: {
+              ...item.product,
+              ...data,
+            },
+          };
+        }
+        return item;
+      })
+    );
+    try {
+      await webApi.updateMerchandise(productId, data);
+    } catch (e: any) {
+      console.log('Update merchandise sync note:', e);
+    }
   };
 
   const deleteProduct = async (productId: string) => {

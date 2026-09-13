@@ -4870,6 +4870,18 @@ async def update_merchandise(
     current_user: UserInDB = Depends(require_admin)
 ):
     update_dict = {k: v for k, v in update.dict(exclude_unset=True).items()}
+    if "category" in update_dict or "flavours" in update_dict or "sizes" in update_dict:
+        cat = update_dict.get("category")
+        if cat:
+            is_supp = cat == "Supplements" or str(cat).lower() == "supplements"
+            if is_supp:
+                update_dict["sizes"] = []
+                if "flavours" in update_dict:
+                    update_dict["flavours_or_choices"] = update_dict["flavours"]
+            else:
+                update_dict["flavours"] = []
+                if "sizes" in update_dict:
+                    update_dict["flavours_or_choices"] = update_dict["sizes"]
     if update_dict:
         await db.merchandise.update_many({"$or": [{"id": item_id}, {"_id": item_id}]}, {"$set": update_dict})
     return {"message": "Merchandise updated"}
