@@ -104,12 +104,12 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ onOpenQrModal })
           theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
         }`}>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-zinc-400">Currently On Gym Floor</span>
+            <span className="text-xs font-semibold text-grey-400">Currently On Gym Floor</span>
             <div className="p-2 rounded-xl bg-emerald-500/15 text-emerald-400">
               <Activity className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-3xl font-black text-white">{liveAthletes.length}</div>
+          <div className="text-3xl font-black text-blue">{liveAthletes.length}</div>
           <p className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1 font-semibold">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
             Live across selected center
@@ -120,12 +120,12 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ onOpenQrModal })
           theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
         }`}>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-zinc-400">Total Check-Ins Today</span>
+            <span className="text-xs font-semibold text-grey-400">Total Check-Ins Today</span>
             <div className="p-2 rounded-xl bg-rose-500/15 text-rose-500">
               <CalendarCheck2 className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-3xl font-black text-white">{todayLogs.length}</div>
+          <div className="text-3xl font-black text-blue">{todayLogs.length}</div>
           <p className="text-[11px] text-zinc-400 mt-1">
             Peak hours: 6:00 AM - 9:00 AM & 5:00 PM - 9:00 PM
           </p>
@@ -135,7 +135,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ onOpenQrModal })
           theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
         }`}>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-zinc-400">My Lifetime Gym Visits</span>
+            <span className="text-xs font-semibold text-grey-400">My Lifetime Gym Visits</span>
             <div className="p-2 rounded-xl bg-amber-500/15 text-amber-400">
               <Flame className="w-4 h-4" />
             </div>
