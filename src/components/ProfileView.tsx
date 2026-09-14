@@ -62,11 +62,17 @@ export const ProfileView: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-4">
-              <img
-                src={currentUser.profile_image || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80'}
-                alt={currentUser.full_name}
-                className="w-16 h-16 rounded-2xl object-cover ring-2 ring-rose-500"
-              />
+              {currentUser.profile_image ? (
+                <img
+                  src={currentUser.profile_image}
+                  alt={currentUser.full_name}
+                  className="w-16 h-16 rounded-2xl object-cover ring-2 ring-rose-500 shrink-0"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-600/30 via-rose-500/20 to-amber-500/20 border border-rose-500/40 text-rose-400 flex items-center justify-center font-black text-xl shrink-0">
+                  {currentUser.full_name?.charAt(0)?.toUpperCase() || 'M'}
+                </div>
+              )}
               <div className="min-w-0">
                 <h3 className="text-base font-black text-white truncate">{currentUser.full_name}</h3>
                 <div className="text-xs text-rose-400 font-bold capitalize">{currentUser.role}</div>
@@ -77,25 +83,20 @@ export const ProfileView: React.FC = () => {
               </div>
             </div>
 
-            {/* QR Pass Code */}
-            <div className="p-3.5 rounded-2xl bg-white text-zinc-950 flex items-center justify-between">
-              <div className="space-y-1">
-                <div className="text-[9px] font-bold uppercase tracking-wider text-zinc-600">
+            {/* Member ID Digital Pass Card (QR Code Removed) */}
+            <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 text-zinc-100 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
                   MEMBER ID
                 </div>
-                <div className="font-mono text-xs font-black tracking-tight">{currentUser.id}</div>
-                <div className="text-[9px] text-zinc-500">Scan at entrance turnstile</div>
+                <div className="font-mono text-sm font-black text-rose-400 tracking-wider">
+                  {currentUser.member_id || currentUser.id}
+                </div>
+                <div className="text-[10px] text-zinc-400">Verified Nadia Fitness Network Pass</div>
               </div>
 
-              <div className="w-12 h-12 border-2 border-zinc-900 p-1 flex flex-col justify-between">
-                <div className="flex justify-between">
-                  <div className="w-2.5 h-2.5 bg-zinc-900" />
-                  <div className="w-2.5 h-2.5 bg-zinc-900" />
-                </div>
-                <div className="flex justify-between">
-                  <div className="w-2.5 h-2.5 bg-zinc-900" />
-                  <div className="w-2.5 h-2.5 bg-zinc-900" />
-                </div>
+              <div className="px-3 py-1.5 rounded-xl bg-rose-600/15 border border-rose-500/30 text-rose-400 text-xs font-bold">
+                {currentUser.center} Center
               </div>
             </div>
 

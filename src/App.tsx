@@ -23,6 +23,12 @@ const MainLayout: React.FC = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
 
+  React.useEffect(() => {
+    if (currentUser) {
+      setIsAuthModalOpen(false);
+    }
+  }, [currentUser]);
+  
   return (
     <div className="relative min-h-screen bg-black text-zinc-100 overflow-x-hidden selection:bg-rose-500 selection:text-white">
       {/* Permanent Global 3D Spatial Canvas Layer */}
@@ -60,12 +66,12 @@ const MainLayout: React.FC = () => {
             />
           </div>
 
-          <div className="relative z-20 flex-1 flex max-w-7xl w-full mx-auto">
+          <div className="relative z-20 flex-1 flex w-full mx-auto px-2 sm:px-4 lg:px-6">
             {/* Left Sidebar (Desktop Quick Rail) */}
             <Sidebar />
 
             {/* Main Content Area */}
-            <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0 overflow-y-auto">
+            <main className="flex-1 p-3 sm:p-5 lg:p-6 min-w-0 w-full overflow-y-auto">
               {activeTab === 'dashboard' && <DashboardView onOpenQrModal={() => setIsQrModalOpen(true)} />}
               {activeTab === 'members' && <MembersView />}
               {activeTab === 'approvals' && <ApprovalsView />}

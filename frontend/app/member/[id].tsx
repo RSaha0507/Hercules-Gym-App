@@ -484,7 +484,7 @@ export default function MemberDetailScreen() {
 
         {/* Monthly Weight & Progress Analytics Section */}
         <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={styles.sectionHeader}>
+          <View style={styles.sectionHeaderRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
                 Monthly Weight & Progress Analytics

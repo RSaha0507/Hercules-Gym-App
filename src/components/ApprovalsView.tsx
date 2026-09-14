@@ -86,11 +86,17 @@ export const ApprovalsView: React.FC = () => {
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3.5">
+                  {user.profile_image ? (
                   <img
-                    src={user.profile_image || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300&auto=format&fit=crop&q=80'}
+                    src={user.profile_image}
                     alt={user.full_name}
                     className="w-12 h-12 rounded-2xl object-cover ring-2 ring-zinc-800 shrink-0"
                   />
+                  ) : (
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-rose-950/70 to-zinc-900 border border-zinc-700/60 text-rose-400 flex items-center justify-center font-black text-base shrink-0">
+                      {user.full_name?.charAt(0)?.toUpperCase() || 'M'}
+                    </div>
+                  )}
                   <div>
                     <h3 className="text-sm font-bold text-white">{user.full_name}</h3>
                     <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mt-0.5">

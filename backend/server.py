@@ -251,7 +251,22 @@ class UserBase(BaseModel):
     full_name: str
     role: RoleType
     center: Optional[CenterType] = None
-    date_of_birth: Optional[datetime] = None
+    date_of_birth: Optional[Union[datetime, str]] = None
+    member_id: Optional[str] = None
+    admission_type: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    profession: Optional[str] = None
+    present_address: Optional[str] = None
+    permanent_address: Optional[str] = None
+    body_weight: Optional[float] = None
+    body_height: Optional[str] = None
+    health_problems: Optional[str] = None
+    enrollment_programme: Optional[str] = None
+    enrollment_category: Optional[str] = None
+    trainer_specialties: Optional[List[str]] = None
+    trainer_certifications: Optional[str] = None
+    trainer_experience: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -264,8 +279,23 @@ class UserRegister(BaseModel):
     password: str
     role: RoleType
     center: Optional[CenterType] = None
-    date_of_birth: Optional[datetime] = None
+    date_of_birth: Optional[Union[datetime, str]] = None
     profile_image: Optional[str] = None
+    member_id: Optional[str] = None
+    admission_type: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    profession: Optional[str] = None
+    present_address: Optional[str] = None
+    permanent_address: Optional[str] = None
+    body_weight: Optional[float] = None
+    body_height: Optional[str] = None
+    health_problems: Optional[str] = None
+    enrollment_programme: Optional[str] = None
+    enrollment_category: Optional[str] = None
+    trainer_specialties: Optional[List[str]] = None
+    trainer_certifications: Optional[str] = None
+    trainer_experience: Optional[str] = None
 
 class UserLogin(BaseModel):
     identifier: Optional[str] = None
@@ -342,7 +372,22 @@ class UserProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
     profile_image: Optional[str] = None
-    date_of_birth: Optional[datetime] = None
+    date_of_birth: Optional[Union[datetime, str]] = None
+    member_id: Optional[str] = None
+    admission_type: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    profession: Optional[str] = None
+    present_address: Optional[str] = None
+    permanent_address: Optional[str] = None
+    body_weight: Optional[float] = None
+    body_height: Optional[str] = None
+    health_problems: Optional[str] = None
+    enrollment_programme: Optional[str] = None
+    enrollment_category: Optional[str] = None
+    trainer_specialties: Optional[List[str]] = None
+    trainer_certifications: Optional[str] = None
+    trainer_experience: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str
@@ -1792,14 +1837,31 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
     user_id = str(uuid.uuid4())
     hashed_password = get_password_hash(user.password)
     
+    assigned_member_id = user.member_id or (await generate_member_id() if user.role == "member" else None)
+    
     user_dict = {
         "id": user_id,
+        "member_id": assigned_member_id,
         "email": resolved_email,
         "phone": normalized_phone,
         "full_name": user.full_name,
         "role": user.role,
         "center": user.center,
         "date_of_birth": normalized_dob,
+        "admission_type": user.admission_type or ("New Admission" if user.role == "member" else None),
+        "guardian_name": user.guardian_name,
+        "guardian_phone": user.guardian_phone,
+        "profession": user.profession,
+        "present_address": user.present_address,
+        "permanent_address": user.permanent_address or user.present_address,
+        "body_weight": user.body_weight,
+        "body_height": user.body_height,
+        "health_problems": user.health_problems,
+        "enrollment_programme": user.enrollment_programme or ("Gym" if user.role == "member" else None),
+        "enrollment_category": user.enrollment_category or ("Ladies & Gents" if user.role == "member" else None),
+        "trainer_specialties": user.trainer_specialties,
+        "trainer_certifications": user.trainer_certifications,
+        "trainer_experience": user.trainer_experience,
         "hashed_password": hashed_password,
         "created_at": datetime.utcnow(),
         "is_active": True,
@@ -1817,11 +1879,22 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
     
     # Create member profile if role is member
     if user.role == "member":
-        member_id = await generate_member_id()
+        member_id = assigned_member_id or (await generate_member_id())
         profile = {
             "user_id": user_id,
             "member_id": member_id,
             "date_of_birth": normalized_dob,
+            "admission_type": user.admission_type or "New Admission",
+            "guardian_name": user.guardian_name,
+            "guardian_phone": user.guardian_phone,
+            "profession": user.profession,
+            "present_address": user.present_address,
+            "permanent_address": user.permanent_address or user.present_address,
+            "body_weight": user.body_weight,
+            "body_height": user.body_height,
+            "health_problems": user.health_problems,
+            "enrollment_programme": user.enrollment_programme or "Gym",
+            "enrollment_category": user.enrollment_category or "Ladies & Gents",
             "assigned_trainers": [],
             "membership": build_default_membership_plan(user_dict["created_at"]),
             "body_metrics": [],

@@ -50,7 +50,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
         ? 'bg-zinc-950/90 border-zinc-800/80 backdrop-blur-md text-zinc-100'
         : 'bg-white/90 border-zinc-200 backdrop-blur-md text-zinc-900'
     }`}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+      <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
         {/* Brand Logo */}
         <div className="flex items-center gap-3">
           <div className="relative">
@@ -63,10 +63,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
           <div>
             <div className="flex items-center gap-1.5">
               <span className="font-black text-xl tracking-tight bg-gradient-to-r from-amber-400 via-rose-500 to-red-500 bg-clip-text text-transparent">
-                HERCULES
-              </span>
-              <span className="text-xs font-black px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                GYM
+                HERCULES GYM
               </span>
             </div>
             <p className="text-[11px] text-zinc-400 font-medium hidden sm:block">

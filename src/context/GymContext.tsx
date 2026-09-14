@@ -17,6 +17,7 @@ import {
   WorkoutLogEntry,
   WorkoutLogItem,
   RefundRecord,
+  OfferPlan,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -112,6 +113,17 @@ interface GymContextType {
   recordPayment: (payment: Omit<PaymentRecord, 'id' | 'receipt_no'>) => void;
   verifyPayment: (paymentId: string, status: 'verified' | 'rejected') => void;
 
+  // Offers & Occasion Plans
+  offers: OfferPlan[];
+  addOffer: (offer: Omit<OfferPlan, 'id' | 'created_at'>) => OfferPlan;
+  updateOffer: (id: string, updates: Partial<OfferPlan>) => void;
+  deleteOffer: (id: string) => void;
+  toggleOfferStatus: (id: string) => void;
+
+  // Member & Trainer Activation / Inactivation & Re-admission
+  toggleUserActiveStatus: (userId: string, targetStatus?: boolean) => void;
+  executeReAdmission: (userId: string, reAdmissionData: Partial<User> & { plan_duration?: string; fee_paid?: number; plan_name?: string }) => void;
+
   // Theme & Language
   theme: 'dark' | 'light';
   toggleTheme: () => void;
@@ -172,9 +184,93 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // Evaluation for 2-month overdue unpaid fees -> Auto Inactivity
+  const evaluateMemberInactivity = (userList: User[]): User[] => {
+    const now = Date.now();
+    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+
+    return userList.map(u => {
+      if (u.role !== 'member') return u;
+
+      // If member membership end_date is more than 60 days overdue, automatically set inactive
+      if (u.membership?.end_date) {
+        const endMs = new Date(u.membership.end_date).getTime();
+        if (!isNaN(endMs) && (now - endMs) > sixtyDaysMs) {
+          return {
+            ...u,
+            is_active: false,
+            membership: {
+              ...u.membership,
+              status: 'expired' as const,
+            },
+          };
+        }
+      }
+      return u;
+    });
+  };
+
+  const INITIAL_OFFERS: OfferPlan[] = [
+    {
+      id: 'off-puja-2026',
+      title: 'Durga Puja Festive Special',
+      occasion: 'Durga Puja Celebrations',
+      description: 'Special Festive 3-Month Plan with free trainer induction and zero admission fee.',
+      price: 1500,
+      original_price: 2100,
+      duration_months: 3,
+      plan_duration_type: 'quarterly',
+      target_center: 'All',
+      admission_type_applicable: 'All',
+      is_active: true,
+      valid_until: '2026-11-30',
+      created_at: '2026-09-01T00:00:00.000Z',
+      discount_badge: 'Festive Save ₹600',
+      features: ['Zero Admission Charge', 'Full Branch Induction', 'Custom Diet Guidelines'],
+    },
+    {
+      id: 'off-annual-trans',
+      title: 'Annual Transformation Blast',
+      occasion: 'New Member Welcome Special',
+      description: 'Full 12-Month membership with 2 months bonus and complimentary gym merchandise bag.',
+      price: 5200,
+      original_price: 7000,
+      duration_months: 12,
+      plan_duration_type: 'annual',
+      target_center: 'All',
+      admission_type_applicable: 'New Admission',
+      is_active: true,
+      valid_until: '2026-12-31',
+      created_at: '2026-09-01T00:00:00.000Z',
+      discount_badge: 'Flat ₹1800 OFF',
+      features: ['12 Months VIP Access', 'Complimentary Gym Shaker & T-shirt', 'Personalized Macro Split'],
+    },
+    {
+      id: 'off-readmit-loyalty',
+      title: 'Alumni & Re-admission Loyalty Waiver',
+      occasion: 'Member Comeback Special',
+      description: '100% waiver on re-admission fees for returning members renewing for 3+ months.',
+      price: 1700,
+      original_price: 2400,
+      duration_months: 3,
+      plan_duration_type: 'quarterly',
+      target_center: 'All',
+      admission_type_applicable: 'Re-admission',
+      is_active: true,
+      valid_until: '2026-12-31',
+      created_at: '2026-09-01T00:00:00.000Z',
+      discount_badge: '100% Re-admission Waiver',
+      features: ['Zero Re-admission Surcharge', 'Instant Profile Reactivation', 'Progress Fitness Assessment'],
+    },
+  ];
+
   // State initialization - no hardcoded mock users
-  const [users, setUsers] = useState<User[]>(() => loadLocal('users', INITIAL_USERS));
+  const [users, setUsers] = useState<User[]>(() => {
+    const loaded = loadLocal('users', INITIAL_USERS);
+    return evaluateMemberInactivity(loaded);
+  });
   const [currentUser, setCurrentUser] = useState<User | null>(() => loadLocal<User | null>('current_user', null));
+  const [offers, setOffers] = useState<OfferPlan[]>(() => loadLocal('offers', INITIAL_OFFERS));
 
   // Safe hash-based MPA router initialization
   const getInitialTab = (): string => {
@@ -268,6 +364,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => { saveLocal('messages', messages); }, [messages]);
   useEffect(() => { saveLocal('announcements', announcements); }, [announcements]);
   useEffect(() => { saveLocal('payments', payments); }, [payments]);
+  useEffect(() => { saveLocal('offers', offers); }, [offers]);
   useEffect(() => { saveLocal('refunds', refunds); }, [refunds]);
   useEffect(() => { saveLocal('workout_plan', workoutPlan); }, [workoutPlan]);
   useEffect(() => { saveLocal('diet_plan', dietPlan); }, [dietPlan]);
@@ -293,11 +390,13 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (Array.isArray(liveMembers)) {
           const normalized = liveMembers.map((m: any) => ({
             id: m.id || m._id,
+            member_id: m.member_id || m.admission_number || m.memberId,
             email: m.email || '',
             phone: m.phone || '',
             full_name: m.full_name || 'Member',
             role: m.role || 'member',
             center: m.center || 'Ranaghat',
+            date_of_birth: m.date_of_birth,
             created_at: m.created_at || new Date().toISOString(),
             is_active: m.is_active ?? true,
             approval_status: m.approval_status || 'approved',
@@ -305,6 +404,20 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             is_primary_admin: m.is_primary_admin,
             achievements: m.achievements || [],
             assigned_trainer_id: m.assigned_trainer_id,
+            admission_type: m.admission_type,
+            guardian_name: m.guardian_name,
+            guardian_phone: m.guardian_phone,
+            profession: m.profession,
+            present_address: m.present_address || m.address,
+            permanent_address: m.permanent_address,
+            body_weight: m.body_weight,
+            body_height: m.body_height,
+            health_problems: m.health_problems || m.medical_notes,
+            enrollment_programme: m.enrollment_programme || m.programme,
+            enrollment_category: m.enrollment_category || m.category,
+            trainer_specialties: m.trainer_specialties || m.specialties,
+            trainer_certifications: m.trainer_certifications || m.certifications,
+            trainer_experience: m.trainer_experience || m.experience,
             membership: m.membership,
           }));
           setUsers(normalized);
@@ -485,6 +598,21 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         center: data.center || 'Ranaghat',
         date_of_birth: data.date_of_birth,
         profile_image: data.profile_image,
+        member_id: data.member_id,
+        admission_type: data.admission_type,
+        guardian_name: data.guardian_name,
+        guardian_phone: data.guardian_phone,
+        profession: data.profession,
+        present_address: data.present_address,
+        permanent_address: data.permanent_address,
+        body_weight: data.body_weight,
+        body_height: data.body_height,
+        health_problems: data.health_problems,
+        enrollment_programme: data.enrollment_programme,
+        enrollment_category: data.enrollment_category,
+        trainer_specialties: data.trainer_specialties,
+        trainer_certifications: data.trainer_certifications,
+        trainer_experience: data.trainer_experience,
       });
       setBackendConnected(true);
       await syncWithBackend();
@@ -550,7 +678,56 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const addUser = (userData: Partial<User>) => {
-    webApi.createMember(userData).then(() => {
+    const newId = userData.id || `user-${Date.now()}`;
+    const centerPrefix = userData.center ? userData.center.slice(0, 3).toUpperCase() : 'RAN';
+    const autoMemberId = userData.member_id || `HG-${centerPrefix}-${Math.floor(100 + Math.random() * 900)}`;
+
+    const newUser: User = {
+      id: newId,
+      member_id: autoMemberId,
+      email: userData.email || `${userData.phone || newId}@herculesgym.in`,
+      phone: userData.phone || '',
+      full_name: userData.full_name || 'Member',
+      role: userData.role || 'member',
+      center: userData.center || 'Ranaghat',
+      date_of_birth: userData.date_of_birth,
+      created_at: new Date().toISOString(),
+      is_active: true,
+      approval_status: 'approved',
+      profile_image: userData.profile_image || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
+      admission_type: userData.admission_type || 'New Admission',
+      guardian_name: userData.guardian_name,
+      guardian_phone: userData.guardian_phone,
+      profession: userData.profession,
+      present_address: userData.present_address,
+      permanent_address: userData.permanent_address,
+      body_weight: userData.body_weight,
+      body_height: userData.body_height,
+      health_problems: userData.health_problems,
+      enrollment_programme: userData.enrollment_programme || (userData.role === 'trainer' ? undefined : 'Gym'),
+      enrollment_category: userData.enrollment_category || (userData.role === 'trainer' ? undefined : 'Ladies & Gents'),
+      trainer_specialties: userData.trainer_specialties,
+      trainer_certifications: userData.trainer_certifications,
+      trainer_experience: userData.trainer_experience,
+      membership: userData.membership || (userData.role === 'trainer' ? undefined : {
+        plan_name: `${userData.enrollment_programme || 'Gym'} Membership`,
+        plan_duration: 'monthly',
+        start_date: new Date().toISOString().slice(0, 10),
+        end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        status: 'active',
+        fee_paid: 1900,
+        due_amount: 0,
+      }),
+      ...userData,
+    };
+
+    setUsers(prev => [newUser, ...prev]);
+
+    webApi.createMember({
+      ...userData,
+      member_id: autoMemberId,
+      date_of_birth: userData.date_of_birth || '2000-01-01',
+    }).then(() => {
       syncWithBackend();
     }).catch((e: any) => console.log('Add member backend sync:', e));
   };
@@ -1016,6 +1193,114 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // Offers Management
+  const addOffer = (offerData: Omit<OfferPlan, 'id' | 'created_at'>): OfferPlan => {
+    const newOffer: OfferPlan = {
+      ...offerData,
+      id: `off-${Date.now()}`,
+      created_at: new Date().toISOString(),
+      created_by: currentUser?.full_name || 'Admin',
+    };
+    setOffers(prev => [newOffer, ...prev]);
+    return newOffer;
+  };
+
+  const updateOffer = (id: string, updates: Partial<OfferPlan>) => {
+    setOffers(prev => prev.map(o => (o.id === id ? { ...o, ...updates } : o)));
+  };
+
+  const deleteOffer = (id: string) => {
+    setOffers(prev => prev.filter(o => o.id !== id));
+  };
+
+  const toggleOfferStatus = (id: string) => {
+    setOffers(prev => prev.map(o => (o.id === id ? { ...o, is_active: !o.is_active } : o)));
+  };
+
+  // Member & Trainer Activation / Inactivation & Re-admission
+  const toggleUserActiveStatus = (userId: string, targetStatus?: boolean) => {
+    setUsers(prev =>
+      prev.map(u => {
+        if (u.id === userId) {
+          const nextActive = targetStatus !== undefined ? targetStatus : !u.is_active;
+          return {
+            ...u,
+            is_active: nextActive,
+          };
+        }
+        return u;
+      })
+    );
+
+    if (currentUser?.id === userId) {
+      setCurrentUser(prev =>
+        prev ? { ...prev, is_active: targetStatus !== undefined ? targetStatus : !prev.is_active } : null
+      );
+    }
+  };
+
+  const executeReAdmission = (
+    userId: string,
+    reAdmissionData: Partial<User> & { plan_duration?: string; fee_paid?: number; plan_name?: string }
+  ) => {
+    const now = new Date();
+    let months = 1;
+    if (reAdmissionData.plan_duration === 'annual') months = 12;
+    else if (reAdmissionData.plan_duration === 'semi_annual') months = 6;
+    else if (reAdmissionData.plan_duration === 'quarterly') months = 3;
+
+    const expiryDate = new Date(now);
+    expiryDate.setMonth(expiryDate.getMonth() + months);
+
+    const updatedMembership = {
+      plan_name: reAdmissionData.plan_name || `${reAdmissionData.enrollment_programme || 'Gym'} Membership`,
+      plan_duration: (reAdmissionData.plan_duration as any) || 'monthly',
+      start_date: now.toISOString().slice(0, 10),
+      end_date: expiryDate.toISOString().slice(0, 10),
+      status: 'active' as const,
+      fee_paid: reAdmissionData.fee_paid || 1900,
+      due_amount: 0,
+      approved_at: now.toISOString(),
+      reminder_frequency: (reAdmissionData.plan_duration as any) || 'monthly',
+      next_reminder_date: expiryDate.toISOString().slice(0, 10),
+    };
+
+    setUsers(prev =>
+      prev.map(u => {
+        if (u.id === userId) {
+          return {
+            ...u,
+            ...reAdmissionData,
+            admission_type: 'Re-admission',
+            is_active: true,
+            approval_status: 'approved',
+            membership: updatedMembership,
+            refund_record: undefined, // Clear discharge if re-admitted
+          };
+        }
+        return u;
+      })
+    );
+
+    const target = users.find(u => u.id === userId);
+    if (target) {
+      recordPayment({
+        user_id: target.id,
+        user_name: target.full_name,
+        center: target.center,
+        plan_name: `[Re-admission] ${updatedMembership.plan_name}`,
+        amount: reAdmissionData.fee_paid || 1900,
+        payment_date: now.toISOString().slice(0, 10),
+        due_date: expiryDate.toISOString().slice(0, 10),
+        status: 'paid',
+        payment_method: 'UPI',
+        verification_status: 'verified',
+        verified_at: now.toISOString(),
+        verified_by: currentUser?.full_name || 'Admin',
+      });
+    }
+  };
+
   return (
     <GymContext.Provider
       value={{
@@ -1075,6 +1360,13 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         payments,
         recordPayment,
         verifyPayment,
+        offers,
+        addOffer,
+        updateOffer,
+        deleteOffer,
+        toggleOfferStatus,
+        toggleUserActiveStatus,
+        executeReAdmission,
         theme,
         toggleTheme,
         language,

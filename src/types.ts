@@ -21,8 +21,14 @@ export interface RefundRecord {
   notes?: string;
 }
 
+export type AdmissionType = 'New Admission' | 'Re-admission';
+export type ProfessionType = 'Business' | 'Service' | 'Student' | 'Others';
+export type EnrollmentProgramme = 'Gym' | 'Karate' | 'Yoga' | 'Crossfit' | 'Kidsfit';
+export type EnrollmentCategory = 'Ladies & Gents' | 'Ladies';
+
 export interface User {
   id: string;
+  member_id?: string;
   email: string;
   phone: string;
   full_name: string;
@@ -31,11 +37,31 @@ export interface User {
   date_of_birth?: string;
   created_at: string;
   is_active: boolean;
+  days_overdue?: number;
   profile_image?: string;
   is_primary_admin?: boolean;
   approval_status: ApprovalStatus;
   achievements?: string[];
   assigned_trainer_id?: string;
+  
+  // Admission & Member Profile details
+  admission_type?: AdmissionType;
+  guardian_name?: string;
+  guardian_phone?: string;
+  profession?: ProfessionType | string;
+  present_address?: string;
+  permanent_address?: string;
+  body_weight?: number;
+  body_height?: string | number;
+  health_problems?: string;
+  enrollment_programme?: EnrollmentProgramme | string;
+  enrollment_category?: EnrollmentCategory | string;
+  
+  // Trainer-specific details
+  trainer_specialties?: string[];
+  trainer_certifications?: string;
+  trainer_experience?: string;
+  
   membership?: {
     plan_name: string;
     plan_duration?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
@@ -240,4 +266,32 @@ export interface WorkoutLogEntry {
   user_id?: string;
   created_at: string;
   items: WorkoutLogItem[];
+}
+
+export interface OfferPlan {
+  id: string;
+  title: string;
+  occasion?: string;
+  occasion_name?: string;
+  occasion_tag?: string;
+  description: string;
+  price: number;
+  offer_price?: number;
+  original_price?: number;
+  discount_percentage?: number;
+  duration_months: number;
+  plan_duration?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
+  plan_duration_type?: 'monthly' | 'quarterly' | 'semi_annual' | 'annual' | 'custom';
+  target_center?: CenterType | 'All';
+  applicable_center?: CenterType | 'All';
+  center?: CenterType | 'All';
+  admission_type_applicable?: 'All' | 'New Admission' | 'Re-admission';
+  applicable_admission?: 'All' | 'New Admission' | 'Re-admission';
+  applicable_to?: 'all' | 'new_admission' | 're_admission';
+  is_active: boolean;
+  valid_until?: string;
+  created_at: string;
+  created_by?: string;
+  discount_badge?: string;
+  features?: string[];
 }

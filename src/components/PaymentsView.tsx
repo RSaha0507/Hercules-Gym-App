@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useGym } from '../context/GymContext';
-import { PaymentRecord, CenterType } from '../types';
+import { PaymentRecord, CenterType, OfferPlan } from '../types';
 import {
   CreditCard,
   CheckCircle2,
@@ -23,6 +23,13 @@ import {
   Calendar,
   BellRing,
   Receipt,
+  Sparkles,
+  Plus,
+  Trash2,
+  ToggleLeft,
+  ToggleRight,
+  Gift,
+  Tag,
 } from 'lucide-react';
 
 export const PaymentsView: React.FC = () => {
@@ -30,12 +37,17 @@ export const PaymentsView: React.FC = () => {
     payments,
     recordPayment,
     verifyPayment,
+    offers,
+    addOffer,
+    updateOffer,
+    deleteOffer,
+    toggleOfferStatus,
     currentUser,
     selectedCenter,
     theme,
   } = useGym();
 
-  const [activeTab, setActiveTab] = useState<'plans' | 'history' | 'admin_verification'>('plans');
+  const [activeTab, setActiveTab] = useState<'plans' | 'offers' | 'history' | 'admin_verification'>('plans');
   const [selectedPlan, setSelectedPlan] = useState<{ id: string; name: string; price: number; period: string; months: number; reminder_scheme: string } | null>(null);
   const [paymentMode, setPaymentMode] = useState<'online' | 'offline'>('online');
   const [screenshotData, setScreenshotData] = useState<string | null>(null);
@@ -44,6 +56,23 @@ export const PaymentsView: React.FC = () => {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [filterBranch, setFilterBranch] = useState<CenterType | 'All'>('All');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Admin Offer Creation Form State
+  const [showCreateOfferModal, setShowCreateOfferModal] = useState(false);
+  const [offerForm, setOfferForm] = useState({
+    occasion_name: 'Durga Puja & Festive Special',
+    title: 'Festive Mega Pass',
+    description: 'Special seasonal fitness plan with unrestricted access across Hercules Gym centers.',
+    original_price: 2100,
+    offer_price: 1500,
+    duration_months: 3,
+    plan_duration: 'quarterly' as 'monthly' | 'quarterly' | 'semi_annual' | 'annual',
+    applicable_center: 'All' as CenterType | 'All',
+    applicable_admission: 'All' as 'All' | 'New Admission' | 'Re-admission',
+    valid_until: '2026-11-30',
+    discount_badge: 'Save ₹600 (28% OFF)',
+    features_input: 'Multi-center access, Induction session, Locker & Shower, Diet blueprint, Free shaker',
+  });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -217,7 +246,7 @@ export const PaymentsView: React.FC = () => {
         </div>
 
         {/* View Switcher */}
-        <div className={`p-1 rounded-2xl border flex items-center gap-1 self-start sm:self-auto ${
+        <div className={`p-1 rounded-2xl border flex items-center flex-wrap gap-1 self-start sm:self-auto ${
           theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-300'
         }`}>
           <button
@@ -230,6 +259,24 @@ export const PaymentsView: React.FC = () => {
           >
             Membership Plans
           </button>
+
+          <button
+            onClick={() => setActiveTab('offers')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeTab === 'offers'
+                ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Occasion & Festive Offers</span>
+            {offers.filter(o => o.is_active).length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-black text-[10px] font-black">
+                {offers.filter(o => o.is_active).length} Active
+              </span>
+            )}
+          </button>
+
           <button
             onClick={() => setActiveTab('history')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -416,8 +463,105 @@ export const PaymentsView: React.FC = () => {
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-black text-white">Choose Your Plan Tier</h3>
+              {/* Active Occasion & Festive Offers Showcase in Plans View */}
+              {offers.filter(o => o.is_active && (o.applicable_center === 'All' || o.applicable_center === currentUser?.center)).length > 0 && (
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-400" />
+                      <h4 className="text-sm font-black text-amber-400 uppercase tracking-wider">
+                        Special Occasion & Festive Offers
+                      </h4>
+                    </div>
+                    {userRole === 'admin' && (
+                      <button
+                        onClick={() => setShowCreateOfferModal(true)}
+                        className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Create New Offer</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {offers
+                      .filter(o => o.is_active && (o.applicable_center === 'All' || o.applicable_center === currentUser?.center))
+                      .map(offer => (
+                        <div
+                          key={offer.id}
+                          className="p-5 rounded-3xl bg-gradient-to-br from-amber-950/40 via-zinc-900 to-rose-950/30 border-2 border-amber-500/60 shadow-xl relative flex flex-col justify-between"
+                        >
+                          <div className="absolute -top-3 right-4 px-3 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-black font-black text-[10px] uppercase tracking-wider shadow-md">
+                            {offer.discount_badge || 'Special Festive Deal'}
+                          </div>
+
+                          <div className="space-y-3">
+                            <div>
+                              <div className="text-[10px] font-extrabold uppercase tracking-widest text-amber-400">
+                                {offer.occasion_name}
+                              </div>
+                              <h4 className="text-base font-black text-white mt-0.5">{offer.title}</h4>
+                              <p className="text-xs text-zinc-300 mt-1 leading-relaxed">{offer.description}</p>
+                            </div>
+
+                            <div className="flex items-baseline gap-2 pt-2 border-t border-amber-900/40">
+                              <span className="text-2xl font-black text-white">₹{offer.offer_price}</span>
+                              {offer.original_price && (
+                                <span className="text-xs line-through text-zinc-400">
+                                  ₹{offer.original_price}
+                                </span>
+                              )}
+                              <span className="text-xs text-amber-400 font-bold">
+                                / {offer.duration_months} Month{offer.duration_months > 1 ? 's' : ''}
+                              </span>
+                            </div>
+
+                            <div className="text-[10px] text-zinc-400 flex items-center gap-2">
+                              <span>For: <strong className="text-zinc-200">{offer.applicable_admission || 'All'}</strong></span>
+                              <span>•</span>
+                              <span>Valid till: <strong className="text-zinc-200">{offer.valid_until || 'Ongoing'}</strong></span>
+                            </div>
+
+                            {offer.features && offer.features.length > 0 && (
+                              <div className="space-y-1.5 pt-2 border-t border-zinc-800/80 text-xs">
+                                {offer.features.map((feat, i) => (
+                                  <div key={i} className="flex items-start gap-1.5 text-zinc-300">
+                                    <Check className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                                    <span className="text-[11px] leading-tight">{feat}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {userRole !== 'admin' && userRole !== 'trainer' && (
+                            <button
+                              onClick={() =>
+                                setSelectedPlan({
+                                  id: offer.id,
+                                  name: `[Offer] ${offer.title}`,
+                                  price: offer.offer_price ?? offer.price,
+                                  period: `${offer.duration_months} Months`,
+                                  months: offer.duration_months,
+                                  reminder_scheme: `${offer.occasion_name || offer.occasion || 'Festive'} special offer cycle`,
+                                })
+                              }
+                              className="w-full py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs shadow-lg shadow-amber-950/40 transition-all mt-5 flex items-center justify-center gap-2"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>Avail Festive Offer</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2">
+                <h3 className="text-base font-black text-white">Standard Plan Tiers</h3>
                 <span className="text-xs text-zinc-400">
                   Branch: <strong className="text-white">{currentUser?.center || 'Ranaghat'} Branch</strong>
                 </span>
@@ -467,21 +611,197 @@ export const PaymentsView: React.FC = () => {
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => setSelectedPlan(plan)}
-                      className={`w-full py-2.5 rounded-2xl font-bold text-xs shadow-lg transition-all mt-6 flex items-center justify-center gap-2 ${
-                        plan.popular
-                          ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/40'
-                          : 'bg-zinc-800 hover:bg-zinc-700 text-white'
-                      }`}
-                    >
-                      <span>Select & Pay Plan</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
+                    {userRole !== 'admin' && userRole !== 'trainer' && (
+                      <button
+                        onClick={() => setSelectedPlan(plan)}
+                        className={`w-full py-2.5 rounded-2xl font-bold text-xs shadow-lg transition-all mt-6 flex items-center justify-center gap-2 ${
+                          plan.popular
+                            ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/40'
+                            : 'bg-zinc-800 hover:bg-zinc-700 text-white'
+                        }`}
+                      >
+                        <span>Select & Pay Plan</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {/* TAB: OCCASION & FESTIVE OFFERS MANAGER */}
+      {activeTab === 'offers' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-black text-white">Occasion & Festive Special Schemes</h3>
+              </div>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Admin can launch special seasonal discounts for Durga Puja, Diwali, New Year, or summer promotions at any time.
+              </p>
+            </div>
+
+            {userRole === 'admin' && (
+              <button
+                type="button"
+                onClick={() => setShowCreateOfferModal(true)}
+                className="py-2.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs shadow-lg shadow-amber-950/40 flex items-center justify-center gap-2 self-start sm:self-auto"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create New Occasion Offer</span>
+              </button>
+            )}
+          </div>
+
+          {offers.length === 0 ? (
+            <div className={`p-12 text-center rounded-3xl border space-y-3 ${
+              theme === 'dark' ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
+            }`}>
+              <Gift className="w-10 h-10 text-amber-400 mx-auto" />
+              <div className="text-base font-bold text-white">No Offers Created Yet</div>
+              <p className="text-xs text-zinc-400 max-w-md mx-auto">
+                Admin can create festive passes and special discount packages here. They will immediately become available in the Add Member/Re-admission form and membership plans!
+              </p>
+              {userRole === 'admin' && (
+                <button
+                  onClick={() => setShowCreateOfferModal(true)}
+                  className="mt-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs"
+                >
+                  Create First Festive Offer
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {offers.map(offer => (
+                <div
+                  key={offer.id}
+                  className={`p-6 rounded-3xl border flex flex-col justify-between relative transition-all ${
+                    offer.is_active
+                      ? 'bg-gradient-to-br from-amber-950/30 via-zinc-900 to-zinc-900 border-amber-500/60 shadow-xl'
+                      : theme === 'dark'
+                      ? 'bg-zinc-900/40 border-zinc-800/80 opacity-70'
+                      : 'bg-zinc-100 border-zinc-200 opacity-80'
+                  }`}
+                >
+                  {/* Status & Discount Pill */}
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-extrabold text-[10px] uppercase tracking-wider border border-amber-500/30">
+                      {offer.discount_badge || 'Special Festive Deal'}
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                        offer.is_active
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                      }`}
+                    >
+                      {offer.is_active ? 'ACTIVE' : 'INACTIVE'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 flex-1">
+                    <div>
+                      <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
+                        {offer.occasion_name}
+                      </div>
+                      <h4 className="text-lg font-black text-white mt-0.5">{offer.title}</h4>
+                      <p className="text-xs text-zinc-300 mt-1 leading-relaxed">{offer.description}</p>
+                    </div>
+
+                    <div className="flex items-baseline gap-2 pt-2 border-t border-zinc-800">
+                      <span className="text-2xl font-black text-white">₹{(offer.offer_price ?? offer.price).toLocaleString()}</span>
+                      {offer.original_price && (
+                        <span className="text-xs line-through text-zinc-400">
+                          ₹{offer.original_price.toLocaleString()}
+                        </span>
+                      )}
+                      <span className="text-xs text-amber-400 font-bold">
+                        / {offer.duration_months} Month{offer.duration_months > 1 ? 's' : ''}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[10px] text-zinc-400 bg-zinc-950/60 p-2.5 rounded-xl border border-zinc-800">
+                      <div>
+                        Branch: <strong className="text-zinc-200">{offer.applicable_center}</strong>
+                      </div>
+                      <div>
+                        Admission: <strong className="text-zinc-200">{offer.applicable_admission || 'All'}</strong>
+                      </div>
+                      <div className="col-span-2">
+                        Valid Until: <strong className="text-zinc-200">{offer.valid_until || 'Ongoing'}</strong>
+                      </div>
+                    </div>
+
+                    {offer.features && offer.features.length > 0 && (
+                      <div className="space-y-1.5 pt-1 text-xs">
+                        {offer.features.map((feat, i) => (
+                          <div key={i} className="flex items-start gap-1.5 text-zinc-300">
+                            <Check className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                            <span className="text-[11px] leading-tight">{feat}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="pt-4 mt-4 border-t border-zinc-800 flex flex-col gap-2">
+                    {offer.is_active && userRole !== 'admin' && userRole !== 'trainer' && (
+                      <button
+                        onClick={() =>
+                          setSelectedPlan({
+                            id: offer.id,
+                            name: `[Offer] ${offer.title}`,
+                            price: offer.offer_price ?? offer.price,
+                            period: `${offer.duration_months} Months`,
+                            months: offer.duration_months,
+                            reminder_scheme: `${offer.occasion_name || offer.occasion || 'Festive'} offer cycle`,
+                          })
+                        }
+                        className="w-full py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black text-xs flex items-center justify-center gap-1.5 shadow-md"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Avail & Subscribe</span>
+                      </button>
+                    )}
+
+                    {userRole === 'admin' && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => toggleOfferStatus(offer.id)}
+                          className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-colors flex items-center justify-center gap-1 ${
+                            offer.is_active
+                              ? 'bg-amber-950/40 text-amber-300 border-amber-800 hover:bg-amber-900/60'
+                              : 'bg-emerald-950/40 text-emerald-300 border-emerald-800 hover:bg-emerald-900/60'
+                          }`}
+                        >
+                          {offer.is_active ? 'Set Inactive' : 'Activate Offer'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Delete offer "${offer.title}"?`)) {
+                              deleteOffer(offer.id);
+                            }
+                          }}
+                          className="p-1.5 rounded-lg bg-rose-950/60 text-rose-300 hover:bg-rose-900 border border-rose-800/60"
+                          title="Delete Offer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -905,6 +1225,230 @@ export const PaymentsView: React.FC = () => {
             >
               <X className="w-5 h-5" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ADMIN CREATE OCCASION OFFER MODAL */}
+      {showCreateOfferModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div
+            className={`w-full max-w-xl rounded-3xl border shadow-2xl p-6 max-h-[90vh] overflow-y-auto ${
+              theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
+            }`}
+          >
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-zinc-800">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <Sparkles className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">Create Occasion / Festive Offer</h3>
+                  <p className="text-xs text-zinc-400">Launch custom gym discounts for festivals or special occasions</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCreateOfferModal(false)}
+                className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                const feats = offerForm.features_input
+                  .split(',')
+                  .map(f => f.trim())
+                  .filter(Boolean);
+
+                const discPct = offerForm.original_price && Number(offerForm.original_price) > 0
+                  ? Math.round(((Number(offerForm.original_price) - Number(offerForm.offer_price)) / Number(offerForm.original_price)) * 100)
+                  : undefined;
+
+                addOffer({
+                  price: Number(offerForm.offer_price),
+                  occasion: offerForm.occasion_name,
+                  occasion_name: offerForm.occasion_name,
+                  occasion_tag: offerForm.occasion_name,
+                  title: offerForm.title,
+                  description: offerForm.description,
+                  original_price: Number(offerForm.original_price),
+                  offer_price: Number(offerForm.offer_price),
+                  discount_percentage: discPct,
+                  duration_months: Number(offerForm.duration_months),
+                  plan_duration: offerForm.plan_duration,
+                  applicable_center: offerForm.applicable_center,
+                  applicable_admission: offerForm.applicable_admission,
+                  valid_until: offerForm.valid_until,
+                  discount_badge: offerForm.discount_badge,
+                  features: feats,
+                  is_active: true,
+                });
+
+                setShowCreateOfferModal(false);
+                setActiveTab('offers');
+              }}
+              className="space-y-4 text-xs"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-zinc-400 font-bold mb-1">Occasion / Festival Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={offerForm.occasion_name}
+                    onChange={e => setOfferForm({ ...offerForm, occasion_name: e.target.value })}
+                    placeholder="e.g. Durga Puja Special, Diwali Dhamaka"
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 font-bold mb-1">Offer Title *</label>
+                  <input
+                    type="text"
+                    required
+                    value={offerForm.title}
+                    onChange={e => setOfferForm({ ...offerForm, title: e.target.value })}
+                    placeholder="e.g. Festive Mega Pass"
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 font-bold mb-1">Short Description</label>
+                <textarea
+                  rows={2}
+                  value={offerForm.description}
+                  onChange={e => setOfferForm({ ...offerForm, description: e.target.value })}
+                  placeholder="Details of the offer and occasion perks..."
+                  className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-zinc-400 font-bold mb-1">Offer Price (₹) *</label>
+                  <input
+                    type="number"
+                    required
+                    value={offerForm.offer_price}
+                    onChange={e => setOfferForm({ ...offerForm, offer_price: Number(e.target.value) })}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-black text-sm text-amber-400 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 font-bold mb-1">Regular Price (₹)</label>
+                  <input
+                    type="number"
+                    value={offerForm.original_price}
+                    onChange={e => setOfferForm({ ...offerForm, original_price: Number(e.target.value) })}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-zinc-400 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 font-bold mb-1">Duration (Months) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="24"
+                    required
+                    value={offerForm.duration_months}
+                    onChange={e => {
+                      const m = Number(e.target.value);
+                      let pd: 'monthly' | 'quarterly' | 'semi_annual' | 'annual' = 'monthly';
+                      if (m >= 12) pd = 'annual';
+                      else if (m >= 6) pd = 'semi_annual';
+                      else if (m >= 3) pd = 'quarterly';
+                      setOfferForm({ ...offerForm, duration_months: m, plan_duration: pd });
+                    }}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-zinc-400 font-bold mb-1">Applicable Branch</label>
+                  <select
+                    value={offerForm.applicable_center}
+                    onChange={e => setOfferForm({ ...offerForm, applicable_center: e.target.value as any })}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold focus:outline-none"
+                  >
+                    <option value="All">All Branches</option>
+                    <option value="Ranaghat">Ranaghat</option>
+                    <option value="Chakdah">Chakdah</option>
+                    <option value="Madanpur">Madanpur</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 font-bold mb-1">Applicable For</label>
+                  <select
+                    value={offerForm.applicable_admission}
+                    onChange={e => setOfferForm({ ...offerForm, applicable_admission: e.target.value as any })}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white font-bold focus:outline-none"
+                  >
+                    <option value="All">All (New & Re-admission)</option>
+                    <option value="New Admission">New Admission Only</option>
+                    <option value="Re-admission">Re-admission Only</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 font-bold mb-1">Valid Until</label>
+                  <input
+                    type="date"
+                    value={offerForm.valid_until}
+                    onChange={e => setOfferForm({ ...offerForm, valid_until: e.target.value })}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 font-bold mb-1">Discount Tag / Badge</label>
+                <input
+                  type="text"
+                  value={offerForm.discount_badge}
+                  onChange={e => setOfferForm({ ...offerForm, discount_badge: e.target.value })}
+                  placeholder="e.g. Save ₹600 (28% OFF) • Festive Special"
+                  className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-amber-300 font-bold focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 font-bold mb-1">Features Included (comma-separated)</label>
+                <input
+                  type="text"
+                  value={offerForm.features_input}
+                  onChange={e => setOfferForm({ ...offerForm, features_input: e.target.value })}
+                  placeholder="e.g. All branches access, Locker included, Nutrition plan, Free shaker"
+                  className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-700 text-white focus:outline-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-3 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateOfferModal(false)}
+                  className="flex-1 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black shadow-lg shadow-amber-950/40"
+                >
+                  Publish Occasion Offer
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
