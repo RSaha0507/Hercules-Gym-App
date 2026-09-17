@@ -489,15 +489,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
 
         {/* Right Column: Branch Network */}
         <div className="lg:col-span-4 space-y-6">
-          {/* 3 Centers Clean Branch Network Switcher */}
+          {/* Branch Network / Home Center Card */}
           <div className="p-5 rounded-3xl border border-zinc-800 bg-zinc-950/80 backdrop-blur-md shadow-xl">
             <div className="flex items-center gap-2 mb-4">
               <MapPin className="w-4 h-4 text-rose-500" />
-              <h3 className="text-sm font-black text-white">Branch Network</h3>
+              <h3 className="text-sm font-black text-white">
+                {currentUser && currentUser.role !== 'admin' ? 'Your Home Branch' : 'Branch Network'}
+              </h3>
             </div>
 
             <div className="space-y-2.5">
-              {(['Ranaghat', 'Chakdah', 'Madanpur'] as const).map((branch) => {
+              {(currentUser && currentUser.role !== 'admin'
+                ? [currentUser.center]
+                : (['Ranaghat', 'Chakdah', 'Madanpur'] as const)
+              ).map((branch) => {
                 const count = attendance.filter(
                   (a) => a.date === todayStr && a.center === branch && !a.check_out_time
                 ).length;
@@ -506,9 +511,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
                 return (
                   <button
                     key={branch}
-                    onClick={() => setSelectedCenter(branch)}
+                    onClick={() => {
+                      if (!currentUser || currentUser.role === 'admin') {
+                        setSelectedCenter(branch);
+                      }
+                    }}
                     className={`w-full p-4 rounded-2xl border text-left transition-all flex items-center justify-between ${
-                      isSelected
+                      isSelected || (currentUser && currentUser.role !== 'admin')
                         ? 'bg-gradient-to-r from-rose-600/20 to-amber-500/20 border-rose-500/50 text-white shadow-lg shadow-rose-950/30'
                         : 'bg-zinc-900/50 border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700'
                     }`}

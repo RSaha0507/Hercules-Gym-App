@@ -97,14 +97,17 @@ export const Hero3DShowcase: React.FC<Hero3DShowcaseProps> = ({ onOpenQrModal })
             </p>
           </div>
 
-          {/* 3 Centers Clean Branch Switcher */}
+          {/* Branch Display / Switcher */}
           <div className="space-y-2">
             <p className="text-[11px] font-black uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5 text-rose-500" />
-              Select Branch:
+              {currentUser && currentUser.role !== 'admin' ? 'Your Branch:' : 'Select Branch:'}
             </p>
-            <div className="grid grid-cols-3 gap-2">
-              {(['Ranaghat', 'Chakdah', 'Madanpur'] as const).map((branch) => {
+            <div className={`grid ${currentUser && currentUser.role !== 'admin' ? 'grid-cols-1' : 'grid-cols-3'} gap-2`}>
+              {(currentUser && currentUser.role !== 'admin'
+                ? [currentUser.center]
+                : (['Ranaghat', 'Chakdah', 'Madanpur'] as const)
+              ).map((branch) => {
                 const count = attendance.filter(
                   (a) => a.date === todayStr && a.center === branch && !a.check_out_time
                 ).length;
@@ -113,15 +116,19 @@ export const Hero3DShowcase: React.FC<Hero3DShowcaseProps> = ({ onOpenQrModal })
                 return (
                   <button
                     key={branch}
-                    onClick={() => setSelectedCenter(isSelected ? 'All' : branch)}
+                    onClick={() => {
+                      if (!currentUser || currentUser.role === 'admin') {
+                        setSelectedCenter(isSelected ? 'All' : branch);
+                      }
+                    }}
                     className={`p-3 rounded-2xl border text-left transition-all duration-200 ${
-                      isSelected
+                      isSelected || (currentUser && currentUser.role !== 'admin')
                         ? 'bg-gradient-to-br from-rose-600/30 to-amber-500/20 border-rose-500 text-white shadow-lg shadow-rose-950/40 ring-1 ring-rose-500/50'
                         : 'bg-zinc-900/60 hover:bg-zinc-800/80 border-zinc-800 text-zinc-300'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black">{branch}</span>
+                      <span className="text-xs font-black">{branch} {currentUser && currentUser.role !== 'admin' ? 'Center' : ''}</span>
                       <span
                         className={`w-2 h-2 rounded-full ${
                           count > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'

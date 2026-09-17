@@ -2,6 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Query, B
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import JSONResponse, HTMLResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
@@ -578,9 +579,37 @@ class AnnouncementUpdate(BaseModel):
     announcement_type: Optional[Literal["general", "achievement"]] = None
     expires_at: Optional[datetime] = None
 
+# Master Catalog Models
+class CatalogItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    category: str  # "Supplements", "Apparel", "Accessories", "Equipment"
+    price: float
+    description: Optional[str] = ""
+    variants: List[str] = []  # Flavours for supplements, or Choices/Sizes for other categories
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: Optional[str] = None
+
+class CatalogItemCreate(BaseModel):
+    name: str
+    category: str
+    price: float
+    description: Optional[str] = ""
+    variants: List[str] = []
+
+class CatalogItemUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    price: Optional[float] = None
+    description: Optional[str] = None
+    variants: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
 # Merchandise Models
 class MerchandiseItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    catalog_id: Optional[str] = None
     name: str
     description: Optional[str] = ""
     price: float
@@ -591,7 +620,8 @@ class MerchandiseItem(BaseModel):
     sizes: Optional[List[str]] = None
     flavours: Optional[List[str]] = None
     flavours_or_choices: Optional[List[str]] = None
-    stock: Any = 0  # {"S": 10, ...} or number
+    stock: Any = 0  # Total stock number or dict
+    variant_stocks: Optional[Dict[str, int]] = None  # Variant-wise inventory counter e.g. {"Double Rich Chocolate": 10}
     badge: Optional[str] = None
     available_centers: Optional[List[str]] = ["All"]
     image: Optional[str] = None  # Base64 or URL
@@ -603,6 +633,7 @@ class MerchandiseItem(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class MerchandiseCreate(BaseModel):
+    catalog_id: Optional[str] = None
     name: str
     description: Optional[str] = ""
     price: float
@@ -614,6 +645,7 @@ class MerchandiseCreate(BaseModel):
     flavours: Optional[List[str]] = None
     flavours_or_choices: Optional[List[str]] = None
     stock: Any = 0
+    variant_stocks: Optional[Dict[str, int]] = None
     badge: Optional[str] = None
     available_centers: Optional[List[str]] = ["All"]
     image: Optional[str] = None
@@ -623,6 +655,7 @@ class MerchandiseCreate(BaseModel):
     reviews_count: Optional[int] = 12
 
 class MerchandiseUpdate(BaseModel):
+    catalog_id: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
     price: Optional[float] = None
@@ -634,6 +667,7 @@ class MerchandiseUpdate(BaseModel):
     flavours: Optional[List[str]] = None
     flavours_or_choices: Optional[List[str]] = None
     stock: Optional[Any] = None
+    variant_stocks: Optional[Dict[str, int]] = None
     badge: Optional[str] = None
     available_centers: Optional[List[str]] = None
     image: Optional[str] = None
@@ -976,6 +1010,44 @@ def normalize_profile_image(value: Optional[str], *, required: bool = False) -> 
     if not (raw.startswith("data:image/") or raw.startswith("http://") or raw.startswith("https://")):
         raise HTTPException(status_code=400, detail="Profile photo must be an image data URI or image URL")
     return raw
+
+async def upload_image_to_cdn_if_configured(image_data: Optional[str], folder: str = "hercules_gym") -> Optional[str]:
+    """
+    If Cloudinary is configured via environment variables and image_data is a base64 Data URI,
+    uploads it to Cloudinary and returns a high-performance CDN URL (reducing bandwidth by 99%).
+    If Cloudinary is not configured or fails, smoothly returns image_data as is.
+    """
+    if not image_data or not image_data.startswith("data:image/"):
+        return image_data
+
+    cloudinary_url = os.environ.get("CLOUDINARY_URL")
+    cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME")
+    if not (cloudinary_url or cloud_name):
+        return image_data
+
+    try:
+        import cloudinary
+        import cloudinary.uploader
+
+        def _do_upload():
+            result = cloudinary.uploader.upload(
+                image_data,
+                folder=folder,
+                resource_type="image",
+                transformation=[
+                    {"quality": "auto:good", "fetch_format": "auto", "width": 800, "crop": "limit"}
+                ],
+            )
+            return result.get("secure_url") or result.get("url")
+
+        cdn_url = await asyncio.to_thread(_do_upload)
+        if cdn_url:
+            logger.info("Image successfully offloaded to Cloudinary CDN: %s", cdn_url)
+            return cdn_url
+    except Exception as exc:
+        logger.warning("Cloudinary upload failed, falling back to direct storage: %s", exc)
+
+    return image_data
 
 def normalize_date_of_birth(value: Optional[object], *, strict: bool = True) -> Optional[datetime]:
     if value is None:
@@ -1791,7 +1863,10 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="Date of birth is required")
     normalized_phone = normalize_indian_phone(user.phone)
     normalized_dob = normalize_date_of_birth(user.date_of_birth) if user.date_of_birth else None
-    normalized_profile_image = normalize_profile_image(user.profile_image)
+    normalized_profile_image = await upload_image_to_cdn_if_configured(
+        normalize_profile_image(user.profile_image),
+        folder="hercules_gym/profiles"
+    )
     resolved_email = await resolve_registration_email(
         user.email,
         normalized_phone,
@@ -1838,7 +1913,7 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
     hashed_password = get_password_hash(user.password)
     
     assigned_member_id = user.member_id or (await generate_member_id() if user.role == "member" else None)
-    
+
     user_dict = {
         "id": user_id,
         "member_id": assigned_member_id,
@@ -2103,7 +2178,10 @@ async def update_profile(
         if phone:
             update_data["phone"] = normalize_indian_phone(phone)
     if "profile_image" in incoming:
-        update_data["profile_image"] = normalize_profile_image(incoming.get("profile_image"))
+        update_data["profile_image"] = await upload_image_to_cdn_if_configured(
+            normalize_profile_image(incoming.get("profile_image")),
+            folder="hercules_gym/profiles"
+        )
     if "date_of_birth" in incoming:
         normalized_dob = normalize_date_of_birth(incoming.get("date_of_birth"))
         update_data["date_of_birth"] = normalized_dob
@@ -2889,7 +2967,10 @@ async def create_member(member: MemberProfileCreate, current_user: UserInDB = De
         raise HTTPException(status_code=400, detail="Date of birth is required")
 
     normalized_dob = normalize_date_of_birth(member.date_of_birth) if member.date_of_birth else None
-    normalized_profile_image = normalize_profile_image(member.profile_image)
+    normalized_profile_image = await upload_image_to_cdn_if_configured(
+        normalize_profile_image(member.profile_image),
+        folder="hercules_gym/profiles"
+    )
     normalized_phone = normalize_indian_phone(member.phone)
     normalized_email = await resolve_registration_email(
         member.email,
@@ -3574,7 +3655,10 @@ async def create_trainer(user: UserCreate, current_user: UserInDB = Depends(requ
         raise HTTPException(status_code=400, detail="Phone already registered")
     
     normalized_dob = normalize_date_of_birth(user.date_of_birth) if user.date_of_birth else None
-    normalized_profile_image = normalize_profile_image(user.profile_image)
+    normalized_profile_image = await upload_image_to_cdn_if_configured(
+        normalize_profile_image(user.profile_image),
+        folder="hercules_gym/profiles"
+    )
     validate_password_strength(user.password)
     user_id = str(uuid.uuid4())
     hashed_password = get_password_hash(user.password)
@@ -4854,28 +4938,350 @@ async def delete_announcement(
         raise HTTPException(status_code=404, detail="Announcement not found")
     return {"message": "Announcement deleted"}
 
-# ==================== MERCHANDISE ROUTES ====================
+# ==================== MASTER CATALOG ROUTES ====================
+
+def get_default_catalog_items() -> List[Dict[str, Any]]:
+    return [
+        # 1. Supplements
+        {
+            "id": "cat-supp-1",
+            "name": "Optimum Nutrition 100% Gold Standard 5LBS Whey Protein",
+            "category": "Supplements",
+            "price": 6499.0,
+            "description": "The world's #1 selling whey protein. 24g of pure whey protein isolate per scoop, 5.5g BCAAs, with optimal muscle synthesis.",
+            "variants": ["Double Rich Chocolate", "Vanilla Ice Cream", "Cookies & Cream", "Café Mocha", "Extreme Milk Chocolate", "Unflavoured"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-supp-2",
+            "name": "MuscleBlaze Biozyme Performance Whey 2kg",
+            "category": "Supplements",
+            "price": 4299.0,
+            "description": "Clinically tested 50% higher protein absorption (Enhanced Absorption Formula) tailored for Indian bodies.",
+            "variants": ["Rich Chocolate", "Kesar Kulfi", "Chocolate Hazelnut", "Magical Mango", "Blueberry Cheesecake"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-supp-3",
+            "name": "Dymatize ISO 100 Hydrolyzed 100% Whey Isolate 5LBS",
+            "category": "Supplements",
+            "price": 8299.0,
+            "description": "Ultra-fast digesting hydrolyzed whey isolate with 25g protein and less than 1g sugar & fat. Pure lean mass.",
+            "variants": ["Gourmet Chocolate", "Fudge Brownie", "Birthday Cake", "Peanut Butter", "Smooth Banana"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-supp-4",
+            "name": "Cellucor C4 Original Explosive Pre-Workout 30 Servings",
+            "category": "Supplements",
+            "price": 2299.0,
+            "description": "Explosive energy and muscular endurance booster with CarnoSyn Beta-Alanine, Arginine AKG and Caffeine.",
+            "variants": ["Fruit Punch", "Icy Blue Razz", "Watermelon Blast", "Cherry Limeade", "Green Apple"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-supp-5",
+            "name": "MuscleTech Platinum 100% Pure Creatine 400g",
+            "category": "Supplements",
+            "price": 1499.0,
+            "description": "Ultra-pure micronized creatine monohydrate for maximum strength, explosive power output, and muscle volumization.",
+            "variants": ["Unflavoured Micronized", "Fruit Fusion", "Citrus Splash"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-supp-6",
+            "name": "Scivation Xtend Original 7G BCAA Electrolytes",
+            "category": "Supplements",
+            "price": 2499.0,
+            "description": "7g of BCAAs in the proven 2:1:1 ratio plus hydration-inducing electrolytes for intra-workout stamina and recovery.",
+            "variants": ["Blue Raspberry Ice", "Watermelon Explosion", "Mango Madness", "Italian Blood Orange", "Lemon Lime Squeeze"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-supp-7",
+            "name": "Universal Nutrition Animal Pak 44 Training Packs",
+            "category": "Supplements",
+            "price": 3899.0,
+            "description": "The foundational multi-nutrient training pack loaded with 85+ vitamins, minerals, antioxidants, and digestive enzymes.",
+            "variants": ["Original 44-Pill Packs", "Orange Powder Formula (30 Servings)"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-supp-8",
+            "name": "MuscleBlaze Omega 3 Fish Oil 1000mg 90 Softgels",
+            "category": "Supplements",
+            "price": 899.0,
+            "description": "Triple strength molecularly distilled omega 3 essential fatty acids (EPA & DHA) for joint lubrication and cardiovascular health.",
+            "variants": ["90 Softgels", "180 Softgels Economy Pack"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+
+        # 2. Apparel
+        {
+            "id": "cat-app-1",
+            "name": "Hercules Gym Signature Heavyweight Oversized Tee",
+            "category": "Apparel",
+            "price": 999.0,
+            "description": "240 GSM heavy combed cotton oversized bodybuilding pump cover featuring the iconic Hercules back graphic.",
+            "variants": ["S", "M", "L", "XL", "XXL"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-app-2",
+            "name": "Hercules Classic Deep-Cut Stringer Tank Top",
+            "category": "Apparel",
+            "price": 699.0,
+            "description": "Ultra-breathable dry-fit polyester blend engineered for maximum shoulder and lat mobility during heavy sessions.",
+            "variants": ["S", "M", "L", "XL"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-app-3",
+            "name": "Heavy-Duty Gym Fleece Training Joggers & Sweatpants",
+            "category": "Apparel",
+            "price": 1499.0,
+            "description": "Tapered aesthetic fit with zipped security pockets and reinforced knee panels for squats and deadlifts.",
+            "variants": ["M", "L", "XL", "XXL"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-app-4",
+            "name": "Seamless High-Waist Athletic Gym Performance Leggings",
+            "category": "Apparel",
+            "price": 1299.0,
+            "description": "Squat-proof, compressive 4-way stretch fabric with tummy control ribbed waistband.",
+            "variants": ["XS", "S", "M", "L"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-app-5",
+            "name": "Hercules Dry-Fit Compression Training Rashguard",
+            "category": "Apparel",
+            "price": 1199.0,
+            "description": "Graduated compression upper body armor that supports blood circulation and protects against barbell friction.",
+            "variants": ["S", "M", "L", "XL"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+
+        # 3. Accessories
+        {
+            "id": "cat-acc-1",
+            "name": "Hercules Heavy-Duty 10mm Genuine Leather Powerlifting Belt",
+            "category": "Accessories",
+            "price": 2899.0,
+            "description": "IPF-spec single-prong chrome steel buckle with reinforced double stitching for heavy squat and deadlift intra-abdominal pressure.",
+            "variants": ["S (26-32 inch)", "M (32-36 inch)", "L (36-40 inch)", "XL (40-44 inch)"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-acc-2",
+            "name": "Heavy-Duty Elastic Thumb-Loop Wrist Wraps (Pair)",
+            "category": "Accessories",
+            "price": 599.0,
+            "description": "Military-grade elastic webbing providing rigid wrist stabilization on heavy overhead presses and bench presses.",
+            "variants": ["Standard 18-Inch", "Heavy-Duty 24-Inch Pro"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-acc-3",
+            "name": "Neoprene Padded Weightlifting Figure-8 Lifting Straps",
+            "category": "Accessories",
+            "price": 499.0,
+            "description": "Heavy duty cotton webbing with non-slip silicone traction beads to lock your grip securely onto any barbell or dumbbell.",
+            "variants": ["Classic Padded Straps", "Figure-8 Deadlift Straps", "Heavy Leather Lifting Straps"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-acc-4",
+            "name": "Stainless Steel Double-Wall Thermal Shaker Bottle 750ml",
+            "category": "Accessories",
+            "price": 799.0,
+            "description": "BPA-free vacuum insulated stainless steel shaker keeping protein shakes ice-cold for 12+ hours with built-in blending whisk.",
+            "variants": ["Matte Stealth Black", "Crimson Red", "Brushed Silver", "Midnight Navy"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-acc-5",
+            "name": "7mm High-Compression Neoprene Knee Sleeves (Pair)",
+            "category": "Accessories",
+            "price": 1699.0,
+            "description": "Dense 7mm SCR neoprene delivering thermal joint warming and kinetic pop out of the squat hole.",
+            "variants": ["S", "M", "L", "XL", "XXL"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+
+        # 4. Equipment
+        {
+            "id": "cat-eq-1",
+            "name": "Cast Iron Olympic Weight Plate Set 50mm",
+            "category": "Equipment",
+            "price": 3499.0,
+            "description": "Precision cast Olympic bumper/iron plates with tri-grip handles calibrated to within 1% weight accuracy.",
+            "variants": ["Pair 2.5 KG", "Pair 5 KG", "Pair 10 KG", "Pair 15 KG", "Pair 20 KG", "Pair 25 KG"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-eq-2",
+            "name": "Quick-Release Olympic 50mm Barbell Clamps / Collars",
+            "category": "Equipment",
+            "price": 699.0,
+            "description": "High-impact resin quick-lock clamping mechanism that prevents plate slippage during explosive lifts.",
+            "variants": ["Heavy-Duty ABS Locking (Pair)", "Aircraft Aluminum Pro (Pair)"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-eq-3",
+            "name": "5-Level Stackable Heavy-Duty Resistance Bands Set",
+            "category": "Equipment",
+            "price": 1199.0,
+            "description": "100% natural Malaysian latex tubes (10 to 50 lbs) with cushioned foam handles, door anchor, and ankle straps.",
+            "variants": ["Complete 5-in-1 Stack (100 LBS)", "Extreme Power Stack (150 LBS)"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-eq-4",
+            "name": "High-Density Grid Foam Roller for Myofascial Release",
+            "category": "Equipment",
+            "price": 899.0,
+            "description": "Multi-density EVA foam surface matrix to alleviate muscle tightness, break down scar tissue, and speed recovery.",
+            "variants": ["Compact 13-Inch", "Full Body 18-Inch", "Extra Firm 24-Inch Pro"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        },
+        {
+            "id": "cat-eq-5",
+            "name": "Gym Magnesium Carbonate Chalk & Liquid Grip",
+            "category": "Equipment",
+            "price": 399.0,
+            "description": "Sweat-blocking pure magnesium carbonate delivering unshakeable friction on bars and heavy pulls.",
+            "variants": ["50ml Pocket Liquid Grip", "200ml Liquid Chalk Bottle", "Solid Chalk Block 8-Pack Box"],
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        }
+    ]
+
+@api_router.get("/catalog")
+async def get_master_catalog(current_user: UserInDB = Depends(get_current_user)):
+    # Master catalog is accessible for browsing to admin, trainers and authenticated users
+    items = await db.catalog.find({"is_active": {"$ne": False}}).to_list(200)
+    if not items:
+        default_items = get_default_catalog_items()
+        if default_items:
+            for d in default_items:
+                await db.catalog.update_one({"id": d["id"]}, {"$setOnInsert": d}, upsert=True)
+            items = await db.catalog.find({"is_active": {"$ne": False}}).to_list(200)
+    return [sanitize_mongo_doc(item) for item in items]
+
+@api_router.post("/catalog")
+async def create_catalog_item(
+    item: CatalogItemCreate,
+    current_user: UserInDB = Depends(require_admin)
+):
+    # Only Admin can create items in the master catalog
+    is_supp = item.category.lower() == "supplements"
+    clean_variants = [v.strip() for v in item.variants if v and v.strip()]
+    if not clean_variants:
+        if is_supp:
+            clean_variants = ["Double Rich Chocolate", "Vanilla Ice Cream", "Café Mocha"]
+        elif item.category.lower() == "apparel":
+            clean_variants = ["S", "M", "L", "XL", "XXL"]
+        else:
+            clean_variants = ["Standard", "Heavy-Duty"]
+
+    catalog_entry = CatalogItem(
+        name=item.name.strip(),
+        category=item.category.strip(),
+        price=item.price,
+        description=item.description or "",
+        variants=clean_variants,
+        created_by=current_user.id
+    )
+    await db.catalog.insert_one(catalog_entry.dict())
+    return sanitize_mongo_doc(catalog_entry.dict())
+
+@api_router.put("/catalog/{item_id}")
+async def update_catalog_item(
+    item_id: str,
+    update: CatalogItemUpdate,
+    current_user: UserInDB = Depends(require_admin)
+):
+    update_dict = {k: v for k, v in update.dict(exclude_unset=True).items()}
+    if update_dict:
+        await db.catalog.update_many({"$or": [{"id": item_id}, {"_id": item_id}]}, {"$set": update_dict})
+    return {"message": "Catalog item updated successfully"}
+
+@api_router.delete("/catalog/{item_id}")
+async def delete_catalog_item(
+    item_id: str,
+    current_user: UserInDB = Depends(require_admin)
+):
+    await db.catalog.update_many({"$or": [{"id": item_id}, {"_id": item_id}]}, {"$set": {"is_active": False}})
+    await db.catalog.delete_many({"$or": [{"id": item_id}, {"_id": item_id}]})
+    return {"message": "Catalog item removed successfully"}
+
+# ==================== MERCHANDISE STORE ROUTES ====================
 
 @api_router.post("/merchandise")
 async def create_merchandise(
     item: MerchandiseCreate,
-    current_user: UserInDB = Depends(require_admin)
+    current_user: UserInDB = Depends(get_current_user)
 ):
-    # Strictly isolate Flavours vs Sizes/Choices based on category
+    # Admin and Trainer are authorized to list/add products to the center store from the catalog
+    if current_user.role not in ["admin", "trainer"]:
+        raise HTTPException(status_code=403, detail="Admin or Trainer authorization required to list products")
+    
     is_supp = item.category == "Supplements" or item.category.lower() == "supplements"
     
     if is_supp:
         # Flavours only for supplements
         flavours_val = item.flavours or item.flavours_or_choices or []
+        if not flavours_val and item.variant_stocks:
+            flavours_val = list(item.variant_stocks.keys())
         if not flavours_val:
             flavours_val = ["Double Rich Chocolate", "Vanilla Ice Cream", "Café Mocha"]
         sizes_val = []
     else:
         # Sizes / choices for rest of the products (Apparel, Accessories, Equipment)
         flavours_val = []
-        sizes_val = item.sizes or item.flavours_or_choices or ["S", "M", "L", "XL"]
+        sizes_val = item.sizes or item.flavours_or_choices or []
+        if not sizes_val and item.variant_stocks:
+            sizes_val = list(item.variant_stocks.keys())
+        if not sizes_val:
+            sizes_val = ["S", "M", "L", "XL"] if item.category.lower() == "apparel" else ["Standard"]
+
+    # Calculate total stock if variant_stocks provided
+    total_stock = item.stock
+    if item.variant_stocks and isinstance(item.variant_stocks, dict):
+        total_stock = sum(int(v) for v in item.variant_stocks.values() if isinstance(v, (int, float, str)) and str(v).isdigit())
+
+    # Optional CDN upload for product primary image
+    image_url_val = item.image_url or item.image
+    if image_url_val and image_url_val.startswith("data:image/"):
+        image_url_val = await upload_image_to_cdn_if_configured(image_url_val, folder="hercules_gym/store")
 
     merchandise = MerchandiseItem(
+        catalog_id=item.catalog_id,
         name=item.name,
         description=item.description or "",
         price=item.price,
@@ -4886,14 +5292,16 @@ async def create_merchandise(
         sizes=sizes_val,
         flavours=flavours_val,
         flavours_or_choices=flavours_val if is_supp else sizes_val,
-        stock=item.stock or 0,
+        stock=total_stock or 0,
+        variant_stocks=item.variant_stocks,
         badge=item.badge,
         available_centers=item.available_centers or ["All"],
-        image=item.image,
-        image_url=item.image_url,
+        image=image_url_val,
+        image_url=image_url_val,
         additional_images=item.additional_images or [],
         rating=item.rating or 4.9,
-        reviews_count=item.reviews_count or 12
+        reviews_count=item.reviews_count or 12,
+        created_by=current_user.id
     )
     
     await db.merchandise.insert_one(merchandise.dict())
@@ -4907,24 +5315,26 @@ async def get_merchandise(current_user: UserInDB = Depends(get_current_user)):
         doc = sanitize_mongo_doc(item)
         is_supp = doc.get("category") == "Supplements" or str(doc.get("category", "")).lower() == "supplements"
         if is_supp:
-            # Supplements MUST NOT have apparel sizes (S, M, L, XL)
             doc["sizes"] = []
             flavours = doc.get("flavours") or []
-            # If flavours was erroneously set to apparel sizes or empty, fix it
             if not flavours or (isinstance(flavours, list) and all(x in ["S", "M", "L", "XL", "XXL", "XS"] for x in flavours)):
                 f_or_c = doc.get("flavours_or_choices") or []
                 if f_or_c and not all(x in ["S", "M", "L", "XL", "XXL", "XS"] for x in f_or_c):
                     doc["flavours"] = f_or_c
+                elif doc.get("variant_stocks") and isinstance(doc["variant_stocks"], dict):
+                    doc["flavours"] = list(doc["variant_stocks"].keys())
                 elif "tiger" in str(doc.get("name", "")).lower() or "pre" in str(doc.get("name", "")).lower():
                     doc["flavours"] = ["Fruit Punch", "Watermelon Blast", "Blue Raspberry"]
                 else:
                     doc["flavours"] = ["Double Rich Chocolate", "Vanilla Ice Cream", "Café Mocha"]
             doc["flavours_or_choices"] = doc["flavours"]
         else:
-            # Rest of products: choices / sizes only
             doc["flavours"] = []
             if not doc.get("sizes"):
-                doc["sizes"] = doc.get("flavours_or_choices") or ["S", "M", "L", "XL"]
+                if doc.get("variant_stocks") and isinstance(doc["variant_stocks"], dict):
+                    doc["sizes"] = list(doc["variant_stocks"].keys())
+                else:
+                    doc["sizes"] = doc.get("flavours_or_choices") or (["S", "M", "L", "XL"] if str(doc.get("category", "")).lower() == "apparel" else ["Standard"])
             doc["flavours_or_choices"] = doc.get("sizes")
         cleaned.append(doc)
     return cleaned
@@ -4940,8 +5350,11 @@ async def get_merchandise_item(item_id: str, current_user: UserInDB = Depends(ge
 async def update_merchandise(
     item_id: str,
     update: MerchandiseUpdate,
-    current_user: UserInDB = Depends(require_admin)
+    current_user: UserInDB = Depends(get_current_user)
 ):
+    if current_user.role not in ["admin", "trainer"]:
+        raise HTTPException(status_code=403, detail="Admin or Trainer authorization required")
+
     update_dict = {k: v for k, v in update.dict(exclude_unset=True).items()}
     if "category" in update_dict or "flavours" in update_dict or "sizes" in update_dict:
         cat = update_dict.get("category")
@@ -4955,15 +5368,19 @@ async def update_merchandise(
                 update_dict["flavours"] = []
                 if "sizes" in update_dict:
                     update_dict["flavours_or_choices"] = update_dict["sizes"]
+    
+    if "variant_stocks" in update_dict and isinstance(update_dict["variant_stocks"], dict):
+        update_dict["stock"] = sum(int(v) for v in update_dict["variant_stocks"].values() if isinstance(v, (int, float, str)) and str(v).isdigit())
+
     if update_dict:
         await db.merchandise.update_many({"$or": [{"id": item_id}, {"_id": item_id}]}, {"$set": update_dict})
     return {"message": "Merchandise updated"}
 
 @api_router.delete("/merchandise/{item_id}")
 async def delete_merchandise(item_id: str, current_user: UserInDB = Depends(get_current_user)):
-    # Verify admin role
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin authorization required to delete merchandise")
+    # Verify admin or trainer role
+    if current_user.role not in ["admin", "trainer"]:
+        raise HTTPException(status_code=403, detail="Admin or Trainer authorization required to delete merchandise")
     
     # Mark inactive and delete from database collection
     await db.merchandise.update_many(
@@ -5006,7 +5423,10 @@ async def create_merchandise_order(
         })
         total_amount += item["price"] * cart_item.quantity
     
-    payment_proof_image = normalize_payment_proof_image(order.payment_proof_image)
+    payment_proof_image = await upload_image_to_cdn_if_configured(
+        normalize_payment_proof_image(order.payment_proof_image),
+        folder="hercules_gym/payments"
+    )
 
     # Create order and mark payment as pending verification
     payment_reference = f"SHOP-{uuid.uuid4().hex[:10].upper()}"
@@ -5225,7 +5645,10 @@ async def pay_membership_fee(
     late_fee = 0.0 if request.amount else (due_details["late_fee"] if due_details else 0.0)
     due_date = due_details["due_date"] if due_details else datetime.utcnow()
 
-    payment_proof_image = normalize_payment_proof_image(request.proof_image)
+    payment_proof_image = await upload_image_to_cdn_if_configured(
+        normalize_payment_proof_image(request.proof_image),
+        folder="hercules_gym/payments"
+    )
     payment_reference = f"MEM-{uuid.uuid4().hex[:10].upper()}"
     plan_desc = f" ({request.plan_type})" if request.plan_type else ""
     payment = Payment(
@@ -6802,6 +7225,12 @@ app.add_middleware(
     allow_origins=cors_allow_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Enable Gzip compression on all responses >= 1KB (reduces JSON payload bandwidth by up to 75-85%)
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=1000,
 )
 
 @app.on_event("startup")

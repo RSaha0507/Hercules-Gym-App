@@ -217,6 +217,11 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ onOpenQrModal })
               />
             </div>
 
+            {currentUser && currentUser.role !== 'admin' ? (
+              <span className="px-2.5 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-rose-400 font-bold">
+                {currentUser.center}
+              </span>
+            ) : (
             <select
               value={centerFilter}
               onChange={e => setCenterFilter(e.target.value as any)}
@@ -227,6 +232,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ onOpenQrModal })
               <option value="Chakdah">Chakdah</option>
               <option value="Madanpur">Madanpur</option>
             </select>
+             )}
           </div>
         </div>
 

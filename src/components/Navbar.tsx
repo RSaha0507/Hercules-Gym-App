@@ -13,6 +13,8 @@ import {
   RefreshCw,
   User,
   ShieldCheck,
+  Menu,
+  X,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -37,6 +39,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
     backendConnected,
     isSyncing,
     syncWithBackend,
+    isNavOpen,
+    toggleNav,
   } = useGym();
 
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -51,8 +55,35 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
         : 'bg-white/90 border-zinc-200 backdrop-blur-md text-zinc-900'
     }`}>
       <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
-        {/* Brand Logo */}
+        {/* Left Side: 3-Dash Menu Toggle Button & Brand Logo */}
         <div className="flex items-center gap-3">
+          {/* Three-Dash Hamburger Button */}
+          {currentUser && (
+            <button
+              type="button"
+              onClick={toggleNav}
+              aria-label="Toggle Navigation Menu"
+              title={isNavOpen ? 'Collapse Navigation Menu' : 'Open Navigation Menu'}
+              className={`p-2 rounded-xl border transition-all flex items-center justify-center relative group active:scale-90 ${
+                isNavOpen
+                  ? 'bg-rose-600 border-rose-500 text-white shadow-md shadow-rose-950/40'
+                  : theme === 'dark'
+                  ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800 hover:border-zinc-700'
+                  : 'bg-zinc-100 border-zinc-300 text-zinc-700 hover:bg-zinc-200'
+              }`}
+            >
+              {isNavOpen ? (
+                <X className="w-5 h-5 text-white transition-transform duration-200 rotate-0 hover:rotate-90" />
+              ) : (
+                <div className="flex flex-col justify-center items-center gap-1 w-5 h-5">
+                  <span className="w-4.5 h-0.5 bg-current rounded-full transition-all group-hover:w-5 group-hover:bg-rose-400" />
+                  <span className="w-3.5 h-0.5 bg-current rounded-full transition-all group-hover:w-5 group-hover:bg-rose-400" />
+                  <span className="w-4.5 h-0.5 bg-current rounded-full transition-all group-hover:w-5 group-hover:bg-rose-400" />
+                </div>
+              )}
+            </button>
+          )}
+
           <div className="relative">
             <img
               src="/hercules-logo-removebg-preview.png"
@@ -74,27 +105,34 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenQrModal, onOpenAuthModal }
 
         {/* Center Selector & Quick Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Center Selector Pill */}
-          <div className={`hidden md:flex items-center rounded-xl p-1 border ${
-            theme === 'dark' ? 'bg-zinc-900/90 border-zinc-800' : 'bg-zinc-100 border-zinc-300'
-          }`}>
-            <div className="flex items-center gap-1 px-2 text-xs font-semibold text-zinc-400">
+          {/* Center Selector Pill for Admin / Single Branch Display for Members & Trainers */}
+          {currentUser && currentUser.role !== 'admin' ? (
+            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-600/15 border border-rose-500/30 text-rose-400 text-xs font-bold shadow-sm">
               <MapPin className="w-3.5 h-3.5 text-rose-500" />
+              <span>{currentUser.center} Branch</span>
             </div>
-            {centers.map(center => (
-              <button
-                key={center}
-                onClick={() => setSelectedCenter(center)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-all ${
-                  selectedCenter === center
-                    ? 'bg-rose-600 text-white shadow-sm font-semibold'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                {center === 'All' ? t('allCenters') : center}
-              </button>
-            ))}
-          </div>
+          ) : (
+            <div className={`hidden md:flex items-center rounded-xl p-1 border ${
+              theme === 'dark' ? 'bg-zinc-900/90 border-zinc-800' : 'bg-zinc-100 border-zinc-300'
+            }`}>
+              <div className="flex items-center gap-1 px-2 text-xs font-semibold text-zinc-400">
+                <MapPin className="w-3.5 h-3.5 text-rose-500" />
+              </div>
+              {centers.map(center => (
+                <button
+                  key={center}
+                  onClick={() => setSelectedCenter(center)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-all ${
+                    selectedCenter === center
+                      ? 'bg-rose-600 text-white shadow-sm font-semibold'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {center === 'All' ? t('allCenters') : center}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Cloud Sync Status Indicator */}
           <button

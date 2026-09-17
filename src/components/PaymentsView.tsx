@@ -986,12 +986,14 @@ export const PaymentsView: React.FC = () => {
 
       {/* PAYMENT MODAL (ONLINE QR & OFFLINE DESK WITH SCREENSHOT VERIFICATION) */}
       {selectedPlan && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className={`w-full max-w-lg rounded-3xl border shadow-2xl p-6 space-y-5 my-8 ${
-            theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
-          }`}>
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md overflow-y-auto p-3 sm:p-6 md:p-8 flex justify-center items-start sm:items-center">
+          <div
+            className={`w-full max-w-lg my-auto rounded-3xl border shadow-2xl overflow-hidden max-h-[calc(100vh-2.5rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col ${
+              theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
+            }`}
+          >
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+            <div className="shrink-0 p-5 sm:p-6 border-b border-zinc-800 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-black">Complete Plan Payment</h3>
                 <p className="text-xs text-zinc-400">
@@ -1000,191 +1002,195 @@ export const PaymentsView: React.FC = () => {
               </div>
 
               <button
+                type="button"
                 onClick={() => {
                   setSelectedPlan(null);
                   setScreenshotData(null);
                   setOfflineNote('');
                 }}
-                className="p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+                className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Mode Selector Tabs */}
-            <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-zinc-950 border border-zinc-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setPaymentMode('online');
-                  setScreenshotData(null);
-                }}
-                className={`py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  paymentMode === 'online'
-                    ? 'bg-rose-600 text-white shadow-md'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                <QrCode className="w-4 h-4" />
-                <span>Online Payment (UPI QR)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPaymentMode('offline');
-                  setScreenshotData(null);
-                }}
-                className={`py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  paymentMode === 'offline'
-                    ? 'bg-rose-600 text-white shadow-md'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                <Building2 className="w-4 h-4" />
-                <span>Offline (At Gym Desk)</span>
-              </button>
-            </div>
-
-            {/* OPTION 1: ONLINE PAYMENT (QR CODE, NO VPA, SCREENSHOT UPLOAD) */}
-            {paymentMode === 'online' && (
-              <div className="space-y-4 text-center">
-                <div className="space-y-1">
-                  <span className="text-xs font-bold text-zinc-300">Scan QR to Pay with Any UPI App</span>
-                  <p className="text-[11px] text-zinc-400">
-                    Google Pay • PhonePe • Paytm • BHIM UPI
-                  </p>
-                </div>
-
-                {/* Clean QR code without VPA text */}
-                <div className="w-48 h-48 bg-white p-3 rounded-2xl mx-auto flex items-center justify-center shadow-lg">
-                  <div className="w-full h-full border-4 border-zinc-900 p-2 flex flex-col justify-between">
-                    <div className="flex justify-between">
-                      <div className="w-8 h-8 bg-zinc-900" />
-                      <div className="w-8 h-8 bg-zinc-900" />
-                    </div>
-                    <div className="text-[11px] font-mono font-black text-zinc-900 tracking-wider">
-                      HERCULES GYM
-                    </div>
-                    <div className="flex justify-between">
-                      <div className="w-8 h-8 bg-zinc-900" />
-                      <div className="w-6 h-6 bg-zinc-900 ml-auto" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-left space-y-1">
-                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                    <span>Upload Payment Screenshot for Verification</span>
-                  </div>
-                  <p className="text-[11px] text-zinc-400">
-                    Once you have completed the payment on your UPI app, take a screenshot and upload it below for fast verification.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* OPTION 2: OFFLINE PAYMENT (VISIT GYM MESSAGE + DESK RECEIPT UPLOAD) */}
-            {paymentMode === 'offline' && (
-              <div className="space-y-4">
-                <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-800/60 space-y-2">
-                  <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
-                    <Building2 className="w-5 h-5" />
-                    <span>Visit Gym Branch Desk for Payment</span>
-                  </div>
-                  <p className="text-xs text-zinc-300 leading-relaxed">
-                    Please visit the gym branch desk ({currentUser?.center || 'Ranaghat'} Branch) for in-person cash or card payment. Once paid, the reception will issue your physical receipt.
-                  </p>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-1">
-                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-amber-400" />
-                    <span>Upload Desk Receipt / Payment Slip Image</span>
-                  </div>
-                  <p className="text-[11px] text-zinc-400">
-                    Upload a clear photo of your desk receipt or payment slip below to submit for instant record verification.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-zinc-300">Desk / Reference Note (Optional)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g., Paid cash to Receptionist / Trainer"
-                    value={offlineNote}
-                    onChange={e => setOfflineNote(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* SHARED SCREENSHOT / RECEIPT IMAGE UPLOAD ZONE */}
-            <div className="space-y-2">
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-
-              {!screenshotData ? (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={handleDrop}
-                  className="p-6 rounded-2xl border-2 border-dashed border-zinc-700 hover:border-rose-500 bg-zinc-950/60 hover:bg-zinc-950 transition-all cursor-pointer text-center space-y-2"
+            {/* Modal Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5">
+              {/* Mode Selector Tabs */}
+              <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-zinc-950 border border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentMode('online');
+                    setScreenshotData(null);
+                  }}
+                  className={`py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                    paymentMode === 'online'
+                      ? 'bg-rose-600 text-white shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
                 >
-                  <Upload className="w-8 h-8 text-rose-500 mx-auto" />
-                  <div className="text-xs font-bold text-white">
-                    Click or Drag & Drop {paymentMode === 'online' ? 'Payment Screenshot' : 'Desk Receipt Photo'}
+                  <QrCode className="w-4 h-4" />
+                  <span>Online Payment (UPI QR)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentMode('offline');
+                    setScreenshotData(null);
+                  }}
+                  className={`py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                    paymentMode === 'offline'
+                      ? 'bg-rose-600 text-white shadow-md'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Building2 className="w-4 h-4" />
+                  <span>Offline (At Gym Desk)</span>
+                </button>
+              </div>
+
+              {/* OPTION 1: ONLINE PAYMENT (QR CODE, NO VPA, SCREENSHOT UPLOAD) */}
+              {paymentMode === 'online' && (
+                <div className="space-y-4 text-center">
+                  <div className="space-y-1">
+                    <span className="text-xs font-bold text-zinc-300">Scan QR to Pay with Any UPI App</span>
+                    <p className="text-[11px] text-zinc-400">
+                      Google Pay • PhonePe • Paytm • BHIM UPI
+                    </p>
                   </div>
-                  <p className="text-[11px] text-zinc-400">
-                    Supports JPG, PNG, WEBP (Max 10MB)
-                  </p>
-                </div>
-              ) : (
-                <div className="relative rounded-2xl overflow-hidden border border-zinc-700 bg-zinc-950 p-2 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={screenshotData}
-                      alt="Uploaded Screenshot"
-                      className="w-16 h-16 rounded-xl object-cover border border-zinc-800"
-                    />
-                    <div>
-                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span>Proof Ready to Submit</span>
+
+                  {/* Clean QR code without VPA text */}
+                  <div className="w-44 h-44 bg-white p-3 rounded-2xl mx-auto flex items-center justify-center shadow-lg">
+                    <div className="w-full h-full border-4 border-zinc-900 p-2 flex flex-col justify-between">
+                      <div className="flex justify-between">
+                        <div className="w-8 h-8 bg-zinc-900" />
+                        <div className="w-8 h-8 bg-zinc-900" />
                       </div>
-                      <p className="text-[10px] text-zinc-400">Click change if you selected wrong image</p>
+                      <div className="text-[11px] font-mono font-black text-zinc-900 tracking-wider">
+                        HERCULES GYM
+                      </div>
+                      <div className="flex justify-between">
+                        <div className="w-8 h-8 bg-zinc-900" />
+                        <div className="w-6 h-6 bg-zinc-900 ml-auto" />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold"
-                    >
-                      Change
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScreenshotData(null)}
-                      className="p-1.5 rounded-xl bg-red-950/60 text-red-400 hover:bg-red-900/60"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                  <div className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-left space-y-1">
+                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      <span>Upload Payment Screenshot for Verification</span>
+                    </div>
+                    <p className="text-[11px] text-zinc-400">
+                      Once you have completed the payment on your UPI app, take a screenshot and upload it below for fast verification.
+                    </p>
                   </div>
                 </div>
               )}
+
+              {/* OPTION 2: OFFLINE PAYMENT (VISIT GYM MESSAGE + DESK RECEIPT UPLOAD) */}
+              {paymentMode === 'offline' && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-800/60 space-y-2">
+                    <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
+                      <Building2 className="w-5 h-5" />
+                      <span>Visit Gym Branch Desk for Payment</span>
+                    </div>
+                    <p className="text-xs text-zinc-300 leading-relaxed">
+                      Please visit the gym branch desk ({currentUser?.center || 'Ranaghat'} Branch) for in-person cash or card payment. Once paid, the reception will issue your physical receipt.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-1">
+                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-amber-400" />
+                      <span>Upload Desk Receipt / Payment Slip Image</span>
+                    </div>
+                    <p className="text-[11px] text-zinc-400">
+                      Upload a clear photo of your desk receipt or payment slip below to submit for instant record verification.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-zinc-300">Desk / Reference Note (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., Paid cash to Receptionist / Trainer"
+                      value={offlineNote}
+                      onChange={e => setOfflineNote(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* SHARED SCREENSHOT / RECEIPT IMAGE UPLOAD ZONE */}
+              <div className="space-y-2">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+
+                {!screenshotData ? (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={handleDrop}
+                    className="p-6 rounded-2xl border-2 border-dashed border-zinc-700 hover:border-rose-500 bg-zinc-950/60 hover:bg-zinc-950 transition-all cursor-pointer text-center space-y-2"
+                  >
+                    <Upload className="w-8 h-8 text-rose-500 mx-auto" />
+                    <div className="text-xs font-bold text-white">
+                      Click or Drag & Drop {paymentMode === 'online' ? 'Payment Screenshot' : 'Desk Receipt Photo'}
+                    </div>
+                    <p className="text-[11px] text-zinc-400">
+                      Supports JPG, PNG, WEBP (Max 10MB)
+                    </p>
+                  </div>
+                ) : (
+                  <div className="relative rounded-2xl overflow-hidden border border-zinc-700 bg-zinc-950 p-2 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={screenshotData}
+                        alt="Uploaded Screenshot"
+                        className="w-16 h-16 rounded-xl object-cover border border-zinc-800"
+                      />
+                      <div>
+                        <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <span>Proof Ready to Submit</span>
+                        </div>
+                        <p className="text-[10px] text-zinc-400">Click change if you selected wrong image</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold"
+                      >
+                        Change
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScreenshotData(null)}
+                        className="p-1.5 rounded-xl bg-red-950/60 text-red-400 hover:bg-red-900/60"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Modal Submit Actions */}
-            <div className="flex gap-2 pt-2 border-t border-zinc-800">
+            <div className="shrink-0 p-4 sm:p-6 border-t border-zinc-800 bg-zinc-950/80 flex gap-2">
               <button
                 type="button"
                 onClick={() => setSelectedPlan(null)}
@@ -1211,9 +1217,9 @@ export const PaymentsView: React.FC = () => {
       {previewImage && (
         <div
           onClick={() => setPreviewImage(null)}
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
+          className="fixed inset-0 z-[120] bg-black/90 backdrop-blur-md overflow-y-auto p-4 flex justify-center items-center cursor-pointer"
         >
-          <div className="relative max-w-2xl max-h-[85vh] p-2 bg-zinc-900 rounded-3xl border border-zinc-700">
+          <div className="relative max-w-2xl max-h-[85vh] p-2 bg-zinc-900 rounded-3xl border border-zinc-700 my-auto">
             <img
               src={previewImage}
               alt="Enlarged Payment Proof"
@@ -1231,13 +1237,13 @@ export const PaymentsView: React.FC = () => {
 
       {/* ADMIN CREATE OCCASION OFFER MODAL */}
       {showCreateOfferModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md overflow-y-auto p-3 sm:p-6 md:p-8 flex justify-center items-start sm:items-center">
           <div
-            className={`w-full max-w-xl rounded-3xl border shadow-2xl p-6 max-h-[90vh] overflow-y-auto ${
+            className={`w-full max-w-xl my-auto rounded-3xl border shadow-2xl overflow-hidden max-h-[calc(100vh-2.5rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col ${
               theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
             }`}
           >
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-zinc-800">
+            <div className="shrink-0 p-5 sm:p-6 border-b border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
                   <Sparkles className="w-6 h-6" />
@@ -1256,6 +1262,7 @@ export const PaymentsView: React.FC = () => {
             </div>
 
             <form
+              id="create-offer-form"
               onSubmit={e => {
                 e.preventDefault();
                 const feats = offerForm.features_input
@@ -1290,7 +1297,7 @@ export const PaymentsView: React.FC = () => {
                 setShowCreateOfferModal(false);
                 setActiveTab('offers');
               }}
-              className="space-y-4 text-xs"
+              className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 text-xs"
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>

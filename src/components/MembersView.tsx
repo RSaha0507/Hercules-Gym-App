@@ -17,6 +17,7 @@ import {
   Mail,
   MapPin,
   Calendar,
+  Shield,
   ShieldCheck,
   CheckCircle2,
   XCircle,
@@ -79,6 +80,117 @@ export const MembersView: React.FC = () => {
   // Edit Member ID State inside details drawer
   const [isEditingId, setIsEditingId] = useState(false);
   const [customIdInput, setCustomIdInput] = useState('');
+
+  // Dedicated Edit Full Member Profile State
+  const [editingMemberUser, setEditingMemberUser] = useState<User | null>(null);
+  const [editMemberForm, setEditMemberForm] = useState({
+    full_name: '',
+    phone: '',
+    email: '',
+    date_of_birth: '',
+    profession: 'Student' as ProfessionType,
+    guardian_name: '',
+    guardian_phone: '',
+    present_address: '',
+    permanent_address: '',
+    body_weight: '',
+    body_height: '',
+    health_problems: 'None',
+    profile_image: '',
+    member_id: '',
+    enrollment_programme: 'Gym' as EnrollmentProgramme,
+    enrollment_category: 'Ladies & Gents' as EnrollmentCategory,
+    center: 'Ranaghat' as CenterType,
+  });
+  const [editMemberSuccessMsg, setEditMemberSuccessMsg] = useState<string | null>(null);
+  const editMemberImageInputRef = useRef<HTMLInputElement | null>(null);
+
+  const openEditMemberModal = (u: User) => {
+    setEditingMemberUser(u);
+    setEditMemberSuccessMsg(null);
+    setEditMemberForm({
+      full_name: u.full_name || '',
+      phone: u.phone || '',
+      email: u.email || '',
+      date_of_birth: u.date_of_birth || '',
+      profession: (u.profession || 'Student') as ProfessionType,
+      guardian_name: u.guardian_name || '',
+      guardian_phone: u.guardian_phone || '',
+      present_address: u.present_address || '',
+      permanent_address: u.permanent_address || '',
+      body_weight: u.body_weight ? String(u.body_weight) : '',
+      body_height: u.body_height ? String(u.body_height) : '',
+      health_problems: u.health_problems || 'None',
+      profile_image: u.profile_image || '',
+      member_id: u.member_id ? String(u.member_id) : u.id,
+      enrollment_programme: (u.enrollment_programme || (u.membership?.plan_name?.includes('Karate') ? 'Karate' : 'Gym')) as EnrollmentProgramme,
+      enrollment_category: (u.enrollment_category || 'Ladies & Gents') as EnrollmentCategory,
+      center: u.center || 'Ranaghat',
+    });
+  };
+
+  const handleEditMemberImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        setEditMemberForm(prev => ({
+          ...prev,
+          profile_image: ev.target?.result as string,
+        }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleEditMemberSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMemberUser) return;
+
+    const canEditRestricted =
+      currentUser?.role === 'admin' ||
+      (currentUser?.role === 'trainer' && currentUser?.center === editingMemberUser.center);
+
+    const updatedData: Partial<User> = {
+      full_name: editMemberForm.full_name,
+      phone: editMemberForm.phone,
+      email: editMemberForm.email,
+      date_of_birth: editMemberForm.date_of_birth,
+      profession: editMemberForm.profession,
+      guardian_name: editMemberForm.guardian_name,
+      guardian_phone: editMemberForm.guardian_phone,
+      present_address: editMemberForm.present_address,
+      permanent_address: editMemberForm.permanent_address,
+      body_weight: editMemberForm.body_weight ? Number(editMemberForm.body_weight) : undefined,
+      body_height: editMemberForm.body_height,
+      health_problems: editMemberForm.health_problems,
+      profile_image: editMemberForm.profile_image,
+    };
+
+    if (canEditRestricted) {
+      updatedData.member_id = editMemberForm.member_id;
+      updatedData.enrollment_programme = editMemberForm.enrollment_programme;
+      updatedData.enrollment_category = editMemberForm.enrollment_category;
+      if (currentUser?.role === 'admin') {
+        updatedData.center = editMemberForm.center;
+      }
+    }
+
+    updateUserProfile(editingMemberUser.id, updatedData);
+
+    if (selectedUser && selectedUser.id === editingMemberUser.id) {
+      setSelectedUser({
+        ...selectedUser,
+        ...updatedData,
+      });
+    }
+
+    setEditMemberSuccessMsg('Profile updated successfully!');
+    setTimeout(() => {
+      setEditingMemberUser(null);
+      setEditMemberSuccessMsg(null);
+    }, 900);
+  };
 
   // Refund Modal State
   const [showRefundModal, setShowRefundModal] = useState(false);
@@ -586,18 +698,27 @@ export const MembersView: React.FC = () => {
             <option value="admin">Admins</option>
           </select>
 
-          <select
-            value={centerFilter}
-            onChange={e => setCenterFilter(e.target.value as any)}
-            className={`px-3 py-2.5 rounded-xl text-xs font-semibold border focus:outline-none ${
-              theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-zinc-50 border-zinc-300 text-zinc-800'
-            }`}
-          >
-            <option value="all">All Centers</option>
-            <option value="Ranaghat">Ranaghat</option>
-            <option value="Chakdah">Chakdah</option>
-            <option value="Madanpur">Madanpur</option>
-          </select>
+          {isUserAdmin ? (
+            <select
+              value={centerFilter}
+              onChange={e => setCenterFilter(e.target.value as any)}
+              className={`px-3 py-2.5 rounded-xl text-xs font-semibold border focus:outline-none ${
+                theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-zinc-50 border-zinc-300 text-zinc-800'
+              }`}
+            >
+              <option value="all">All Centers</option>
+              <option value="Ranaghat">Ranaghat</option>
+              <option value="Chakdah">Chakdah</option>
+              <option value="Madanpur">Madanpur</option>
+            </select>
+          ) : (
+            <div className={`px-3 py-2.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${
+              theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-300 text-zinc-800'
+            }`}>
+              <MapPin className="w-3.5 h-3.5 text-rose-500" />
+              <span>{currentUser?.center || 'Ranaghat'} Branch</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -731,10 +852,10 @@ export const MembersView: React.FC = () => {
 
       {/* Member Details Drawer Modal */}
       {selectedUser && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl rounded-3xl border border-zinc-800 bg-zinc-900 text-white shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md overflow-y-auto p-3 sm:p-6 md:p-8 flex justify-center items-start sm:items-center">
+          <div className="w-full max-w-3xl my-auto rounded-3xl border border-zinc-800 bg-zinc-900 text-white shadow-2xl overflow-hidden max-h-[calc(100vh-2.5rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col">
             {/* Drawer Header */}
-            <div className="p-6 border-b border-zinc-800 flex items-start justify-between">
+            <div className="p-5 sm:p-6 border-b border-zinc-800 flex items-start justify-between shrink-0">
               <div className="flex items-center gap-4">
                 <div className="relative shrink-0">
                   {selectedUser.profile_image ? (
@@ -779,7 +900,7 @@ export const MembersView: React.FC = () => {
                   </div>
 
                   {/* Editable Member ID */}
-                  <div className="flex items-center gap-2 mt-1.5">
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     {!isEditingId ? (
                       <div className="flex items-center gap-2">
                         <span className="px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 font-mono text-xs font-black text-rose-400">
@@ -829,16 +950,26 @@ export const MembersView: React.FC = () => {
                 </div>
               </div>
 
-              <button
-                onClick={() => setSelectedUser(null)}
-                className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openEditMemberModal(selectedUser)}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Edit Profile</span>
+                </button>
+                <button
+                  onClick={() => setSelectedUser(null)}
+                  className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Content Body */}
-            <div className="p-6 space-y-4 overflow-y-auto">
+            <div className="p-5 sm:p-6 space-y-4 overflow-y-auto flex-1">
               {/* Inactivity & Re-Admission Admin Action Card */}
               {isUserAdmin && (selectedUser.is_active === false || (selectedUser.days_overdue && selectedUser.days_overdue > 60)) && (
                 <div className="p-4 rounded-2xl bg-amber-950/40 border-2 border-amber-500/60 space-y-3">
@@ -1017,56 +1148,71 @@ export const MembersView: React.FC = () => {
               )}
 
               {/* Admin Actions */}
-              {isUserAdmin && selectedUser.role !== 'admin' && (
+              {(isUserAdmin || (currentUser?.role === 'trainer' && currentUser?.center === selectedUser.center)) && selectedUser.role !== 'admin' && (
                 <div className="pt-4 border-t border-zinc-800 space-y-3">
                   <div className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                    Admin Roster & Lifecycle Controls
+                    Roster & Lifecycle Controls
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        const nextStatus = !selectedUser.is_active;
-                        toggleUserActiveStatus(selectedUser.id, nextStatus);
-                        setSelectedUser({ ...selectedUser, is_active: nextStatus });
-                      }}
-                      className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition-all ${
-                        selectedUser.is_active === false
-                          ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700 hover:bg-emerald-900'
-                          : 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700'
-                      }`}
+                      onClick={() => openEditMemberModal(selectedUser)}
+                      className="py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md flex items-center justify-center gap-1.5"
                     >
-                      {selectedUser.is_active === false ? (
-                        <>
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                          <span>Activate Account</span>
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="w-4 h-4 text-zinc-400" />
-                          <span>Deactivate Account</span>
-                        </>
-                      )}
+                      <Edit3 className="w-4 h-4" />
+                      <span>Edit Profile</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleOpenRefundModal(selectedUser)}
-                      className="py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-md flex items-center justify-center gap-1.5"
-                    >
-                      <DollarSign className="w-4 h-4" />
-                      <span>Issue Refund</span>
-                    </button>
+                    {isUserAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextStatus = !selectedUser.is_active;
+                          toggleUserActiveStatus(selectedUser.id, nextStatus);
+                          setSelectedUser({ ...selectedUser, is_active: nextStatus });
+                        }}
+                        className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border transition-all ${
+                          selectedUser.is_active === false
+                            ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700 hover:bg-emerald-900'
+                            : 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700'
+                        }`}
+                      >
+                        {selectedUser.is_active === false ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            <span>Activate</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-4 h-4 text-zinc-400" />
+                            <span>Deactivate</span>
+                          </>
+                        )}
+                      </button>
+                    )}
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteUserDirect(selectedUser)}
-                      className="py-2.5 px-3 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-800/60 font-bold text-xs flex items-center justify-center gap-1.5"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      <span>Delete Profile</span>
-                    </button>
+                    {isUserAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenRefundModal(selectedUser)}
+                        className="py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-md flex items-center justify-center gap-1.5"
+                      >
+                        <DollarSign className="w-4 h-4" />
+                        <span>Issue Refund</span>
+                      </button>
+                    )}
+
+                    {isUserAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteUserDirect(selectedUser)}
+                        className="py-2.5 px-3 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-800/60 font-bold text-xs flex items-center justify-center gap-1.5"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Delete</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1077,13 +1223,13 @@ export const MembersView: React.FC = () => {
 
       {/* Redesigned Add New Member Admission Form Modal */}
       {showAddMemberModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md overflow-y-auto p-3 sm:p-6 md:p-8 flex justify-center items-start sm:items-center">
           <div
-            className={`w-full max-w-2xl rounded-3xl border shadow-2xl p-5 sm:p-7 max-h-[92vh] overflow-y-auto ${
+            className={`w-full max-w-2xl my-auto rounded-3xl border shadow-2xl overflow-hidden max-h-[calc(100vh-2.5rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col ${
               theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
             }`}
           >
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-zinc-800">
+            <div className="p-5 sm:p-6 border-b border-zinc-800 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
                   <FileText className="w-5 h-5" />
@@ -1101,7 +1247,7 @@ export const MembersView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleMemberSubmit} className="space-y-5 text-xs">
+            <form onSubmit={handleMemberSubmit} className="p-5 sm:p-6 space-y-5 text-xs overflow-y-auto flex-1">
               {/* Section 1: Admission & Identity */}
               <div className="p-4 rounded-2xl bg-zinc-950/70 border border-zinc-800/90 space-y-3">
                 <div className="text-xs font-black uppercase text-rose-400 tracking-wider flex items-center gap-1.5">
@@ -1576,13 +1722,13 @@ export const MembersView: React.FC = () => {
 
       {/* Dedicated Add New Trainer Modal */}
       {showAddTrainerModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md overflow-y-auto p-3 sm:p-6 md:p-8 flex justify-center items-start sm:items-center">
           <div
-            className={`w-full max-w-lg rounded-3xl border shadow-2xl p-6 ${
+            className={`w-full max-w-lg my-auto rounded-3xl border shadow-2xl overflow-hidden max-h-[calc(100vh-2.5rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col ${
               theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
             }`}
           >
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-zinc-800">
+            <div className="p-5 sm:p-6 border-b border-zinc-800 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
                   <UserCheck className="w-5 h-5" />
@@ -1600,7 +1746,7 @@ export const MembersView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleTrainerSubmit} className="space-y-4 text-xs">
+            <form onSubmit={handleTrainerSubmit} className="p-5 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1">
               <div>
                 <label className="block text-zinc-400 font-bold mb-1">Trainer Full Name *</label>
                 <input
@@ -1727,13 +1873,13 @@ export const MembersView: React.FC = () => {
 
       {/* Admin Refund & Discontinuation Modal */}
       {showRefundModal && refundTargetUser && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md overflow-y-auto p-3 sm:p-6 md:p-8 flex justify-center items-start sm:items-center">
           <div
-            className={`w-full max-w-lg rounded-3xl border shadow-2xl p-6 ${
+            className={`w-full max-w-lg my-auto rounded-3xl border shadow-2xl overflow-hidden max-h-[calc(100vh-2.5rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col ${
               theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
             }`}
           >
-            <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+            <div className="p-5 sm:p-6 border-b border-zinc-800 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <Receipt className="w-5 h-5 text-amber-500" />
                 <h3 className="text-base font-black">Process Member Refund & Departure</h3>
@@ -1746,7 +1892,7 @@ export const MembersView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleProcessRefundSubmit} className="py-4 space-y-4 text-xs">
+            <form onSubmit={handleProcessRefundSubmit} className="p-5 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1">
               <div className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 flex justify-between items-center">
                 <div>
                   <div className="font-bold text-white text-sm">{refundTargetUser.full_name}</div>
@@ -1863,6 +2009,322 @@ export const MembersView: React.FC = () => {
                   className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-black shadow-xl shadow-amber-900/30 transition-all"
                 >
                   Issue Refund & Notify Member
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Member Profile Modal (RBAC Enforced) */}
+      {editingMemberUser && (
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md overflow-y-auto p-3 sm:p-6 md:p-8 flex justify-center items-start sm:items-center">
+          <div
+            className={`w-full max-w-2xl my-auto rounded-3xl border shadow-2xl overflow-hidden max-h-[calc(100vh-2.5rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col ${
+              theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
+            }`}
+          >
+            <div className="p-5 sm:p-6 border-b border-zinc-800 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                  <Edit3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white tracking-tight">Edit Member Profile</h3>
+                  <p className="text-xs text-zinc-400">Update member information & enrollment parameters</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingMemberUser(null)}
+                className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editMemberSuccessMsg && (
+              <div className="p-3 bg-emerald-950/80 border-b border-emerald-800/80 text-emerald-300 font-bold text-xs text-center">
+                {editMemberSuccessMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleEditMemberSubmit} className="p-5 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1">
+              {/* Profile Photo & Basic Identity */}
+              <div className="flex items-center gap-4 p-4 rounded-2xl bg-zinc-950/70 border border-zinc-800">
+                <div className="relative shrink-0">
+                  {editMemberForm.profile_image ? (
+                    <img
+                      src={editMemberForm.profile_image}
+                      alt={editMemberForm.full_name}
+                      className="w-16 h-16 rounded-2xl object-cover ring-2 ring-rose-500"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center font-black text-lg text-zinc-400">
+                      {editMemberForm.full_name?.charAt(0) || 'M'}
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <input
+                    type="file"
+                    ref={editMemberImageInputRef}
+                    accept="image/*"
+                    onChange={handleEditMemberImageUpload}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => editMemberImageInputRef.current?.click()}
+                    className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs flex items-center gap-2"
+                  >
+                    <UploadCloud className="w-4 h-4 text-rose-400" />
+                    <span>Change Profile Photo</span>
+                  </button>
+                  <p className="text-[10px] text-zinc-500 mt-1">Accepts JPG, PNG up to 5MB</p>
+                </div>
+              </div>
+
+              {/* Personal Details */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-wider text-rose-400">Personal Information</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-zinc-400 font-bold mb-1">Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editMemberForm.full_name}
+                      onChange={e => setEditMemberForm({ ...editMemberForm, full_name: e.target.value })}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-bold focus:outline-none focus:ring-2 focus:ring-rose-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 font-bold mb-1">Phone Number *</label>
+                    <input
+                      type="tel"
+                      required
+                      value={editMemberForm.phone}
+                      onChange={e => setEditMemberForm({ ...editMemberForm, phone: e.target.value })}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-bold focus:outline-none focus:ring-2 focus:ring-rose-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 font-bold mb-1">Email Address</label>
+                    <input
+                      type="email"
+                      value={editMemberForm.email}
+                      onChange={e => setEditMemberForm({ ...editMemberForm, email: e.target.value })}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none focus:ring-2 focus:ring-rose-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 font-bold mb-1">Date of Birth</label>
+                    <input
+                      type="date"
+                      value={editMemberForm.date_of_birth}
+                      onChange={e => setEditMemberForm({ ...editMemberForm, date_of_birth: e.target.value })}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 font-bold mb-1">Profession</label>
+                    <select
+                      value={editMemberForm.profession}
+                      onChange={e => setEditMemberForm({ ...editMemberForm, profession: e.target.value as ProfessionType })}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none"
+                    >
+                      <option value="Student">Student</option>
+                      <option value="Employed">Employed / Service</option>
+                      <option value="Business">Business</option>
+                      <option value="Homemaker">Homemaker</option>
+                      <option value="Professional">Professional</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 font-bold mb-1">Health Problems / Notes</label>
+                    <input
+                      type="text"
+                      value={editMemberForm.health_problems}
+                      onChange={e => setEditMemberForm({ ...editMemberForm, health_problems: e.target.value })}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Physical Parameters */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-wider text-rose-400">Physical Parameters</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-zinc-400 font-bold mb-1">Body Weight (kg)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={editMemberForm.body_weight}
+                      onChange={e => setEditMemberForm({ ...editMemberForm, body_weight: e.target.value })}
+                      placeholder="e.g. 72"
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-bold focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 font-bold mb-1">Body Height</label>
+                    <input
+                      type="text"
+                      value={editMemberForm.body_height}
+                      onChange={e => setEditMemberForm({ ...editMemberForm, body_height: e.target.value })}
+                      placeholder="e.g. 5 ft 10 in"
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-bold focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Guardian & Address */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-wider text-rose-400">Guardian & Address</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-zinc-400 font-bold mb-1">Guardian Name</label>
+                    <input
+                      type="text"
+                      value={editMemberForm.guardian_name}
+                      onChange={e => setEditMemberForm({ ...editMemberForm, guardian_name: e.target.value })}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-zinc-400 font-bold mb-1">Guardian Phone</label>
+                    <input
+                      type="tel"
+                      value={editMemberForm.guardian_phone}
+                      onChange={e => setEditMemberForm({ ...editMemberForm, guardian_phone: e.target.value })}
+                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 font-bold mb-1">Present Address</label>
+                  <input
+                    type="text"
+                    value={editMemberForm.present_address}
+                    onChange={e => setEditMemberForm({ ...editMemberForm, present_address: e.target.value })}
+                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Restricted Fields: Member ID, Programme, Batch Category, Center (RBAC Enforced) */}
+              <div className="space-y-3 pt-2 border-t border-zinc-800">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5" />
+                    <span>Gym Membership & Admin Parameters</span>
+                  </h4>
+                  {!(currentUser?.role === 'admin' || (currentUser?.role === 'trainer' && currentUser?.center === editingMemberUser.center)) && (
+                    <span className="text-[10px] text-zinc-500 italic">Editable only by Admin or Branch Trainer</span>
+                  )}
+                </div>
+
+                {currentUser?.role === 'admin' || (currentUser?.role === 'trainer' && currentUser?.center === editingMemberUser.center) ? (
+                  <div className="p-3.5 rounded-2xl bg-amber-950/20 border border-amber-900/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-amber-400 font-bold mb-1">Member ID</label>
+                      <input
+                        type="text"
+                        value={editMemberForm.member_id}
+                        onChange={e => setEditMemberForm({ ...editMemberForm, member_id: e.target.value })}
+                        className="w-full p-2.5 rounded-xl bg-zinc-950 border border-amber-500/50 text-amber-300 font-mono font-bold focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-amber-400 font-bold mb-1">Enrollment Programme</label>
+                      <select
+                        value={editMemberForm.enrollment_programme}
+                        onChange={e => setEditMemberForm({ ...editMemberForm, enrollment_programme: e.target.value as EnrollmentProgramme })}
+                        className="w-full p-2.5 rounded-xl bg-zinc-950 border border-amber-500/50 text-white font-bold focus:outline-none"
+                      >
+                        <option value="Gym">Gym (Fitness & Weight Training)</option>
+                        <option value="Karate">Karate (Martial Arts)</option>
+                        <option value="Gym + Karate">Gym + Karate Combo</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-amber-400 font-bold mb-1">Batch Category</label>
+                      <select
+                        value={editMemberForm.enrollment_category}
+                        onChange={e => setEditMemberForm({ ...editMemberForm, enrollment_category: e.target.value as EnrollmentCategory })}
+                        className="w-full p-2.5 rounded-xl bg-zinc-950 border border-amber-500/50 text-white font-bold focus:outline-none"
+                      >
+                        <option value="Ladies & Gents">Ladies & Gents (Unisex)</option>
+                        <option value="Only Ladies">Only Ladies Special Batch</option>
+                      </select>
+                    </div>
+
+                    {currentUser?.role === 'admin' ? (
+                      <div>
+                        <label className="block text-amber-400 font-bold mb-1">Assigned Center</label>
+                        <select
+                          value={editMemberForm.center}
+                          onChange={e => setEditMemberForm({ ...editMemberForm, center: e.target.value as CenterType })}
+                          className="w-full p-2.5 rounded-xl bg-zinc-950 border border-amber-500/50 text-white font-bold focus:outline-none"
+                        >
+                          <option value="Ranaghat">Ranaghat</option>
+                          <option value="Chakdah">Chakdah</option>
+                          <option value="Madanpur">Madanpur</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-zinc-400 font-bold mb-1">Branch Center</label>
+                        <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-300 font-bold">
+                          {editMemberForm.center} Center
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <span className="text-zinc-500 font-semibold block">Member ID:</span>
+                      <span className="font-mono font-bold text-zinc-300">{editMemberForm.member_id}</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-500 font-semibold block">Programme:</span>
+                      <span className="font-bold text-zinc-300">{editMemberForm.enrollment_programme}</span>
+                    </div>
+                    <div>
+                      <span className="text-zinc-500 font-semibold block">Batch:</span>
+                      <span className="font-bold text-zinc-300">{editMemberForm.enrollment_category}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-3 flex gap-3 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingMemberUser(null)}
+                  className="flex-1 py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black shadow-lg shadow-rose-900/30 transition-all active:scale-95"
+                >
+                  Save Profile Changes
                 </button>
               </div>
             </form>

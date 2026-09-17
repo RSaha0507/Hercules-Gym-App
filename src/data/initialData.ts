@@ -5,6 +5,7 @@ import {
   DietPlan,
   FitnessMetricEntry,
   MerchandiseItem,
+  CatalogItem,
   ChatMessage,
   Announcement,
   PaymentRecord,
@@ -15,6 +16,7 @@ export const INITIAL_USERS: User[] = [];
 export const INITIAL_ANNOUNCEMENTS: Announcement[] = [];
 export const INITIAL_ATTENDANCE: AttendanceRecord[] = [];
 export const INITIAL_PRODUCTS: MerchandiseItem[] = [];
+export const INITIAL_CATALOG: CatalogItem[] = [];
 export const INITIAL_METRICS: FitnessMetricEntry[] = [];
 export const INITIAL_MESSAGES: ChatMessage[] = [];
 export const INITIAL_PAYMENTS: PaymentRecord[] = [];

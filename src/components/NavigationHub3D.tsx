@@ -25,12 +25,6 @@ export const NavigationHub3D: React.FC = () => {
 
   const ALL_TABS: TabItemConfig[] = [
     {
-      id: 'dashboard',
-      type: 'dashboard',
-      label: 'HQ Overview',
-      sublabel: 'Command Center',
-    },
-    {
       id: 'workouts',
       type: 'workouts',
       label: 'Workouts & Split',
@@ -126,11 +120,55 @@ export const NavigationHub3D: React.FC = () => {
           </div>
 
           <div className="text-[11px] text-zinc-400 font-medium flex items-center gap-1.5">
-            <span className="text-rose-400 font-black">{visibleTabs.length}</span> Hubs
+            <span className="text-rose-400 font-black">{visibleTabs.length + 1}</span> Hubs
           </div>
         </div>
 
-        {/* Medium Sized 3D Interactive Tabs Grid */}
+        {/* Full-Width Row Tab: Center Overview */}
+        <div className="mb-2.5 sm:mb-3">
+          <button
+            type="button"
+            onClick={() => setActiveTab('dashboard')}
+            onMouseEnter={() => setHoveredTab('dashboard')}
+            onMouseLeave={() => setHoveredTab(null)}
+            className={`w-full group relative rounded-2xl py-2.5 px-4 sm:px-6 transition-all duration-300 flex items-center justify-center gap-3 select-none ${
+              activeTab === 'dashboard'
+                ? 'bg-gradient-to-r from-zinc-900 via-zinc-850 to-zinc-900 border border-rose-500/60 shadow-[0_6px_20px_rgba(225,29,72,0.22)]'
+                : 'bg-zinc-900/50 hover:bg-zinc-800/60 border border-zinc-850 hover:border-zinc-700 hover:shadow-md'
+            }`}
+          >
+            {/* Active Neon Rim Indicator */}
+            {activeTab === 'dashboard' && (
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-rose-600/10 via-rose-600/20 to-rose-600/10 pointer-events-none" />
+            )}
+
+            {/* Left 3D Icon */}
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-zinc-950/80 border border-zinc-800/80 flex items-center justify-center overflow-hidden shrink-0 shadow-inner group-hover:border-rose-500/40 transition-colors">
+              <Tab3DIcon
+                type="dashboard"
+                isActive={activeTab === 'dashboard'}
+                isHovered={hoveredTab === 'dashboard'}
+                className="w-7 h-7 sm:w-8 sm:h-8"
+              />
+            </div>
+
+            {/* Center Label */}
+            <div className="flex items-center gap-2 relative z-10 text-center">
+              <h4
+                className={`text-xs sm:text-sm font-black tracking-wide transition-colors ${
+                  activeTab === 'dashboard' ? 'text-white' : 'text-zinc-200 group-hover:text-white'
+                }`}
+              >
+                Center Overview
+              </h4>
+              {activeTab === 'dashboard' && (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e] animate-pulse shrink-0" />
+              )}
+            </div>
+          </button>
+        </div>
+
+        {/* Medium Sized 3D Interactive Tabs Grid (Pushed to rows below) */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 sm:gap-3">
           {visibleTabs.map((tab) => {
             const isActive = activeTab === tab.id;

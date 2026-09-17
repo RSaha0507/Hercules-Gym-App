@@ -1,66 +1,72 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGym } from '../context/GymContext';
-import { MerchandiseItem, CenterType } from '../types';
+import { MerchandiseItem, CatalogItem, CenterType } from '../types';
 import {
   ShoppingBag,
   Plus,
   Minus,
   Trash2,
   CheckCircle2,
-  Sparkles,
   QrCode,
-  CreditCard,
   Banknote,
   Search,
-  Filter,
   X,
   Package,
-  PlusCircle,
-  Tag,
-  Building2,
   Layers,
-  Image as ImageIcon,
-  Check,
-  AlertCircle,
-  Upload,
-  UploadCloud,
-  AlertTriangle,
-  FileImage,
-  Edit3,
+  Building2,
   ArrowLeft,
-  Loader2,
+  ShieldCheck,
 } from 'lucide-react';
+import {
+  ProductCard,
+  CatalogSidebar,
+  AddCatalogModal,
+  ListFromCatalogModal,
+  EditStoreProductModal,
+} from './shop';
 
 export const ShopView: React.FC = () => {
   const {
     products,
+    catalog,
     cart,
     addToCart,
     removeFromCart,
     updateCartQuantity,
-    clearCart,
     placeOrder,
     addProduct,
     updateProduct,
     deleteProduct,
-    updateProductStock,
-    orders,
+    addCatalogItem,
+    deleteCatalogItem,
     currentUser,
-    selectedCenter,
     theme,
     activeTab,
     setActiveTab,
   } = useGym();
 
+  const userRole = currentUser?.role;
+  const isStaff = userRole === 'admin' || userRole === 'trainer';
+  const isAdmin = userRole === 'admin';
+  const userCenter = currentUser?.center || 'Ranaghat';
+
   const [activeCategory, setActiveCategory] = useState<string>('All');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isCartOpen, setIsCartOpen] = useState(activeTab === 'shop/cart' || activeTab === 'cart');
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isCartOpen, setIsCartOpen] = useState<boolean>(activeTab === 'shop/cart' || activeTab === 'cart');
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState<boolean>(false);
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'cash_at_desk' | 'card'>('upi');
   const [orderSuccess, setOrderSuccess] = useState<any | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Sync isCartOpen with activeTab / MPA route
+  // Mobile drawer for Master Catalog Sidebar
+  const [showCatalogSidebarMobile, setShowCatalogSidebarMobile] = useState<boolean>(false);
+
+  // Modals state
+  const [showAddCatalogModal, setShowAddCatalogModal] = useState<boolean>(false);
+  const [selectedCatalogItemForListing, setSelectedCatalogItemForListing] = useState<CatalogItem | null>(null);
+  const [editingStoreProduct, setEditingStoreProduct] = useState<MerchandiseItem | null>(null);
+
+  // Sync isCartOpen with activeTab
   useEffect(() => {
     if (activeTab === 'shop/cart' || activeTab === 'cart') {
       setIsCartOpen(true);
@@ -81,71 +87,17 @@ export const ShopView: React.FC = () => {
     }
   };
 
-  // Selected flavor/choice per product { productId: selectedChoice }
-  const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
-  // Selected image index per product { productId: activeImgIdx }
-  const [activeImageIndices, setActiveImageIndices] = useState<Record<string, number>>({});
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
-  // Admin Add Product Modal State
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [prodName, setProdName] = useState('');
-  const [prodCategory, setProdCategory] = useState<'Supplements' | 'Apparel' | 'Accessories' | 'Equipment'>('Supplements');
-  const [isPriceRange, setIsPriceRange] = useState(false);
-  const [prodPriceMin, setProdPriceMin] = useState<number | ''>(2499);
-  const [prodPriceMax, setProdPriceMax] = useState<number | ''>(2999);
-  const [prodDescription, setProdDescription] = useState('');
-  const [prodStock, setProdStock] = useState<number>(15);
-  const [prodBadge, setProdBadge] = useState('Certified Authentic');
-
-  // Image list (at least 1 mandatory) - upload from device or URL
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
-  const [imageError, setImageError] = useState<string>('');
-  const [newImageUrl, setNewImageUrl] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Flavours / Choices list (at least 1 mandatory)
-  const [choicesList, setChoicesList] = useState<string[]>(['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha']);
-  const [newChoiceInput, setNewChoiceInput] = useState('');
-
-  // Intended branch target selection (4 options: All centers, Ranaghat, Chakdah, Madanpur)
-  const [branchTarget, setBranchTarget] = useState<'All' | 'Ranaghat' | 'Chakdah' | 'Madanpur'>('All');
-
-  // Admin Edit Product Modal State
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<MerchandiseItem | null>(null);
-  const [editProdName, setEditProdName] = useState('');
-  const [editProdCategory, setEditProdCategory] = useState<'Supplements' | 'Apparel' | 'Accessories' | 'Equipment'>('Supplements');
-  const [editIsPriceRange, setEditIsPriceRange] = useState(false);
-  const [editProdPriceMin, setEditProdPriceMin] = useState<number | ''>('');
-  const [editProdPriceMax, setEditProdPriceMax] = useState<number | ''>('');
-  const [editProdOriginalPrice, setEditProdOriginalPrice] = useState<number | ''>('');
-  const [editProdDescription, setEditProdDescription] = useState('');
-  const [editProdStock, setEditProdStock] = useState<number>(15);
-  const [editProdBadge, setEditProdBadge] = useState('Certified Authentic');
-  const [editImageUrls, setEditImageUrls] = useState<string[]>([]);
-  const [editImageError, setEditImageError] = useState<string>('');
-  const [editNewImageUrl, setEditNewImageUrl] = useState('');
-  const [editChoicesList, setEditChoicesList] = useState<string[]>([]);
-  const [editNewChoiceInput, setEditNewChoiceInput] = useState('');
-  const [editBranchTarget, setEditBranchTarget] = useState<'All' | 'Ranaghat' | 'Chakdah' | 'Madanpur'>('All');
-  const [isEditDragging, setIsEditDragging] = useState(false);
-  const [isSavingEdit, setIsSavingEdit] = useState(false);
-  const editFileInputRef = useRef<HTMLInputElement>(null);
-
-  const categories = ['All', 'Supplements', 'Apparel', 'Accessories', 'Equipment'];
-
-  // Filter products based on user branch & role
-  const isUserAdmin = currentUser?.role === 'admin';
-  const userCenter = currentUser?.center || 'Ranaghat';
-
-  const visibleProducts = products.filter(p => {
-    // Branch isolation:
-    // If admin, show all (or respect global filter if chosen)
-    if (!isUserAdmin) {
+  // Filter store products based on user branch & role & search
+  const visibleProducts = products.filter((p: MerchandiseItem) => {
+    if (!isAdmin) {
       const isVisibleForBranch =
         p.available_centers.includes('All') ||
-        p.available_centers.includes(userCenter);
+        p.available_centers.includes(userCenter as CenterType);
       if (!isVisibleForBranch) return false;
     }
 
@@ -161,320 +113,35 @@ export const ShopView: React.FC = () => {
     return matchesCategory && matchesSearch;
   });
 
-  const cartTotal = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+  const cartTotal = cart.reduce((sum: number, item: any) => sum + item.product.price * item.quantity, 0);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
+  const handleAddToCart = (prod: MerchandiseItem, variant?: string) => {
+    addToCart(prod, 1, variant);
+    showToast(`Added ${prod.name}${variant ? ` (${variant})` : ''} to bag!`);
   };
 
-  const handleAddChoice = () => {
-    if (!newChoiceInput.trim()) return;
-    if (!choicesList.includes(newChoiceInput.trim())) {
-      setChoicesList([...choicesList, newChoiceInput.trim()]);
-    }
-    setNewChoiceInput('');
-  };
+  const handleQuickStockChange = (productId: string, variant: string, newQty: number) => {
+    const targetProduct = products.find((p: MerchandiseItem) => p.id === productId);
+    if (!targetProduct) return;
 
-  const handleRemoveChoice = (index: number) => {
-    if (choicesList.length <= 1) {
-      alert('At least one option is mandatory.');
-      return;
-    }
-    setChoicesList(choicesList.filter((_, i) => i !== index));
-  };
+    const currentVariantStocks = targetProduct.variant_stocks || {};
+    const updatedStocks = {
+      ...currentVariantStocks,
+      [variant]: Math.max(0, newQty),
+    };
+    const newTotalStock = Object.values(updatedStocks).reduce((a: number, b: number) => a + Number(b || 0), 0);
 
-  const processImageFiles = (files: FileList | File[], isEdit = false) => {
-    const validFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
-    if (validFiles.length === 0) {
-      if (isEdit) {
-        setEditImageError('Please select valid image files (PNG, JPG, JPEG, WEBP).');
-      } else {
-        setImageError('Please select valid image files (PNG, JPG, JPEG, WEBP).');
-      }
-      return;
-    }
-
-    const readers: Promise<string>[] = validFiles.map(file => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          if (e.target?.result) {
-            resolve(e.target.result as string);
-          }
-        };
-        reader.readAsDataURL(file);
-      });
+    updateProduct(productId, {
+      variant_stocks: updatedStocks,
+      stock: newTotalStock,
     });
-
-    Promise.all(readers).then(results => {
-      if (isEdit) {
-        setEditImageUrls(prev => [...prev, ...results]);
-        setEditImageError('');
-      } else {
-        setImageUrls(prev => [...prev, ...results]);
-        setImageError('');
-      }
-    });
+    showToast(`Updated stock for ${variant}: ${newQty} units`);
   };
 
-  const handleDeviceFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      processImageFiles(e.target.files, false);
-      e.target.value = '';
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processImageFiles(e.dataTransfer.files, false);
-    }
-  };
-
-  const handleAddImageFromUrl = () => {
-    if (!newImageUrl.trim()) return;
-    setImageUrls([...imageUrls, newImageUrl.trim()]);
-    setNewImageUrl('');
-    setImageError('');
-  };
-
-  const handleRemoveImage = (index: number) => {
-    const updated = imageUrls.filter((_, i) => i !== index);
-    setImageUrls(updated);
-    if (updated.length === 0) {
-      setImageError('Please add an image before publishing to store (at least 1 image is required).');
-    }
-  };
-
-  const openAddProductModal = () => {
-    setShowAddModal(true);
-    setImageError('');
-  };
-
-  const handleCreateProductSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prodName.trim()) {
-      alert('Product Name is mandatory.');
-      return;
-    }
-    if (prodPriceMin === '' || Number(prodPriceMin) <= 0) {
-      alert('A valid product price is mandatory.');
-      return;
-    }
-    if (imageUrls.length === 0 || !imageUrls[0]?.trim()) {
-      setImageError('Please add an image before publishing to store.');
-      const imageSection = document.getElementById('product-image-upload-section');
-      if (imageSection) {
-        imageSection.scrollIntoView({ behavior: 'smooth' });
-      }
-      return;
-    }
-    if (choicesList.length === 0) {
-      alert(prodCategory === 'Supplements' ? 'Please add at least one flavour.' : 'Please add at least one size/option.');
-      return;
-    }
-
-    const minP = Number(prodPriceMin);
-    const maxP = isPriceRange && prodPriceMax !== '' ? Number(prodPriceMax) : undefined;
-    const isSupp = prodCategory === 'Supplements';
-
-    const availableCenters: (CenterType | 'All')[] =
-      branchTarget === 'All' ? ['All'] : [branchTarget];
-
-    addProduct({
-      name: prodName.trim(),
-      category: prodCategory,
-      price: minP,
-      price_min: isPriceRange ? minP : undefined,
-      price_max: maxP,
-      stock: Number(prodStock) || 0,
-      description: prodDescription.trim() || `${prodName} - Premium ${prodCategory} stocked for Hercules Gym members.`,
-      image_url: imageUrls[0],
-      additional_images: imageUrls.length > 1 ? imageUrls.slice(1) : undefined,
-      flavours: isSupp ? choicesList : undefined,
-      sizes: !isSupp ? choicesList : undefined,
-      flavours_or_choices: choicesList,
-      badge: prodBadge.trim() || undefined,
-      available_centers: availableCenters,
-    });
-
-    showToast(`"${prodName}" added to the store!`);
-
-    // Reset Form
-    setShowAddModal(false);
-    setProdName('');
-    setProdPriceMin(2499);
-    setProdPriceMax(2999);
-    setIsPriceRange(false);
-    setProdDescription('');
-    setProdStock(15);
-    setImageUrls([]);
-    setImageError('');
-    setChoicesList(['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha']);
-    setBranchTarget('All');
-  };
-
-  // Edit Product Handlers
-  const openEditProductModal = (prod: MerchandiseItem) => {
-    setEditingProduct(prod);
-    setEditProdName(prod.name || '');
-    setEditProdCategory(prod.category || 'Supplements');
-    setEditProdPriceMin(prod.price || 0);
-    setEditProdPriceMax(prod.price_max || '');
-    setEditIsPriceRange(Boolean(prod.price_max && prod.price_max > prod.price));
-    setEditProdOriginalPrice(prod.original_price || '');
-    setEditProdDescription(prod.description || '');
-    setEditProdStock(prod.stock ?? 15);
-    setEditProdBadge(prod.badge || 'Certified Authentic');
-
-    const images = [prod.image_url, ...(prod.additional_images || [])].filter(Boolean);
-    setEditImageUrls(images);
-    setEditImageError('');
-    setEditNewImageUrl('');
-
-    const isSupp = prod.category === 'Supplements';
-    let choices: string[] = [];
-    if (isSupp) {
-      if (prod.flavours && Array.isArray(prod.flavours) && prod.flavours.length > 0) {
-        choices = prod.flavours.filter(f => !['S', 'M', 'L', 'XL', 'XXL', 'XS'].includes(f.toUpperCase()));
-      }
-      if (choices.length === 0 && prod.flavours_or_choices && Array.isArray(prod.flavours_or_choices)) {
-        choices = prod.flavours_or_choices.filter(f => !['S', 'M', 'L', 'XL', 'XXL', 'XS'].includes(f.toUpperCase()));
-      }
-      if (choices.length === 0) {
-        choices = ['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha'];
-      }
-    } else {
-      if (prod.sizes && Array.isArray(prod.sizes) && prod.sizes.length > 0) {
-        choices = prod.sizes;
-      } else if (prod.flavours_or_choices && Array.isArray(prod.flavours_or_choices)) {
-        choices = prod.flavours_or_choices;
-      } else {
-        choices = prod.category === 'Apparel' ? ['S', 'M', 'L', 'XL'] : ['Standard'];
-      }
-    }
-    setEditChoicesList(choices);
-    setEditNewChoiceInput('');
-
-    const branch = prod.available_centers?.includes('All')
-      ? 'All'
-      : (prod.available_centers?.[0] as any) || 'All';
-    setEditBranchTarget(branch);
-
-    setShowEditModal(true);
-  };
-
-  const handleEditAddChoice = () => {
-    if (!editNewChoiceInput.trim()) return;
-    if (!editChoicesList.includes(editNewChoiceInput.trim())) {
-      setEditChoicesList([...editChoicesList, editNewChoiceInput.trim()]);
-    }
-    setEditNewChoiceInput('');
-  };
-
-  const handleEditRemoveChoice = (index: number) => {
-    if (editChoicesList.length <= 1) {
-      alert('At least one option is mandatory.');
-      return;
-    }
-    setEditChoicesList(editChoicesList.filter((_, i) => i !== index));
-  };
-
-  const handleEditDeviceFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      processImageFiles(e.target.files, true);
-      e.target.value = '';
-    }
-  };
-
-  const handleEditAddImageFromUrl = () => {
-    if (!editNewImageUrl.trim()) return;
-    setEditImageUrls([...editImageUrls, editNewImageUrl.trim()]);
-    setEditNewImageUrl('');
-    setEditImageError('');
-  };
-
-  const handleEditRemoveImage = (index: number) => {
-    const updated = editImageUrls.filter((_, i) => i !== index);
-    setEditImageUrls(updated);
-    if (updated.length === 0) {
-      setEditImageError('Please keep at least 1 image for the product.');
-    }
-  };
-
-  const handleUpdateProductSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingProduct) return;
-
-    if (!editProdName.trim()) {
-      alert('Product Name is mandatory.');
-      return;
-    }
-    if (editProdPriceMin === '' || Number(editProdPriceMin) <= 0) {
-      alert('A valid product price is mandatory.');
-      return;
-    }
-    if (editImageUrls.length === 0 || !editImageUrls[0]?.trim()) {
-      setEditImageError('Please provide at least 1 image.');
-      return;
-    }
-    if (editChoicesList.length === 0) {
-      alert(editProdCategory === 'Supplements' ? 'Please keep at least one flavour.' : 'Please keep at least one size/option.');
-      return;
-    }
-
-    setIsSavingEdit(true);
-    try {
-      const isSupp = editProdCategory === 'Supplements';
-      const mainImg = editImageUrls[0];
-      const extraImages = editImageUrls.slice(1);
-
-      await updateProduct(editingProduct.id, {
-        name: editProdName.trim(),
-        category: editProdCategory,
-        price: Number(editProdPriceMin),
-        price_min: editIsPriceRange ? Number(editProdPriceMin) : undefined,
-        price_max: editIsPriceRange && editProdPriceMax !== '' ? Number(editProdPriceMax) : undefined,
-        original_price: editProdOriginalPrice !== '' ? Number(editProdOriginalPrice) : undefined,
-        description: editProdDescription.trim() || editingProduct.description,
-        image_url: mainImg,
-        additional_images: extraImages.length > 0 ? extraImages : undefined,
-        flavours: isSupp ? editChoicesList : undefined,
-        sizes: !isSupp ? editChoicesList : undefined,
-        flavours_or_choices: editChoicesList,
-        stock: Number(editProdStock) || 0,
-        badge: editProdBadge.trim() || undefined,
-        available_centers: editBranchTarget === 'All' ? ['All'] : [editBranchTarget],
-      });
-
-      showToast(`Product "${editProdName}" updated successfully!`);
-      setShowEditModal(false);
-      setEditingProduct(null);
-    } catch (err) {
-      console.error('Edit error:', err);
-      alert('Failed to update product. Please try again.');
-    } finally {
-      setIsSavingEdit(false);
-    }
-  };
-
-  const handleAddToCartWithChoice = (prod: MerchandiseItem) => {
-    const choices = prod.flavours || prod.sizes || [];
-    const selectedChoice = selectedChoices[prod.id] || (choices.length > 0 ? choices[0] : undefined);
-    addToCart(prod, 1, selectedChoice);
-    showToast(`Added ${prod.name} to cart`);
+  const handleListProductFromCatalog = (productData: Omit<MerchandiseItem, 'id'>) => {
+    addProduct(productData);
+    showToast(`"${productData.name}" is now listed live in the gym center store!`);
+    setSelectedCatalogItemForListing(null);
   };
 
   const handleCompleteOrder = () => {
@@ -484,44 +151,46 @@ export const ShopView: React.FC = () => {
     handleCloseCart();
   };
 
+  const categories = ['All', 'Supplements', 'Apparel', 'Accessories', 'Equipment'];
+
   return (
     <div className="space-y-6 pb-20 md:pb-8">
-      {/* Header & Actions */}
+      {/* Header & Primary Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-2xl font-black text-white tracking-tight">Hercules Store & Supplements</h2>
             <span className="px-2.5 py-0.5 rounded-full bg-rose-600/20 text-rose-400 border border-rose-600/30 text-[10px] font-black uppercase tracking-wider">
-              {isUserAdmin ? 'Admin Inventory Matrix' : `${userCenter} Branch Store`}
+              {isAdmin ? 'Admin Master View (3 Centers)' : isStaff ? `Trainer View (${userCenter})` : `${userCenter} Member Store`}
             </span>
           </div>
-          <p className="text-xs text-zinc-400">
-            Certified authentic supplements, gym apparel, and powerlifting accessories
+          <p className="text-xs text-zinc-400 mt-1">
+            Certified authentic sports nutrition, official apparel, lifting belts, and high-performance equipment.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Admin Add Product Button */}
-          {isUserAdmin && (
+        <div className="flex items-center gap-2.5">
+          {/* Mobile Master Catalog Trigger (Staff Only) */}
+          {isStaff && (
             <button
-              onClick={openAddProductModal}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs shadow-lg shadow-orange-900/30 transition-all active:scale-95 shrink-0"
+              onClick={() => setShowCatalogSidebarMobile(!showCatalogSidebarMobile)}
+              className="lg:hidden flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs shadow-lg shadow-amber-950/30 transition-transform active:scale-95 shrink-0"
             >
-              <PlusCircle className="w-4 h-4" />
-              <span>Add Product</span>
+              <Layers className="w-4 h-4" />
+              <span>Catalog ({catalog.length})</span>
             </button>
           )}
 
-          {/* Cart Trigger */}
+          {/* Cart Trigger Button */}
           <button
             onClick={handleOpenCart}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-bold text-xs shadow-lg shadow-rose-900/30 transition-all active:scale-95 shrink-0 relative"
           >
             <ShoppingBag className="w-4 h-4" />
-            <span>My Cart</span>
+            <span>My Bag</span>
             {cart.length > 0 && (
               <span className="ml-1 px-2 py-0.5 rounded-full bg-white text-rose-600 font-extrabold text-[10px]">
-                {cart.reduce((a, c) => a + c.quantity, 0)} (₹{cartTotal})
+                {cart.reduce((a: number, c: any) => a + c.quantity, 0)} (₹{cartTotal.toLocaleString()})
               </span>
             )}
           </button>
@@ -544,1130 +213,197 @@ export const ShopView: React.FC = () => {
         </div>
       )}
 
-      {/* Category Pills & Search */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-          {categories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                activeCategory === cat
-                  ? 'bg-rose-600 text-white shadow-md'
-                  : theme === 'dark'
-                  ? 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white'
-                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
+      {/* Main Content Area: Products Grid + Master Catalog Sidebar on Right (Staff Only) */}
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        {/* Left Column: Store Category Filters, Search Bar & Product Cards */}
+        <div className="flex-1 w-full space-y-5 min-w-0">
+          {/* Category Pills & Search */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar">
+              {categories.map((cat: string) => (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                    activeCategory === cat
+                      ? 'bg-rose-600 text-white shadow-md'
+                      : theme === 'dark'
+                      ? 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search supplements, gear, flavours..."
+                value={searchQuery}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-rose-500 w-full sm:w-64"
+              />
+            </div>
+          </div>
+
+          {/* Member Center Notice */}
+          {!isAdmin && (
+            <div className="p-3 rounded-2xl bg-zinc-950/70 border border-zinc-800 text-xs text-zinc-300 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-rose-500" />
+                <span>
+                  Showing inventory available for collection at <strong>{userCenter} Center</strong>.
+                </span>
+              </div>
+              <span className="text-[11px] text-emerald-400 font-bold hidden sm:inline-flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                100% In-Stock Verification
+              </span>
+            </div>
+          )}
+
+          {/* Amazon / Flipkart Style Product Cards List */}
+          {visibleProducts.length === 0 ? (
+            <div className="p-12 text-center rounded-3xl border border-zinc-800 bg-zinc-950/60 space-y-3">
+              <Package className="w-10 h-10 text-zinc-600 mx-auto" />
+              <div className="text-sm font-bold text-zinc-300">No merchandise currently listed in this category</div>
+              <p className="text-xs text-zinc-500">
+                {isStaff
+                  ? 'Select an item from the Master Catalog on the right to list it in this center store!'
+                  : 'Check back soon or ask the gym reception.'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {visibleProducts.map((prod: MerchandiseItem) => {
+                const inCartItem = cart.find((c: any) => c.product.id === prod.id);
+                const cartQty = inCartItem?.quantity || 0;
+
+                return (
+                  <ProductCard
+                    key={prod.id}
+                    product={prod}
+                    theme={theme}
+                    userRole={userRole}
+                    userCenter={userCenter}
+                    cartQuantity={cartQty}
+                    onAddToCart={handleAddToCart}
+                    onUpdateCartQty={(pid: string, qty: number) => updateCartQuantity(pid, qty)}
+                    onEditProduct={(p: MerchandiseItem) => setEditingStoreProduct(p)}
+                    onDeleteProduct={(pid: string) => deleteProduct(pid)}
+                    onQuickStockChange={handleQuickStockChange}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search supplements, gear, flavours..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="pl-8 pr-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-rose-500 w-full sm:w-64"
-          />
-        </div>
+        {/* Right Column: Master Catalog Sidebar (Strictly visible for Admin & Trainers) */}
+        {isStaff && (
+          <>
+            {/* Desktop Docked Sidebar on Right */}
+            <div className="hidden lg:block shrink-0 sticky top-4">
+              <CatalogSidebar
+                catalog={catalog}
+                userRole={userRole}
+                theme={theme}
+                onOpenAddCatalogModal={() => setShowAddCatalogModal(true)}
+                onListInStore={(item: CatalogItem) => setSelectedCatalogItemForListing(item)}
+                onDeleteCatalogItem={(id: string) => deleteCatalogItem(id)}
+              />
+            </div>
+
+            {/* Mobile Drawer */}
+            {showCatalogSidebarMobile && (
+              <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm lg:hidden flex justify-end">
+                <div className="w-full max-w-md h-full bg-zinc-950 border-l border-zinc-800 p-4 flex flex-col">
+                  <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-5 h-5 text-amber-400" />
+                      <h3 className="text-base font-black text-white">Master Catalog</h3>
+                    </div>
+                    <button
+                      onClick={() => setShowCatalogSidebarMobile(false)}
+                      className="p-2 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto pt-3">
+                    <CatalogSidebar
+                      catalog={catalog}
+                      userRole={userRole}
+                      theme={theme}
+                      onOpenAddCatalogModal={() => {
+                        setShowCatalogSidebarMobile(false);
+                        setShowAddCatalogModal(true);
+                      }}
+                      onListInStore={(item: CatalogItem) => {
+                        setShowCatalogSidebarMobile(false);
+                        setSelectedCatalogItemForListing(item);
+                      }}
+                      onDeleteCatalogItem={(id: string) => deleteCatalogItem(id)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {/* Branch notice if non-admin */}
-      {!isUserAdmin && (
-        <div className="p-3 rounded-2xl bg-zinc-950/70 border border-zinc-800 text-xs text-zinc-300 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-rose-500" />
-            <span>Showing authentic inventory available for collection at <strong>{userCenter} Center</strong>.</span>
-          </div>
-          <span className="text-[11px] text-emerald-400 font-bold">100% In-Stock Verification</span>
-        </div>
-      )}
+      {/* Admin Only: Add Product to Master Catalog Modal (Strictly 5 fields) */}
+      <AddCatalogModal
+        isOpen={showAddCatalogModal}
+        onClose={() => setShowAddCatalogModal(false)}
+        onAddCatalogItem={async (item: Omit<CatalogItem, 'id' | 'created_at'>) => {
+          await addCatalogItem(item);
+          showToast(`"${item.name}" added to Master Catalog!`);
+        }}
+        theme={theme}
+      />
 
-      {/* Products Grid */}
-      {visibleProducts.length === 0 ? (
-        <div className="p-12 text-center rounded-3xl border border-zinc-800 bg-zinc-950/60 space-y-3">
-          <Package className="w-10 h-10 text-zinc-600 mx-auto" />
-          <div className="text-sm font-bold text-zinc-300">No merchandise found in this category</div>
-          <p className="text-xs text-zinc-500">Try changing category filters or search terms.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {visibleProducts.map(prod => {
-            const allImages = [prod.image_url, ...(prod.additional_images || [])];
-            const activeImgIdx = activeImageIndices[prod.id] || 0;
-            const currentImg = allImages[activeImgIdx] || prod.image_url;
-            const isSupplement = prod.category === 'Supplements' || prod.category?.toLowerCase() === 'supplements';
-            
-            // Flavours strictly for supplements, choices/sizes strictly for other products
-            let choices: string[] = [];
-            if (isSupplement) {
-              if (prod.flavours && Array.isArray(prod.flavours) && prod.flavours.length > 0) {
-                choices = prod.flavours.filter((f: string) => !['S', 'M', 'L', 'XL', 'XXL', 'XS'].includes(f.toUpperCase()));
-              }
-              if (choices.length === 0 && prod.flavours_or_choices && Array.isArray(prod.flavours_or_choices) && prod.flavours_or_choices.length > 0) {
-                choices = prod.flavours_or_choices.filter((f: string) => !['S', 'M', 'L', 'XL', 'XXL', 'XS'].includes(f.toUpperCase()));
-              }
-              if (choices.length === 0) {
-                if (prod.name?.toLowerCase().includes('tiger') || prod.name?.toLowerCase().includes('pre')) {
-                  choices = ['Fruit Punch', 'Watermelon Blast', 'Blue Raspberry'];
-                } else {
-                  choices = ['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha'];
-                }
-              }
-            } else {
-              if (prod.sizes && Array.isArray(prod.sizes) && prod.sizes.length > 0) {
-                choices = prod.sizes;
-              } else if (prod.flavours_or_choices && Array.isArray(prod.flavours_or_choices) && prod.flavours_or_choices.length > 0) {
-                choices = prod.flavours_or_choices;
-              } else {
-                choices = prod.category === 'Apparel' ? ['S', 'M', 'L', 'XL'] : ['Standard'];
-              }
-            }
+      {/* Staff (Admin / Trainer): List Product from Catalog to Center Store Modal */}
+      <ListFromCatalogModal
+        isOpen={Boolean(selectedCatalogItemForListing)}
+        catalogItem={selectedCatalogItemForListing}
+        onClose={() => setSelectedCatalogItemForListing(null)}
+        onListProduct={handleListProductFromCatalog}
+        theme={theme}
+        defaultCenter={userCenter}
+      />
 
-            const activeChoice = selectedChoices[prod.id] || (choices.length > 0 ? choices[0] : '');
+      {/* Staff (Admin / Trainer): Edit Store Product Modal */}
+      <EditStoreProductModal
+        isOpen={Boolean(editingStoreProduct)}
+        product={editingStoreProduct}
+        onClose={() => setEditingStoreProduct(null)}
+        onSave={async (pid: string, updates: Partial<MerchandiseItem>) => {
+          await updateProduct(pid, updates);
+          showToast(`Store listing updated!`);
+        }}
+        theme={theme}
+      />
 
-            const branchLabel = prod.available_centers.includes('All')
-              ? 'All Centers'
-              : prod.available_centers.join(', ');
-
-            return (
-              <div
-                key={prod.id}
-                className={`rounded-3xl border overflow-hidden flex flex-col transition-all hover:border-rose-500/40 hover:shadow-xl group ${
-                  theme === 'dark' ? 'bg-zinc-900/80 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
-                }`}
-              >
-                {/* Image Section with Multi-Image previews */}
-                <div className="relative h-52 bg-zinc-950 overflow-hidden flex flex-col justify-end">
-                  <img
-                    src={currentImg}
-                    alt={prod.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 absolute inset-0"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/20 to-transparent" />
-
-                  {/* Top Badges */}
-                  <div className="absolute top-3 left-3 flex flex-wrap gap-1.5 z-10">
-                    {prod.badge && (
-                      <span className="px-2.5 py-0.5 rounded-full bg-rose-600/90 text-white text-[10px] font-black uppercase tracking-wider backdrop-blur-md">
-                        {prod.badge}
-                      </span>
-                    )}
-                    <span className="px-2.5 py-0.5 rounded-full bg-zinc-900/80 text-amber-400 border border-amber-500/30 text-[10px] font-bold backdrop-blur-md flex items-center gap-1">
-                      <Building2 className="w-3 h-3" />
-                      {branchLabel}
-                    </span>
-                  </div>
-
-                  {/* Stock Counter Tag */}
-                  <div className="absolute top-3 right-3 z-10">
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold backdrop-blur-md ${
-                        prod.stock > 5
-                          ? 'bg-zinc-950/80 text-emerald-400 border border-emerald-500/30'
-                          : prod.stock > 0
-                          ? 'bg-amber-950/80 text-amber-400 border border-amber-500/30'
-                          : 'bg-rose-950/90 text-rose-400 border border-rose-500/30'
-                      }`}
-                    >
-                      {prod.stock > 0 ? `Gym Stock: ${prod.stock} left` : 'Out of Stock'}
-                    </span>
-                  </div>
-
-                  {/* Multi-Image Thumbnails if available */}
-                  {allImages.length > 1 && (
-                    <div className="relative z-10 p-2 flex items-center gap-1.5 overflow-x-auto bg-zinc-950/70 backdrop-blur-sm">
-                      {allImages.map((img, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() =>
-                            setActiveImageIndices({
-                              ...activeImageIndices,
-                              [prod.id]: idx,
-                            })
-                          }
-                          className={`w-8 h-8 rounded-lg overflow-hidden border-2 transition-all shrink-0 ${
-                            activeImgIdx === idx ? 'border-rose-500 scale-105' : 'border-transparent opacity-60'
-                          }`}
-                        >
-                          <img src={img} alt="thumb" className="w-full h-full object-cover" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Content Section */}
-                <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-500">
-                        {prod.category}
-                      </span>
-
-                      {/* Admin Quick Stock Adjuster, Edit & Delete Action */}
-                      {isUserAdmin && (
-                        <div className="flex items-center gap-0.5 bg-zinc-950 border border-zinc-800 rounded-lg p-0.5">
-                          <button
-                            type="button"
-                            title="Decrease Stock"
-                            onClick={() => updateProductStock(prod.id, prod.stock - 1)}
-                            className="p-1 text-zinc-400 hover:text-white"
-                          >
-                            <Minus className="w-3 h-3" />
-                          </button>
-                          <span className="text-[10px] font-mono font-bold px-1 text-white">{prod.stock}</span>
-                          <button
-                            type="button"
-                            title="Increase Stock"
-                            onClick={() => updateProductStock(prod.id, prod.stock + 1)}
-                            className="p-1 text-zinc-400 hover:text-white"
-                          >
-                            <Plus className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            title="Edit Product Details"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditProductModal(prod);
-                            }}
-                            className="p-1.5 text-zinc-400 hover:text-amber-400 hover:bg-amber-500/10 rounded transition-colors ml-0.5 border-l border-zinc-800"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            title="Delete Product"
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              if (window.confirm(`Are you sure you want to remove "${prod.name}" from the store?`)) {
-                                await deleteProduct(prod.id);
-                              }
-                            }}
-                            className="p-1.5 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors border-l border-zinc-800"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <h3 className="text-sm font-bold text-white leading-snug">{prod.name}</h3>
-                    <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">{prod.description}</p>
-
-                    {/* Flavours (Supplements) vs Choices/Sizes (Other Products) */}
-                    {choices.length > 0 && (
-                      <div className="space-y-1.5 pt-1">
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                          {isSupplement ? 'Select Flavour:' : 'Select Choice / Size:'}
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {choices.map((choice: string) => (
-                            <button
-                              key={choice}
-                              type="button"
-                              onClick={() =>
-                                setSelectedChoices({
-                                  ...selectedChoices,
-                                  [prod.id]: choice,
-                                })
-                              }
-                              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all ${
-                                activeChoice === choice
-                                  ? 'bg-rose-600 text-white shadow-sm'
-                                  : 'bg-zinc-950 text-zinc-400 border border-zinc-800 hover:border-zinc-700 hover:text-white'
-                              }`}
-                            >
-                              {choice}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Price & Add to Cart */}
-                  <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between">
-                    <div>
-                      <div className="text-lg font-black text-white">
-                        {prod.price_max && prod.price_max > prod.price ? (
-                          <span>
-                            ₹{prod.price.toLocaleString()} – ₹{prod.price_max.toLocaleString()}
-                          </span>
-                        ) : (
-                          <span>₹{prod.price.toLocaleString()}</span>
-                        )}
-                      </div>
-                      {prod.original_price && (
-                        <div className="text-[11px] text-zinc-500 line-through">
-                          ₹{prod.original_price.toLocaleString()}
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      onClick={() => handleAddToCartWithChoice(prod)}
-                      disabled={prod.stock === 0}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white text-xs font-bold shadow-md shadow-rose-900/30 transition-all active:scale-95"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>{prod.stock > 0 ? 'Add to Cart' : 'Out of Stock'}</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Admin Add Product Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
-          <div className={`w-full max-w-2xl max-h-[92vh] flex flex-col rounded-3xl border shadow-2xl overflow-hidden my-auto ${
-            theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
-          }`}>
-            {/* Modal Header (Sticky) */}
-            <div className={`flex items-center justify-between px-6 py-4 border-b shrink-0 ${
-              theme === 'dark' ? 'bg-zinc-900/95 border-zinc-800' : 'bg-white/95 border-zinc-200'
-            }`}>
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-600 to-orange-600 flex items-center justify-center text-white shadow-md shadow-orange-900/30">
-                  <PlusCircle className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black tracking-tight">Add Product to Store & Supplements</h3>
-                  <p className="text-[11px] text-zinc-400">Configure merchandise with branch isolation and device photos</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Scrollable Form Container */}
-            <form onSubmit={handleCreateProductSubmit} className="flex flex-col flex-1 overflow-hidden">
-              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 text-xs">
-                {/* Product Name (Mandatory) */}
-                <div>
-                  <label className="block text-zinc-300 font-bold mb-1">
-                    Product Name <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={prodName}
-                    onChange={e => setProdName(e.target.value)}
-                    placeholder="e.g. Optimum Nutrition Gold Standard 100% Whey 2kg"
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-rose-500 font-medium"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Category */}
-                  <div>
-                    <label className="block text-zinc-300 font-bold mb-1">Category</label>
-                    <select
-                      value={prodCategory}
-                      onChange={e => {
-                        const val = e.target.value as 'Supplements' | 'Apparel' | 'Accessories' | 'Equipment';
-                        setProdCategory(val);
-                        if (val === 'Supplements') {
-                          setChoicesList(['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha']);
-                        } else if (val === 'Apparel') {
-                          setChoicesList(['S', 'M', 'L', 'XL', 'XXL']);
-                        } else if (val === 'Accessories') {
-                          setChoicesList(['Standard', 'Heavy Duty', '10mm', '13mm']);
-                        } else {
-                          setChoicesList(['Standard', 'Heavy Duty']);
-                        }
-                      }}
-                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white focus:outline-none font-medium"
-                    >
-                      <option value="Supplements">Supplements (Flavours only)</option>
-                      <option value="Apparel">Apparel (Sizes S, M, L, XL...)</option>
-                      <option value="Accessories">Accessories (Options)</option>
-                      <option value="Equipment">Equipment (Options)</option>
-                    </select>
-                  </div>
-
-                  {/* Gym Available Stock Counter (Mandatory) */}
-                  <div>
-                    <label className="block text-zinc-300 font-bold mb-1">
-                      Gym Available Stock Counter <span className="text-rose-500">*</span>
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setProdStock(Math.max(0, prodStock - 1))}
-                        className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold active:scale-95 transition-all"
-                      >
-                        <Minus className="w-3.5 h-3.5" />
-                      </button>
-                      <input
-                        type="number"
-                        min={0}
-                        required
-                        value={prodStock}
-                        onChange={e => setProdStock(Number(e.target.value))}
-                        className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-center font-black text-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setProdStock(prodStock + 1)}
-                        className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold active:scale-95 transition-all"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Price or Price Range (Mandatory) */}
-                <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-zinc-300 font-bold">
-                      Product Pricing <span className="text-rose-500">*</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer text-zinc-400 select-none text-[11px] font-semibold">
-                      <input
-                        type="checkbox"
-                        checked={isPriceRange}
-                        onChange={e => setIsPriceRange(e.target.checked)}
-                        className="accent-rose-600 rounded w-4 h-4 cursor-pointer"
-                      />
-                      <span>Allow Price Range (Min – Max)</span>
-                    </label>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <span className="text-[11px] text-zinc-400 mb-1 block">
-                        {isPriceRange ? 'Minimum Price (₹)' : 'Fixed Price (₹)'}
-                      </span>
-                      <input
-                        type="number"
-                        required
-                        min={1}
-                        value={prodPriceMin}
-                        onChange={e => setProdPriceMin(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="e.g. 2499"
-                        className="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-black text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
-                      />
-                    </div>
-
-                    {isPriceRange && (
-                      <div>
-                        <span className="text-[11px] text-zinc-400 mb-1 block">Maximum Price (₹)</span>
-                        <input
-                          type="number"
-                          min={Number(prodPriceMin) || 1}
-                          value={prodPriceMax}
-                          onChange={e => setProdPriceMax(e.target.value === '' ? '' : Number(e.target.value))}
-                          placeholder="e.g. 2999"
-                          className="w-full p-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-black text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Product Images (Device Upload & Multi-Image Support) */}
-                <div id="product-image-upload-section" className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-zinc-300 font-bold flex items-center gap-1.5">
-                      <ImageIcon className="w-4 h-4 text-rose-500" />
-                      <span>Product Images <span className="text-rose-500">* (at least 1 required)</span></span>
-                    </label>
-                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
-                      imageUrls.length > 0 ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/40' : 'bg-rose-950/80 text-rose-400 border border-rose-800/40'
-                    }`}>
-                      {imageUrls.length} image(s) uploaded
-                    </span>
-                  </div>
-
-                  {/* Hidden File Input for Device Upload */}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleDeviceFileUpload}
-                    className="hidden"
-                  />
-
-                  {/* Drag & Drop / Device Upload Area */}
-                  <div
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 ${
-                      isDragging
-                        ? 'border-rose-500 bg-rose-500/10'
-                        : imageUrls.length === 0
-                        ? 'border-zinc-700 hover:border-rose-500/60 bg-zinc-900/60 hover:bg-zinc-900'
-                        : 'border-zinc-800 hover:border-zinc-700 bg-zinc-900/40'
-                    }`}
-                  >
-                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-rose-600/20 to-orange-600/20 border border-rose-500/30 flex items-center justify-center text-rose-400">
-                      <UploadCloud className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-white block">
-                        Upload Image from your Device
-                      </span>
-                      <span className="text-[11px] text-zinc-400">
-                        Click to browse files or drag and drop photos here (PNG, JPG, WEBP)
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        fileInputRef.current?.click();
-                      }}
-                      className="mt-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-orange-600 text-white font-bold text-[11px] shadow-md shadow-rose-900/20 hover:brightness-110 active:scale-95 transition-all flex items-center gap-1.5"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>Choose From Device</span>
-                    </button>
-                  </div>
-
-                  {/* Secondary URL Option */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <input
-                      type="url"
-                      value={newImageUrl}
-                      onChange={e => setNewImageUrl(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleAddImageFromUrl();
-                        }
-                      }}
-                      placeholder="Or enter image URL (https://...)"
-                      className="flex-1 p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddImageFromUrl}
-                      className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs shrink-0 transition-colors"
-                    >
-                      + Add URL
-                    </button>
-                  </div>
-
-                  {/* Image Validation Warning Notice */}
-                  {imageUrls.length === 0 && (
-                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center gap-2.5 animate-pulse">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
-                      <span className="text-[11px] font-bold">
-                        Please add an image before publishing to store (at least 1 image is mandatory).
-                      </span>
-                    </div>
-                  )}
-
-                  {imageError && imageUrls.length === 0 && (
-                    <div className="p-2.5 rounded-xl bg-red-950/80 border border-red-800 text-red-300 text-[11px] font-bold flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
-                      <span>{imageError}</span>
-                    </div>
-                  )}
-
-                  {/* Image List Preview Gallery */}
-                  {imageUrls.length > 0 && (
-                    <div className="space-y-1.5 pt-1">
-                      <span className="text-[11px] text-zinc-400 font-semibold block">
-                        Product Gallery Preview (First image is primary main card image):
-                      </span>
-                      <div className="flex flex-wrap gap-2.5">
-                        {imageUrls.map((url, idx) => (
-                          <div key={idx} className="relative group w-20 h-20 rounded-2xl overflow-hidden border border-zinc-700 shadow-md bg-zinc-900">
-                            <img src={url} alt={`Product preview ${idx + 1}`} className="w-full h-full object-cover" />
-                            {idx === 0 ? (
-                              <span className="absolute bottom-0 inset-x-0 bg-rose-600/95 text-[9px] font-black text-white text-center py-0.5 tracking-wider">
-                                MAIN
-                              </span>
-                            ) : (
-                              <span className="absolute bottom-0 inset-x-0 bg-black/75 text-[8px] font-bold text-zinc-300 text-center py-0.5">
-                                #{idx + 1}
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveImage(idx)}
-                              className="absolute top-1 right-1 p-1 rounded-full bg-black/80 text-white hover:bg-rose-600 transition-colors shadow-sm"
-                              title="Remove image"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ))}
-
-                        {/* Add More Button inside Gallery */}
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="w-20 h-20 rounded-2xl border-2 border-dashed border-zinc-700 hover:border-rose-500/60 bg-zinc-900/50 hover:bg-zinc-900 flex flex-col items-center justify-center gap-1 text-zinc-400 hover:text-white transition-all"
-                        >
-                          <Plus className="w-4 h-4 text-rose-500" />
-                          <span className="text-[9px] font-bold">Add More</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Flavours / Choices / Sizes (Mandatory - at least one, option to add more) */}
-                <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-zinc-300 font-bold flex items-center gap-1.5">
-                      <Tag className="w-4 h-4 text-amber-400" />
-                      <span>
-                        {prodCategory === 'Supplements' ? 'Flavours' : 'Sizes / Choices'}{' '}
-                        <span className="text-rose-500">* (at least 1 required)</span>
-                      </span>
-                    </label>
-                    <span className="text-[11px] text-zinc-500">{choicesList.length} option(s)</span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={newChoiceInput}
-                      onChange={e => setNewChoiceInput(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleAddChoice();
-                        }
-                      }}
-                      placeholder={
-                        prodCategory === 'Supplements'
-                          ? 'e.g. Double Rich Chocolate, Strawberry, Café Mocha...'
-                          : 'e.g. S, M, L, XL, 10mm, Lever Belt...'
-                      }
-                      className="flex-1 p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddChoice}
-                      className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs shrink-0 transition-colors"
-                    >
-                      + Add Option
-                    </button>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {choicesList.map((ch, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2.5 py-1 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 font-bold text-xs flex items-center gap-1.5"
-                      >
-                        <span>{ch}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveChoice(idx)}
-                          className="hover:text-white transition-colors"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Intended Branches (4 options: All centers, Ranaghat, Chakdah, Madanpur) */}
-                <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-2.5">
-                  <label className="text-zinc-300 font-bold flex items-center gap-1.5">
-                    <Building2 className="w-4 h-4 text-emerald-400" />
-                    <span>Intended Branch Visibility <span className="text-rose-500">*</span></span>
-                  </label>
-                  <p className="text-[11px] text-zinc-400">
-                    Select which center branch members will have access to purchase this product.
-                  </p>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                    {(['All', 'Ranaghat', 'Chakdah', 'Madanpur'] as const).map(branch => (
-                      <button
-                        key={branch}
-                        type="button"
-                        onClick={() => setBranchTarget(branch)}
-                        className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
-                          branchTarget === branch
-                            ? 'bg-emerald-600/20 border-emerald-500 text-emerald-400 shadow-md ring-1 ring-emerald-500/50'
-                            : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-white'
-                        }`}
-                      >
-                        {branch === 'All' ? 'All Centers' : `${branch}`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Product Description (Optional) */}
-                <div>
-                  <label className="block text-zinc-300 font-bold mb-1">Product Description (Optional)</label>
-                  <textarea
-                    rows={2}
-                    value={prodDescription}
-                    onChange={e => setProdDescription(e.target.value)}
-                    placeholder="e.g. 24g 100% Whey Protein with 5.5g BCAAs and 4g Glutamine per serving."
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-rose-500 font-medium"
-                  />
-                </div>
-              </div>
-
-              {/* Modal Actions (Sticky Bottom) */}
-              <div className={`p-4 sm:p-5 border-t flex items-center gap-3 shrink-0 ${
-                theme === 'dark' ? 'bg-zinc-900/95 border-zinc-800' : 'bg-white/95 border-zinc-200'
-              }`}>
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="flex-1 py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black shadow-xl shadow-rose-900/30 transition-all active:scale-[0.98]"
-                >
-                  Publish to Store
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Admin Edit Product Modal */}
-      {showEditModal && editingProduct && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className={`w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl border shadow-2xl overflow-hidden my-auto ${
-            theme === 'dark' ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-white border-zinc-300 text-zinc-900'
-          }`}>
-            {/* Modal Header */}
-            <div className={`p-4 sm:p-5 border-b flex items-center justify-between shrink-0 ${
-              theme === 'dark' ? 'border-zinc-800 bg-zinc-900' : 'border-zinc-200 bg-zinc-50'
-            }`}>
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-                  <Edit3 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base sm:text-lg font-black leading-tight">Edit Product</h3>
-                  <p className="text-xs text-zinc-400">Modify store details, category, flavours/choices & pricing.</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowEditModal(false);
-                  setEditingProduct(null);
-                }}
-                className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Scrollable Form Body */}
-            <form onSubmit={handleUpdateProductSubmit} className="flex-1 overflow-y-auto flex flex-col min-h-0">
-              <div className="p-4 sm:p-6 space-y-5 text-xs">
-                {/* Product Name */}
-                <div>
-                  <label className="block text-zinc-300 font-bold mb-1">
-                    Product Title / Name <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={editProdName}
-                    onChange={e => setEditProdName(e.target.value)}
-                    placeholder="e.g. Optimum Nutrition (ON) Gold Standard 100% Whey"
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
-                  />
-                </div>
-
-                {/* Category Selection */}
-                <div>
-                  <label className="block text-zinc-300 font-bold mb-1">
-                    Category <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {(['Supplements', 'Apparel', 'Accessories', 'Equipment'] as const).map(cat => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => {
-                          setEditProdCategory(cat);
-                          if (cat === 'Supplements') {
-                            setEditChoicesList(['Double Rich Chocolate', 'Vanilla Ice Cream', 'Café Mocha']);
-                          } else if (cat === 'Apparel') {
-                            setEditChoicesList(['S', 'M', 'L', 'XL']);
-                          } else {
-                            setEditChoicesList(['Standard', 'Pro Edition']);
-                          }
-                        }}
-                        className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
-                          editProdCategory === cat
-                            ? 'bg-amber-500/20 border-amber-500 text-amber-400 shadow-md ring-1 ring-amber-500/50'
-                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Pricing & Offer Price */}
-                <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-zinc-300 font-bold">Pricing Model</span>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editIsPriceRange}
-                        onChange={e => setEditIsPriceRange(e.target.checked)}
-                        className="rounded bg-zinc-900 border-zinc-700 text-amber-500 focus:ring-amber-500"
-                      />
-                      <span className="text-zinc-400 text-[11px]">Display as Price Range</span>
-                    </label>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-zinc-400 font-semibold mb-1">
-                        {editIsPriceRange ? 'Minimum Price (₹) *' : 'Selling Price (₹) *'}
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        min="1"
-                        value={editProdPriceMin}
-                        onChange={e => setEditProdPriceMin(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-full p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      />
-                    </div>
-
-                    {editIsPriceRange && (
-                      <div>
-                        <label className="block text-zinc-400 font-semibold mb-1">
-                          Maximum Price (₹) *
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={editProdPriceMax}
-                          onChange={e => setEditProdPriceMax(e.target.value === '' ? '' : Number(e.target.value))}
-                          className="w-full p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
-                        />
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="block text-zinc-400 font-semibold mb-1">
-                        Original MRP (₹) (Optional)
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={editProdOriginalPrice}
-                        onChange={e => setEditProdOriginalPrice(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="e.g. 3499"
-                        className="w-full p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Stock & Badge */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-zinc-300 font-bold mb-1">Stock Quantity</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={editProdStock}
-                      onChange={e => setEditProdStock(Math.max(0, parseInt(e.target.value) || 0))}
-                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-zinc-300 font-bold mb-1">Authenticity / Promotional Badge</label>
-                    <input
-                      type="text"
-                      value={editProdBadge}
-                      onChange={e => setEditProdBadge(e.target.value)}
-                      placeholder="e.g. Certified Authentic, 100% Pure"
-                      className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                  </div>
-                </div>
-
-                {/* Product Images (Upload + URL) */}
-                <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-zinc-300 font-bold flex items-center gap-1.5">
-                      <ImageIcon className="w-4 h-4 text-amber-500" />
-                      <span>Product Images <span className="text-rose-500">*</span></span>
-                    </label>
-                    <span className="text-[10px] text-zinc-500">At least 1 image is mandatory</span>
-                  </div>
-
-                  {editImageError && (
-                    <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-800/80 text-rose-300 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-                      <span>{editImageError}</span>
-                    </div>
-                  )}
-
-                  {/* Device Upload Drag & Drop Area */}
-                  <div
-                    onDragOver={e => {
-                      e.preventDefault();
-                      setIsEditDragging(true);
-                    }}
-                    onDragLeave={e => {
-                      e.preventDefault();
-                      setIsEditDragging(false);
-                    }}
-                    onDrop={e => {
-                      e.preventDefault();
-                      setIsEditDragging(false);
-                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                        processImageFiles(e.dataTransfer.files, true);
-                      }
-                    }}
-                    onClick={() => editFileInputRef.current?.click()}
-                    className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 ${
-                      isEditDragging
-                        ? 'border-amber-500 bg-amber-500/10'
-                        : 'border-zinc-700 bg-zinc-900/50 hover:border-zinc-500 hover:bg-zinc-900'
-                    }`}
-                  >
-                    <input
-                      ref={editFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handleEditDeviceFileUpload}
-                      className="hidden"
-                    />
-                    <div className="p-2 rounded-xl bg-zinc-800 text-zinc-300">
-                      <UploadCloud className="w-5 h-5 text-amber-400" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-zinc-200">
-                        Click to upload new image(s) from your device
-                      </div>
-                      <div className="text-[10px] text-zinc-500">Supports JPG, PNG, WEBP, JPEG</div>
-                    </div>
-                  </div>
-
-                  {/* Or Image URL input */}
-                  <div className="flex gap-2">
-                    <input
-                      type="url"
-                      value={editNewImageUrl}
-                      onChange={e => setEditNewImageUrl(e.target.value)}
-                      placeholder="Or paste direct image URL (https://...)"
-                      className="flex-1 p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white placeholder-zinc-500 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleEditAddImageFromUrl}
-                      className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs shrink-0"
-                    >
-                      Add URL
-                    </button>
-                  </div>
-
-                  {/* Image Previews */}
-                  {editImageUrls.length > 0 && (
-                    <div className="flex items-center gap-2 overflow-x-auto pt-1 pb-1">
-                      {editImageUrls.map((url, idx) => (
-                        <div key={idx} className="relative w-16 h-16 rounded-xl overflow-hidden border border-zinc-700 group shrink-0">
-                          <img src={url} alt={`Preview ${idx}`} className="w-full h-full object-cover" />
-                          {idx === 0 && (
-                            <span className="absolute bottom-0 inset-x-0 bg-amber-600/90 text-[9px] text-white text-center font-bold">
-                              Main
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => handleEditRemoveImage(idx)}
-                            className="absolute top-1 right-1 p-1 rounded-md bg-black/70 text-white hover:bg-rose-600 transition-colors"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Flavours (Supplements) vs Choices (Other Products) */}
-                <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-zinc-300 font-bold">
-                      {editProdCategory === 'Supplements' ? 'Flavours Selection' : 'Choices / Sizes Selection'}{' '}
-                      <span className="text-rose-500">*</span>
-                    </label>
-                    <span className="text-[10px] text-zinc-500">
-                      {editProdCategory === 'Supplements'
-                        ? 'e.g. Double Rich Chocolate, Vanilla, Mocha'
-                        : 'e.g. S, M, L, XL or Standard, Heavy'}
-                    </span>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={editNewChoiceInput}
-                      onChange={e => setEditNewChoiceInput(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleEditAddChoice();
-                        }
-                      }}
-                      placeholder={
-                        editProdCategory === 'Supplements'
-                          ? 'Type flavour name and click Add...'
-                          : 'Type size/choice name and click Add...'
-                      }
-                      className="flex-1 p-2 rounded-xl bg-zinc-900 border border-zinc-700 text-white placeholder-zinc-500 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleEditAddChoice}
-                      className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shrink-0"
-                    >
-                      Add Option
-                    </button>
-                  </div>
-
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {editChoicesList.map((choice, idx) => (
-                      <span
-                        key={idx}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-zinc-900 border border-zinc-700 text-amber-300 text-xs font-semibold"
-                      >
-                        {choice}
-                        <button
-                          type="button"
-                          onClick={() => handleEditRemoveChoice(idx)}
-                          className="p-0.5 hover:text-rose-400 transition-colors"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Branch Visibility */}
-                <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800 space-y-2">
-                  <label className="text-zinc-300 font-bold flex items-center justify-between">
-                    <span>Intended Branch Visibility <span className="text-rose-500">*</span></span>
-                  </label>
-                  <p className="text-[11px] text-zinc-400">
-                    Select which center branch members will have access to purchase this product.
-                  </p>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                    {(['All', 'Ranaghat', 'Chakdah', 'Madanpur'] as const).map(branch => (
-                      <button
-                        key={branch}
-                        type="button"
-                        onClick={() => setEditBranchTarget(branch)}
-                        className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
-                          editBranchTarget === branch
-                            ? 'bg-amber-600/20 border-amber-500 text-amber-400 shadow-md ring-1 ring-amber-500/50'
-                            : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-white'
-                        }`}
-                      >
-                        {branch === 'All' ? 'All Centers' : `${branch}`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Product Description */}
-                <div>
-                  <label className="block text-zinc-300 font-bold mb-1">Product Description</label>
-                  <textarea
-                    rows={2}
-                    value={editProdDescription}
-                    onChange={e => setEditProdDescription(e.target.value)}
-                    placeholder="Product details, ingredients, or sizing specs..."
-                    className="w-full p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
-                  />
-                </div>
-              </div>
-
-              {/* Modal Actions (Sticky Bottom) */}
-              <div className={`p-4 sm:p-5 border-t flex items-center gap-3 shrink-0 ${
-                theme === 'dark' ? 'bg-zinc-900/95 border-zinc-800' : 'bg-white/95 border-zinc-200'
-              }`}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowEditModal(false);
-                    setEditingProduct(null);
-                  }}
-                  className="flex-1 py-3 rounded-2xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingEdit}
-                  className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-black shadow-xl shadow-amber-900/30 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-                >
-                  {isSavingEdit ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Saving Changes...</span>
-                    </>
-                  ) : (
-                    <span>Save & Update Product</span>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Cart Drawer */}
+      {/* Shopping Cart Drawer */}
       {isCartOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex justify-end">
-          <div className={`w-full max-w-md h-full flex flex-col shadow-2xl p-6 ${
-            theme === 'dark' ? 'bg-zinc-900 text-white' : 'bg-white text-zinc-900'
-          }`}>
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex justify-end">
+          <div
+            className={`w-full max-w-md h-full flex flex-col shadow-2xl p-6 ${
+              theme === 'dark' ? 'bg-zinc-950 text-white' : 'bg-white text-zinc-900'
+            }`}
+          >
             <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleCloseCart}
                   title="Go back to store"
-                  className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors"
+                  className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors"
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </button>
@@ -1676,7 +412,7 @@ export const ShopView: React.FC = () => {
               </div>
               <button
                 onClick={handleCloseCart}
-                className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400"
+                className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1684,10 +420,10 @@ export const ShopView: React.FC = () => {
 
             {cart.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-3">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-800/60 text-zinc-500 flex items-center justify-center">
+                <div className="w-16 h-16 rounded-2xl bg-zinc-900/60 text-zinc-500 flex items-center justify-center">
                   <ShoppingBag className="w-8 h-8" />
                 </div>
-                <h4 className="text-sm font-bold text-zinc-300">Your Cart is Empty</h4>
+                <h4 className="text-sm font-bold text-zinc-300">Your Bag is Empty</h4>
                 <p className="text-xs text-zinc-500">
                   Select protein supplements, lifting straps, or merchandise from the store.
                 </p>
@@ -1695,22 +431,22 @@ export const ShopView: React.FC = () => {
             ) : (
               <>
                 <div className="flex-1 overflow-y-auto py-4 space-y-3">
-                  {cart.map(item => (
+                  {cart.map((item: any) => (
                     <div
                       key={`${item.product.id}-${item.size || 'std'}`}
-                      className="flex items-center gap-3 p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800"
+                      className="flex items-center gap-3 p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800"
                     >
                       <img
                         src={item.product.image_url}
                         alt={item.product.name}
-                        className="w-14 h-14 rounded-xl object-cover"
+                        className="w-14 h-14 rounded-xl object-cover bg-zinc-950 shrink-0"
                       />
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-bold text-white truncate">{item.product.name}</div>
                         {item.size && (
                           <div className="text-[10px] text-amber-400 font-bold">Choice: {item.size}</div>
                         )}
-                        <div className="text-xs text-rose-400 font-bold">₹{item.product.price}</div>
+                        <div className="text-xs text-rose-400 font-bold">₹{item.product.price.toLocaleString()}</div>
 
                         <div className="flex items-center gap-2 mt-1">
                           <button
@@ -1719,7 +455,7 @@ export const ShopView: React.FC = () => {
                           >
                             <Minus className="w-3 h-3" />
                           </button>
-                          <span className="text-xs font-bold">{item.quantity}</span>
+                          <span className="text-xs font-bold font-mono">{item.quantity}</span>
                           <button
                             onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
                             className="p-1 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
@@ -1758,7 +494,7 @@ export const ShopView: React.FC = () => {
                       setIsCartOpen(false);
                       setIsCheckoutOpen(true);
                     }}
-                    className="w-full py-3 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-sm shadow-xl shadow-rose-900/30 transition-all"
+                    className="w-full py-3 rounded-2xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black text-sm shadow-xl shadow-rose-900/30 transition-all active:scale-98"
                   >
                     Proceed to Payment (₹{cartTotal.toLocaleString()})
                   </button>
@@ -1771,22 +507,24 @@ export const ShopView: React.FC = () => {
 
       {/* Checkout Modal */}
       {isCheckoutOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`w-full max-w-md rounded-3xl border shadow-2xl p-6 ${
-            theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
-          }`}>
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div
+            className={`w-full max-w-md rounded-3xl border shadow-2xl p-6 ${
+              theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
+            }`}
+          >
             <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
               <h3 className="text-base font-black">Checkout & Order Placement</h3>
               <button
                 onClick={() => setIsCheckoutOpen(false)}
-                className="p-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400"
+                className="p-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="py-4 space-y-4 text-xs">
-              <div className="p-3 rounded-2xl bg-zinc-950/70 border border-zinc-800 flex justify-between items-center">
+              <div className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 flex justify-between items-center">
                 <div>
                   <div className="font-bold text-white">Pickup Location</div>
                   <div className="text-zinc-400">{userCenter} Front Desk Reception</div>
@@ -1806,7 +544,7 @@ export const ShopView: React.FC = () => {
                     className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all ${
                       paymentMethod === 'upi'
                         ? 'bg-rose-500/20 border-rose-500 text-white font-bold'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-400'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400'
                     }`}
                   >
                     <QrCode className="w-5 h-5 text-rose-500" />
@@ -1819,7 +557,7 @@ export const ShopView: React.FC = () => {
                     className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all ${
                       paymentMethod === 'cash_at_desk'
                         ? 'bg-rose-500/20 border-rose-500 text-white font-bold'
-                        : 'bg-zinc-950 border-zinc-800 text-zinc-400'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400'
                     }`}
                   >
                     <Banknote className="w-5 h-5 text-emerald-400" />
@@ -1829,7 +567,7 @@ export const ShopView: React.FC = () => {
               </div>
 
               {paymentMethod === 'upi' && (
-                <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 text-center space-y-2">
+                <div className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 text-center space-y-2">
                   <div className="w-32 h-32 bg-white p-2 rounded-2xl mx-auto flex items-center justify-center">
                     <div className="w-full h-full border-4 border-zinc-900 p-1 flex flex-col justify-between">
                       <div className="flex justify-between">
@@ -1845,13 +583,13 @@ export const ShopView: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <p className="text-[10px] text-zinc-500">Scan using GPay, PhonePe, or Paytm</p>
+                  <p className="text-[10px] text-zinc-500">Scan using UPI apps (GPay, PhonePe, etc.)</p>
                 </div>
               )}
 
               <button
                 onClick={handleCompleteOrder}
-                className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm shadow-xl shadow-emerald-900/30 transition-all"
+                className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm shadow-xl shadow-emerald-900/30 transition-all active:scale-98"
               >
                 Confirm Order & Generate Slip
               </button>
@@ -1872,7 +610,7 @@ export const ShopView: React.FC = () => {
                 Order #{orderSuccess.id} Placed Successfully!
               </div>
               <div className="text-[11px] text-zinc-400">
-                Ready for collection at {orderSuccess.center} front desk. Total: ₹{orderSuccess.total_amount}
+                Ready for collection at {orderSuccess.center} front desk. Total: ₹{orderSuccess.total_amount?.toLocaleString()}
               </div>
             </div>
           </div>

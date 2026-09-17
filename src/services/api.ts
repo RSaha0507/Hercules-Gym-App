@@ -291,7 +291,7 @@ class WebApiService {
       body: JSON.stringify(data),
     });
   }
-  
+
   async updateMerchandise(id: string, data: any) {
     return await this.request<any>(`/merchandise/${id}`, {
       method: 'PUT',
@@ -309,6 +309,31 @@ class WebApiService {
     return await this.request<any>('/merchandise/orders', {
       method: 'POST',
       body: JSON.stringify(orderData),
+    });
+  }
+
+  // Master Product Catalog
+  async getMasterCatalog() {
+    return await this.request<any[]>('/catalog');
+  }
+
+  async createCatalogItem(data: any) {
+    return await this.request<any>('/catalog', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateCatalogItem(id: string, data: any) {
+    return await this.request<any>(`/catalog/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCatalogItem(id: string) {
+    return await this.request<any>(`/catalog/${id}`, {
+      method: 'DELETE',
     });
   }
 

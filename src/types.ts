@@ -157,15 +157,28 @@ export interface FitnessMetricEntry {
   notes?: string;
 }
 
+export interface CatalogItem {
+  id: string;
+  name: string;
+  category: 'Supplements' | 'Apparel' | 'Accessories' | 'Equipment';
+  price: number;
+  description?: string;
+  variants: string[]; // Flavours for supplements, or Choices/Sizes for other categories
+  created_at?: string;
+  created_by?: string;
+}
+
 export interface MerchandiseItem {
   id: string;
+  catalog_id?: string;
   name: string;
   category: 'Supplements' | 'Apparel' | 'Accessories' | 'Equipment';
   price: number;
   price_min?: number;
   price_max?: number; // Supports price range e.g. min - max
   original_price?: number;
-  stock: number; // Gym inventory counter
+  stock: number; // Gym inventory counter (total stock)
+  variant_stocks?: Record<string, number>; // Variant-wise inventory counter e.g. {"Double Rich Chocolate": 10, "Vanilla": 0}
   image_url: string; // Primary mandatory image
   additional_images?: string[]; // Optional secondary images
   description?: string;
@@ -175,6 +188,8 @@ export interface MerchandiseItem {
   sizes?: string[];
   available_centers: (CenterType | 'All')[]; // All centers, Ranaghat, Chakdah, Madanpur
   created_by?: string;
+  rating?: number;
+  reviews_count?: number;
 }
 
 export interface CartItem {

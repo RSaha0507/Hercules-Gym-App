@@ -26,6 +26,7 @@ const BN_TRANSLATIONS: Record<string, string> = {
   'Chat': 'চ্যাট',
   'Profile': 'প্রোফাইল',
   'AI Diet': 'এআই ডায়েট',
+  'HG.AI': 'HG.AI',
   'Progress': 'প্রগ্রেস',
   'Workout Progress Tracker': 'ওয়ার্কআউট প্রগ্রেস ট্র্যাকার',
   'AI Diet Generator': 'এআই ডায়েট জেনারেটর',
