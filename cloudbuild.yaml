@@ -4,16 +4,16 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/hercules-gym-api:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/hercules-gym-api:$COMMIT_SHA'
       - '-t'
-      - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/hercules-gym-api:latest'
+      - 'gcr.io/$PROJECT_ID/hercules-gym-api:latest'
       - '.'
 
-  # Step 2: Push the container image to Artifact Registry / GCR
+  # Step 2: Push the container image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/hercules-gym-api:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/hercules-gym-api:$COMMIT_SHA'
 
   # Step 3: Deploy image to Google Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -23,7 +23,7 @@ steps:
       - 'deploy'
       - 'hercules-gym-api'
       - '--image'
-      - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/hercules-gym-api:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/hercules-gym-api:$COMMIT_SHA'
       - '--region'
       - 'asia-southeast1'
       - '--platform'
@@ -34,5 +34,5 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 images:
-  - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/hercules-gym-api:$COMMIT_SHA'
-  - 'asia-southeast1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/hercules-gym-api:latest'
+  - 'gcr.io/$PROJECT_ID/hercules-gym-api:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/hercules-gym-api:latest'
