@@ -45,6 +45,7 @@ interface GymContextType {
   isNavOpen: boolean;
   setIsNavOpen: (open: boolean) => void;
   toggleNav: () => void;
+
   // Backend Sync Status (MongoDB Atlas)
   backendConnected: boolean;
   isSyncing: boolean;
@@ -143,28 +144,52 @@ interface GymContextType {
 const GymContext = createContext<GymContextType | undefined>(undefined);
 
 export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Safe localStorage helper with legacy mock data cleanup
+  // Safe localStorage helper with complete legacy mock data cleanup
   const loadLocal = <T,>(key: string, fallback: T): T => {
     try {
-      // Check current v2 storage key first, then fallback to v1
-      const stored = localStorage.getItem(`hercules_v2_${key}`) || localStorage.getItem(`hercules_${key}`);
-      if (!stored) return fallback;
+      // Check current v3 storage key first
+      const stored = localStorage.getItem(`hercules_v3_${key}`);
+      if (!stored) {
+        // Purge old v1 and v2 keys that may hold initial mock records
+        localStorage.removeItem(`hercules_${key}`);
+        localStorage.removeItem(`hercules_v2_${key}`);
+        return fallback;
+      }
       const parsed = JSON.parse(stored);
 
-      // Purge legacy mock workout data if present in user browser cache
+      // Purge legacy mock users or mock pending approvals
+      if (key === 'users') {
+        if (Array.isArray(parsed)) {
+          const cleanUsers = parsed.filter((u: any) => 
+            u && 
+            u.id &&
+            !u.id.startsWith('user-pending-') &&
+            u.id !== 'user-pending-1' &&
+            u.id !== 'user-pending-2' &&
+            u.id !== 'user-admin-1' &&
+            u.id !== 'user-trainer-1' &&
+            u.id !== 'user-member-1' &&
+            !u.email?.includes('pending_mock') &&
+            !u.email?.includes('example.com')
+          );
+          return cleanUsers as unknown as T;
+        }
+        return fallback;
+      }
+
+      // Purge legacy mock workout data
       if (key === 'workout_plan') {
         if (
           !parsed ||
           parsed.id === 'plan-1' ||
           (Array.isArray(parsed.days) && parsed.days.some((d: any) => d.title?.includes('Push Day') || d.title?.includes('Pull Day')))
         ) {
-          localStorage.removeItem('hercules_workout_plan');
-          localStorage.removeItem('hercules_v2_workout_plan');
+          localStorage.removeItem('hercules_v3_workout_plan');
           return fallback;
         }
       }
 
-      // Purge legacy mock diet data if present in user browser cache
+      // Purge legacy mock diet data
       if (key === 'diet_plan') {
         if (
           !parsed ||
@@ -172,8 +197,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           parsed.daily_calories_target === 2450 ||
           (Array.isArray(parsed.meals) && parsed.meals.some((m: any) => m.meal_type === 'Breakfast'))
         ) {
-          localStorage.removeItem('hercules_diet_plan');
-          localStorage.removeItem('hercules_v2_diet_plan');
+          localStorage.removeItem('hercules_v3_diet_plan');
           return fallback;
         }
       }
@@ -186,7 +210,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const saveLocal = <T,>(key: string, val: T) => {
     try {
-      localStorage.setItem(`hercules_v2_${key}`, JSON.stringify(val));
+      localStorage.setItem(`hercules_v3_${key}`, JSON.stringify(val));
     } catch (e) {
       console.error(e);
     }
@@ -218,59 +242,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   };
 
-  const INITIAL_OFFERS: OfferPlan[] = [
-    {
-      id: 'off-puja-2026',
-      title: 'Durga Puja Festive Special',
-      occasion: 'Durga Puja Celebrations',
-      description: 'Special Festive 3-Month Plan with free trainer induction and zero admission fee.',
-      price: 1500,
-      original_price: 2100,
-      duration_months: 3,
-      plan_duration_type: 'quarterly',
-      target_center: 'All',
-      admission_type_applicable: 'All',
-      is_active: true,
-      valid_until: '2026-11-30',
-      created_at: '2026-09-01T00:00:00.000Z',
-      discount_badge: 'Festive Save ₹600',
-      features: ['Zero Admission Charge', 'Full Branch Induction', 'Custom Diet Guidelines'],
-    },
-    {
-      id: 'off-annual-trans',
-      title: 'Annual Transformation Blast',
-      occasion: 'New Member Welcome Special',
-      description: 'Full 12-Month membership with 2 months bonus and complimentary gym merchandise bag.',
-      price: 5200,
-      original_price: 7000,
-      duration_months: 12,
-      plan_duration_type: 'annual',
-      target_center: 'All',
-      admission_type_applicable: 'New Admission',
-      is_active: true,
-      valid_until: '2026-12-31',
-      created_at: '2026-09-01T00:00:00.000Z',
-      discount_badge: 'Flat ₹1800 OFF',
-      features: ['12 Months VIP Access', 'Complimentary Gym Shaker & T-shirt', 'Personalized Macro Split'],
-    },
-    {
-      id: 'off-readmit-loyalty',
-      title: 'Alumni & Re-admission Loyalty Waiver',
-      occasion: 'Member Comeback Special',
-      description: '100% waiver on re-admission fees for returning members renewing for 3+ months.',
-      price: 1700,
-      original_price: 2400,
-      duration_months: 3,
-      plan_duration_type: 'quarterly',
-      target_center: 'All',
-      admission_type_applicable: 'Re-admission',
-      is_active: true,
-      valid_until: '2026-12-31',
-      created_at: '2026-09-01T00:00:00.000Z',
-      discount_badge: '100% Re-admission Waiver',
-      features: ['Zero Re-admission Surcharge', 'Instant Profile Reactivation', 'Progress Fitness Assessment'],
-    },
-  ];
+  const INITIAL_OFFERS: OfferPlan[] = [];
 
   // State initialization - no hardcoded mock users
   const [users, setUsers] = useState<User[]>(() => {
@@ -308,7 +280,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const toggleNav = () => {
     setIsNavOpen(prev => !prev);
   };
-  
+
   // Sync activeTab with URL hash for MPA experience & back/forward history navigation
   useEffect(() => {
     const handleHashAndPopState = () => {

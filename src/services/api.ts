@@ -1,9 +1,9 @@
 /**
  * Hercules Gym Web API Service
- * Connects the Web Admin Dashboard to the live FastAPI backend on Render.
+ * Connects the Web Admin Dashboard to the live FastAPI backend on Google Cloud Run.
  */
 
-const DEFAULT_BACKEND_URL = "https://hercules-gym-api-rsaha0507.onrender.com";
+const DEFAULT_BACKEND_URL = "https://hercules-gym-api-847366288287.asia-southeast1.run.app";
 
 export function getBackendUrl(): string {
   const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;
