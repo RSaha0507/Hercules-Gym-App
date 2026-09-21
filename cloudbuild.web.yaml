@@ -1,0 +1,42 @@
+steps:
+  # Step 1: Build the React/Vite Web container image using Dockerfile.web
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.web'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/hercules-gym-web:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/hercules-gym-web:latest'
+      - '.'
+
+  # Step 2: Push the container image to Google Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/hercules-gym-web:$COMMIT_SHA'
+
+  # Step 3: Deploy image to Google Cloud Run web service
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'hercules-gym-web'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/hercules-gym-web:$COMMIT_SHA'
+      - '--region'
+      - 'asia-southeast1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+images:
+  - 'gcr.io/$PROJECT_ID/hercules-gym-web:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/hercules-gym-web:latest'
