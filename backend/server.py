@@ -1028,6 +1028,15 @@ async def upload_image_to_cdn_if_configured(image_data: Optional[str], folder: s
     try:
         import cloudinary
         import cloudinary.uploader
+        
+        # Support either CLOUDINARY_URL or individual API keys
+        if not os.environ.get("CLOUDINARY_URL") and os.environ.get("CLOUDINARY_CLOUD_NAME"):
+            cloudinary.config(
+                cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
+                api_key=os.environ.get("CLOUDINARY_API_KEY"),
+                api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
+                secure=True,
+            )
 
         def _do_upload():
             result = cloudinary.uploader.upload(
@@ -1035,7 +1044,7 @@ async def upload_image_to_cdn_if_configured(image_data: Optional[str], folder: s
                 folder=folder,
                 resource_type="image",
                 transformation=[
-                    {"quality": "auto:good", "fetch_format": "auto", "width": 800, "crop": "limit"}
+                    {"quality": "auto:good", "fetch_format": "auto", "width": 1200, "crop": "limit"}
                 ],
             )
             return result.get("secure_url") or result.get("url")
@@ -6389,6 +6398,12 @@ async def update_hero_images(
     current_user: UserInDB = Depends(require_admin),
 ):
     raw_slides = [slide.model_dump() for slide in payload.slides]
+    # Offload each slide image to CDN if it is a base64 data URI
+    for slide in raw_slides:
+        if slide.get("image_url"):
+            slide["image_url"] = await upload_image_to_cdn_if_configured(
+                slide["image_url"], folder="hercules_gym/hero"
+            )
     slides = normalize_hero_gallery(raw_slides)
     now = datetime.utcnow()
     await db.app_settings.update_one(
@@ -7227,10 +7242,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Enable Gzip compression on all responses >= 1KB (reduces JSON payload bandwidth by up to 75-85%)
+# Enable Gzip compression on all responses >= 400 bytes (reduces JSON payload bandwidth by up to 75-85%)
 app.add_middleware(
     GZipMiddleware,
-    minimum_size=1000,
+    minimum_size=400,
 )
 
 @app.on_event("startup")
