@@ -1,6 +1,4 @@
-const LOCAL_BACKEND_URL = "http://127.0.0.1:8001";
-const DEFAULT_RELEASE_BACKEND_URL = "https://hercules-gym-api-847366288287.asia-southeast1.run.app";
-const IS_DEV_MODE = typeof __DEV__ !== "undefined" ? __DEV__ : process.env.NODE_ENV !== "production";
+const DEFAULT_CLOUD_RUN_BACKEND_URL = "https://hercules-gym-api-847366288287.asia-southeast1.run.app";
 
 function normalizeUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
@@ -12,11 +10,7 @@ function resolveBackendUrl(): string {
     return normalizeUrl(configuredUrl);
   }
 
-  if (IS_DEV_MODE) {
-    return LOCAL_BACKEND_URL;
-  }
-
-  return DEFAULT_RELEASE_BACKEND_URL;
+  return DEFAULT_CLOUD_RUN_BACKEND_URL;
 }
 
 export const BACKEND_URL = resolveBackendUrl();
