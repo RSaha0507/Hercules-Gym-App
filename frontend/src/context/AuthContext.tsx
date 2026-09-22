@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { api, CenterType } from '../services/api';
+import { BACKEND_URL } from '../config/backend';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
@@ -222,7 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!userData?.profile_image) {
       return userData;
     }
-    // Avoid persisting large base64 blobs in AsyncStorage which can destabilize startup on some devices.
+    
     if (
       typeof userData.profile_image === 'string' &&
       userData.profile_image.startsWith('data:') &&
@@ -261,13 +262,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const getApiErrorMessage = (error: any, fallback: string) =>
-    error?.response?.data?.detail || fallback;
-
-  const isTransientApiError = (error: any) => {
-    if (!error?.response) return true;
+  const getApiErrorMessage = (error: any, fallback: string): string => {
+    if (error?.response?.data?.detail) {
+      const detail = error.response.data.detail;
+      if (typeof detail === 'string') return detail;
+      if (Array.isArray(detail)) {
+        return detail.map((d: any) => d?.msg || String(d)).join(', ');
+      }
+    }
+    if (!error?.response) {
+      const msg = error?.message || 'Network error';
+      return `${msg}. Unable to connect to backend.`;
+    }
     const statusCode = Number(error.response?.status);
-    return [408, 425, 429, 500, 502, 503, 504].includes(statusCode);
+    if (statusCode >= 500) {
+      return 'Backend service encountered an error. Please try again in a moment.';
+    }
+    return fallback;
+  };
+
+  const isTransientApiError = (error: any): boolean => {
+    const statusCode = Number(error?.response?.status);
+    return [408, 425, 429, 502, 503, 504].includes(statusCode);
   };
 
   const loadStoredAuth = async () => {
