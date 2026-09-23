@@ -213,11 +213,16 @@ security = HTTPBearer()
 # Create the main app
 app = FastAPI(title="Hercules Gym Management API")
 
-# Socket.IO setup
-socket_cors_origins = parse_origins(os.environ.get("SOCKET_CORS_ORIGINS", os.environ.get("CORS_ORIGINS", "*")))
-redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-# Using Redis Manager allows horizontally scaling Socket.IO across multiple servers
-sio_manager = socketio.AsyncRedisManager(redis_url)
+# Redis & Caching setup
+import time as time_module
+redis_url = os.environ.get("REDIS_URL") or os.environ.get("UPSTASH_REDIS_URL")
+sio_manager = None
+if redis_url and redis_url.startswith(("redis://", "rediss://")):
+    try:
+        sio_manager = socketio.AsyncRedisManager(redis_url)
+    except Exception:
+        sio_manager = None
+
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins=socket_cors_origins, client_manager=sio_manager)
 socket_app = socketio.ASGIApp(sio, app)
 
@@ -230,6 +235,97 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+class RedisCacheEngine:
+    """
+    High-performance caching engine with Redis backend and in-memory TTL fallback.
+    Prevents repetitive database queries under high traffic and protects against DDoS/spikes.
+    """
+    def __init__(self, url: Optional[str] = None):
+        self.url = url
+        self.redis_client = None
+        self._memory_cache: Dict[str, Tuple[float, Any]] = {}
+        self._initialized = False
+
+    async def init(self):
+        if self.url and self.url.startswith(("redis://", "rediss://")):
+            try:
+                import redis.asyncio as aioredis
+                self.redis_client = aioredis.from_url(
+                    self.url,
+                    decode_responses=True,
+                    socket_connect_timeout=2,
+                    socket_timeout=2
+                )
+                await self.redis_client.ping()
+                logger.info("RedisCacheEngine: Connected to Redis successfully.")
+            except Exception as e:
+                logger.warning(f"RedisCacheEngine: Could not connect to Redis ({e}); falling back to in-memory cache.")
+                self.redis_client = None
+        else:
+            logger.info("RedisCacheEngine: Running with in-memory TTL cache.")
+        self._initialized = True
+
+    async def get(self, key: str) -> Optional[Any]:
+        # 1. Try Redis
+        if self.redis_client:
+            try:
+                val = await self.redis_client.get(key)
+                if val is not None:
+                    return json.loads(val)
+            except Exception as e:
+                logger.debug(f"Redis get failed for {key}: {e}")
+
+        # 2. Try In-memory fallback
+        if key in self._memory_cache:
+            exp, data = self._memory_cache[key]
+            if time_module.time() < exp:
+                return data
+            else:
+                self._memory_cache.pop(key, None)
+        return None
+
+    async def set(self, key: str, value: Any, ttl_seconds: int = 300) -> bool:
+        serialized = json.dumps(value, default=str)
+        if self.redis_client:
+            try:
+                await self.redis_client.setex(key, ttl_seconds, serialized)
+            except Exception as e:
+                logger.debug(f"Redis set failed for {key}: {e}")
+
+        self._memory_cache[key] = (time_module.time() + ttl_seconds, value)
+        return True
+
+    async def delete(self, key: str) -> bool:
+        if self.redis_client:
+            try:
+                await self.redis_client.delete(key)
+            except Exception:
+                pass
+        self._memory_cache.pop(key, None)
+        return True
+
+    async def invalidate_pattern(self, pattern: str) -> int:
+        count = 0
+        if self.redis_client:
+            try:
+                keys = await self.redis_client.keys(pattern)
+                if keys:
+                    await self.redis_client.delete(*keys)
+                    count += len(keys)
+            except Exception:
+                pass
+
+        prefix = pattern.replace("*", "")
+        mem_keys = [k for k in list(self._memory_cache.keys()) if k.startswith(prefix)]
+        for k in mem_keys:
+            self._memory_cache.pop(k, None)
+            count += 1
+        return count
+
+
+cache_engine = RedisCacheEngine(redis_url)
 
 
 @app.exception_handler(PyMongoError)
@@ -979,6 +1075,130 @@ def sanitize_mongo_doc(doc):
         del doc["_id"]
     return doc
 
+
+class DisasterRecoveryEngine:
+    """
+    Automated Secondary Mirror & Disaster Recovery System.
+    Maintains point-in-time snapshot replicas of all essential collections in
+    db.database_backups (and passive mirrors) with point-in-time restore and JSON exports.
+    """
+    CORE_COLLECTIONS = [
+        "users",
+        "member_profiles",
+        "payments",
+        "attendance",
+        "announcements",
+        "merchandise",
+        "merchandise_orders",
+        "master_catalog",
+        "messages",
+        "conversations",
+        "approval_requests",
+        "workout_logs",
+        "diet_plans",
+        "app_settings",
+    ]
+
+    @classmethod
+    async def create_snapshot(cls, backup_type: str = "automated", label: str = "") -> Dict[str, Any]:
+        snapshot_id = f"backup_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        now = datetime.utcnow()
+        summary = {}
+        data = {}
+        total_docs = 0
+
+        for col_name in cls.CORE_COLLECTIONS:
+            collection = db[col_name]
+            docs = await collection.find({}).to_list(100000)
+            cleaned_docs = [sanitize_mongo_doc(d) for d in docs]
+            summary[col_name] = len(cleaned_docs)
+            total_docs += len(cleaned_docs)
+            data[col_name] = cleaned_docs
+
+        raw_json = json.dumps(data, default=str)
+        size_bytes = len(raw_json.encode("utf-8"))
+
+        backup_doc = {
+            "id": snapshot_id,
+            "created_at": now,
+            "type": backup_type,
+            "label": label or f"{backup_type.capitalize()} Recovery Snapshot",
+            "total_documents": total_docs,
+            "collections_summary": summary,
+            "size_bytes": size_bytes,
+            "data": data,
+            "status": "completed",
+        }
+
+        await db.database_backups.insert_one(backup_doc)
+        logger.info(f"Disaster Recovery: Snapshot created {snapshot_id} ({total_docs} docs, {size_bytes} bytes)")
+
+        # Keep the last 14 automated backups
+        try:
+            auto_backups = await db.database_backups.find({"type": "automated"}).sort("created_at", -1).to_list(100)
+            if len(auto_backups) > 14:
+                old_ids = [b["id"] for b in auto_backups[14:]]
+                await db.database_backups.delete_many({"id": {"$in": old_ids}})
+        except Exception as e:
+            logger.warning(f"Error pruning older backup copies: {e}")
+
+        return {
+            "id": snapshot_id,
+            "created_at": now.isoformat(),
+            "type": backup_type,
+            "label": backup_doc["label"],
+            "total_documents": total_docs,
+            "collections_summary": summary,
+            "size_bytes": size_bytes,
+        }
+
+    @classmethod
+    async def list_snapshots(cls) -> List[Dict[str, Any]]:
+        backups = await db.database_backups.find({}, {"data": 0}).sort("created_at", -1).to_list(100)
+        return [sanitize_mongo_doc(b) for b in backups]
+
+    @classmethod
+    async def restore_snapshot(cls, snapshot_id: str, target_collections: Optional[List[str]] = None) -> Dict[str, Any]:
+        backup = await db.database_backups.find_one({"id": snapshot_id})
+        if not backup or not backup.get("data"):
+            raise HTTPException(status_code=404, detail="Backup snapshot not found or empty")
+
+        data: Dict[str, List[Dict[str, Any]]] = backup["data"]
+        restored_summary = {}
+
+        cols_to_restore = target_collections or list(data.keys())
+        for col_name in cols_to_restore:
+            if col_name not in data:
+                continue
+            docs = data[col_name]
+            if not isinstance(docs, list):
+                continue
+
+            collection = db[col_name]
+            if docs:
+                for doc in docs:
+                    doc_id = doc.get("id") or doc.get("_id")
+                    if doc_id:
+                        await collection.replace_one({"$or": [{"id": doc_id}, {"_id": doc_id}]}, doc, upsert=True)
+            restored_summary[col_name] = len(docs)
+
+        # Invalidate all caches after restore
+        await cache_engine.invalidate_pattern("cache:*")
+        logger.warning(f"Disaster Recovery: Restored snapshot {snapshot_id} into {list(restored_summary.keys())}")
+
+        return {
+            "message": f"Successfully restored snapshot {snapshot_id}",
+            "restored_collections": restored_summary,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+    @classmethod
+    async def export_snapshot(cls, snapshot_id: str) -> Dict[str, Any]:
+        backup = await db.database_backups.find_one({"id": snapshot_id})
+        if not backup:
+            raise HTTPException(status_code=404, detail="Backup snapshot not found")
+        return sanitize_mongo_doc(backup)
+
 import re
 def normalize_payment_proof_image(value: Optional[str]) -> str:
     raw = (value or "").strip()
@@ -1028,7 +1248,7 @@ async def upload_image_to_cdn_if_configured(image_data: Optional[str], folder: s
     try:
         import cloudinary
         import cloudinary.uploader
-        
+
         # Support either CLOUDINARY_URL or individual API keys
         if not os.environ.get("CLOUDINARY_URL") and os.environ.get("CLOUDINARY_CLOUD_NAME"):
             cloudinary.config(
@@ -2816,6 +3036,47 @@ async def resolve_data_deletion_request(
         context="data_deletion.resolve.update",
     )
     return {"message": "Data deletion request updated successfully"}
+
+# ==================== DISASTER RECOVERY & BACKUP ROUTES ====================
+
+class CreateBackupRequest(BaseModel):
+    label: Optional[str] = None
+
+class RestoreBackupRequest(BaseModel):
+    collections: Optional[List[str]] = None
+
+@api_router.get("/admin/backups")
+async def get_backups(current_user: UserInDB = Depends(require_admin)):
+    """List all available disaster recovery snapshots"""
+    _ = current_user
+    return await DisasterRecoveryEngine.list_snapshots()
+
+@api_router.post("/admin/backups/create")
+async def create_backup(
+    payload: CreateBackupRequest = CreateBackupRequest(),
+    current_user: UserInDB = Depends(require_admin)
+):
+    """Trigger an instant point-in-time database snapshot replica"""
+    label = payload.label or f"Manual Admin Snapshot by {current_user.full_name}"
+    return await DisasterRecoveryEngine.create_snapshot(backup_type="manual", label=label)
+
+@api_router.post("/admin/backups/restore/{backup_id}")
+async def restore_backup(
+    backup_id: str,
+    payload: RestoreBackupRequest = RestoreBackupRequest(),
+    current_user: UserInDB = Depends(require_admin)
+):
+    """Restore database collections from a snapshot point-in-time"""
+    return await DisasterRecoveryEngine.restore_snapshot(backup_id, target_collections=payload.collections)
+
+@api_router.get("/admin/backups/export/{backup_id}")
+async def export_backup(
+    backup_id: str,
+    current_user: UserInDB = Depends(require_admin)
+):
+    """Download/export a disaster recovery snapshot JSON for cold storage"""
+    _ = current_user
+    return await DisasterRecoveryEngine.export_snapshot(backup_id)
 
 # ==================== APPROVAL ROUTES ====================
 
@@ -4843,6 +5104,8 @@ async def create_announcement(
             return_exceptions=True,
         )
 
+    # Invalidate announcements cache
+    await cache_engine.invalidate_pattern("cache:announcements*")
     return ann.dict()
 
 @api_router.get("/announcements")
@@ -4850,6 +5113,11 @@ async def get_announcements(
     limit: int = Query(100, ge=1, le=100),
     current_user: UserInDB = Depends(get_current_user),
 ):
+    cache_key = f"cache:announcements:{current_user.role}:{current_user.center or 'all'}:{current_user.id if current_user.role != 'admin' else 'admin'}:{limit}"
+    cached = await cache_engine.get(cache_key)
+    if cached is not None:
+        return cached
+
     now = datetime.utcnow()
     query = {
         "is_active": True,
@@ -4896,6 +5164,7 @@ async def get_announcements(
         if creator_name:
             ann["creator_name"] = creator_name
 
+    await cache_engine.set(cache_key, announcements, ttl_seconds=60)
     return announcements
 
 @api_router.put("/announcements/{announcement_id}")
@@ -4927,6 +5196,7 @@ async def update_announcement(
         raise HTTPException(status_code=404, detail="Announcement not found")
 
     payload = sanitize_mongo_doc(updated)
+    await cache_engine.invalidate_pattern("cache:announcements*")
     try:
         await sio.emit("announcement_updated", payload)
     except Exception as exc:
@@ -4945,6 +5215,8 @@ async def delete_announcement(
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Announcement not found")
+
+    await cache_engine.invalidate_pattern("cache:announcements*")
     return {"message": "Announcement deleted"}
 
 # ==================== MASTER CATALOG ROUTES ====================
@@ -5314,10 +5586,16 @@ async def create_merchandise(
     )
     
     await db.merchandise.insert_one(merchandise.dict())
+    await cache_engine.invalidate_pattern("cache:merchandise*")
     return sanitize_mongo_doc(merchandise.dict())
 
 @api_router.get("/merchandise")
 async def get_merchandise(current_user: UserInDB = Depends(get_current_user)):
+    cache_key = "cache:merchandise:all"
+    cached = await cache_engine.get(cache_key)
+    if cached is not None:
+        return cached
+
     items = await db.merchandise.find({"is_active": {"$ne": False}}).to_list(100)
     cleaned = []
     for item in items:
@@ -5346,6 +5624,8 @@ async def get_merchandise(current_user: UserInDB = Depends(get_current_user)):
                     doc["sizes"] = doc.get("flavours_or_choices") or (["S", "M", "L", "XL"] if str(doc.get("category", "")).lower() == "apparel" else ["Standard"])
             doc["flavours_or_choices"] = doc.get("sizes")
         cleaned.append(doc)
+
+    await cache_engine.set(cache_key, cleaned, ttl_seconds=120)
     return cleaned
 
 @api_router.get("/merchandise/{item_id}")
@@ -5383,6 +5663,7 @@ async def update_merchandise(
 
     if update_dict:
         await db.merchandise.update_many({"$or": [{"id": item_id}, {"_id": item_id}]}, {"$set": update_dict})
+    await cache_engine.invalidate_pattern("cache:merchandise*")
     return {"message": "Merchandise updated"}
 
 @api_router.delete("/merchandise/{item_id}")
@@ -5397,6 +5678,7 @@ async def delete_merchandise(item_id: str, current_user: UserInDB = Depends(get_
         {"$set": {"is_active": False}}
     )
     delete_result = await db.merchandise.delete_many({"$or": [{"id": item_id}, {"_id": item_id}]})
+    await cache_engine.invalidate_pattern("cache:merchandise*")
     return {"message": "Merchandise removed successfully", "deleted_count": delete_result.deleted_count}
 
 @api_router.post("/merchandise/order")
@@ -7340,6 +7622,38 @@ async def startup_event():
     # Start birthday reminder background task
     asyncio.create_task(check_birthday_reminders())
     logger.info("Birthday reminder background task started")
+
+    # Initialize Redis Cache Engine
+    try:
+        await cache_engine.init()
+    except Exception as exc:
+        logger.warning(f"Cache engine init warning: {exc}")
+
+    # Ensure disaster recovery backup index
+    try:
+        await db.database_backups.create_index([("id", 1)], unique=True)
+        await db.database_backups.create_index([("created_at", -1)])
+        await db.database_backups.create_index([("type", 1)])
+    except Exception as exc:
+        logger.warning(f"Could not ensure database backup indexes: {exc}")
+
+    # Start periodic disaster recovery snapshot background task (every 12 hours)
+    async def _periodic_disaster_recovery_backup():
+        interval = max(3600, read_int_env("DR_BACKUP_INTERVAL_SECONDS", 12 * 3600))
+        # Initial snapshot creation after 30 seconds of uptime
+        await asyncio.sleep(30)
+        while True:
+            try:
+                await DisasterRecoveryEngine.create_snapshot(
+                    backup_type="automated",
+                    label="Automated Daily DR Replica Snapshot"
+                )
+            except Exception as exc:
+                logger.warning(f"Disaster recovery background snapshot error: {exc}")
+            await asyncio.sleep(interval)
+
+    asyncio.create_task(_periodic_disaster_recovery_backup())
+    logger.info("Disaster Recovery automated replica backup worker started")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
