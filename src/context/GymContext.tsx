@@ -19,6 +19,9 @@ import {
   WorkoutLogItem,
   RefundRecord,
   OfferPlan,
+  EnvironmentMode,
+  EnvironmentAtmosphere,
+  EnrollmentProgramme,
 } from '../types';
 import {
   INITIAL_USERS,
@@ -36,6 +39,275 @@ import {
 import { translations } from '../utils/translations';
 import { webApi } from '../services/api';
 
+export interface CenterTheme {
+  name: string;
+  id: CenterType | 'All';
+  gradient: string;
+  textGradient: string;
+  badgeBg: string;
+  borderAccent: string;
+  glowShadow: string;
+  active3dButton: string;
+  inactive3dButton: string;
+  bgGlass: string;
+  accentHex: string;
+  ringFocus: string;
+}
+
+export const getCenterTheme = (center: CenterType | 'All' = 'All', theme: 'dark' | 'light' = 'dark'): CenterTheme => {
+  if (center === 'Chakdah') {
+    return {
+      name: 'Chakdah Center',
+      id: 'Chakdah',
+      gradient: 'from-amber-600 via-yellow-500 to-orange-400',
+      textGradient: 'from-amber-500 via-yellow-400 to-orange-300',
+      badgeBg: 'bg-stone-950/90 border border-amber-500/30 text-yellow-300',
+      borderAccent: 'border-amber-500/40',
+      glowShadow: 'shadow-stone-950/80 shadow-xl',
+      active3dButton: 'bg-gradient-to-r from-amber-700 via-yellow-500 to-orange-500 text-stone-950 border-b-4 border-amber-900 shadow-lg shadow-stone-950/60 font-bold',
+      inactive3dButton: theme === 'dark' ? 'bg-stone-900/90 text-stone-300 border-b-4 border-stone-950 hover:border-amber-500/40 hover:bg-stone-800' : 'bg-zinc-100 text-zinc-700 border-b-4 border-zinc-300 hover:border-amber-500 hover:bg-zinc-200',
+      bgGlass: 'bg-stone-950/20 backdrop-blur-md border border-stone-800/40',
+      accentHex: '#f59e0b', // Tailwind amber-500
+      ringFocus: 'focus:ring-amber-500',
+    };
+  }
+  if (center === 'Madanpur') {
+    return {
+      name: 'Madanpur Center',
+      id: 'Madanpur',
+      gradient: 'from-amber-300 via-lime-400 to-emerald-500',
+      textGradient: 'from-amber-200 via-lime-300 to-emerald-400',
+      badgeBg: 'bg-neutral-950/90 border border-lime-500/30 text-lime-300',
+      borderAccent: 'border-lime-400/40',
+      glowShadow: 'shadow-neutral-950/80 shadow-xl',
+      active3dButton: 'bg-gradient-to-r from-amber-400 via-lime-400 to-emerald-600 text-neutral-950 border-b-4 border-emerald-800 shadow-lg shadow-neutral-950/60 font-bold',
+      inactive3dButton: theme === 'dark' ? 'bg-neutral-900/90 text-neutral-300 border-b-4 border-neutral-950 hover:border-lime-400/40 hover:bg-neutral-800' : 'bg-zinc-100 text-zinc-700 border-b-4 border-zinc-300 hover:border-lime-400 hover:bg-zinc-200',
+      bgGlass: 'bg-neutral-950/20 backdrop-blur-md border border-neutral-800/40',
+      accentHex: '#a3e635', // Tailwind lime-400
+      ringFocus: 'focus:ring-lime-400',
+    };
+  }
+  // Ranaghat or All (Default fiery brand gradient)
+  return {
+    name: center === 'Ranaghat' ? 'Ranaghat Center' : 'Ranaghat • Chakdah • Madanpur',
+    id: center,
+    gradient: 'from-amber-400 via-rose-500 to-red-600',
+    textGradient: 'from-amber-400 via-rose-500 to-red-500',
+    badgeBg: 'bg-rose-950/70 border border-rose-500/40 text-amber-300',
+    borderAccent: 'border-rose-500/50',
+    glowShadow: 'shadow-rose-950/60 shadow-xl',
+    active3dButton: 'bg-gradient-to-r from-rose-600 via-rose-500 to-red-600 text-white border-b-4 border-red-900 shadow-lg shadow-rose-950/60 font-bold',
+    inactive3dButton: theme === 'dark' ? 'bg-zinc-900/90 text-zinc-300 border-b-4 border-zinc-950 hover:border-rose-500/40 hover:bg-zinc-800' : 'bg-zinc-100 text-zinc-700 border-b-4 border-zinc-300 hover:border-rose-400 hover:bg-zinc-200',
+    bgGlass: 'bg-rose-950/20 backdrop-blur-md border border-rose-900/30',
+    accentHex: '#f43f5e',
+    ringFocus: 'focus:ring-rose-500',
+  };
+};
+
+export const getEnvironmentalAtmosphere = (
+  mode: EnvironmentMode = 'auto',
+  currentHour: number = new Date().getHours()
+): EnvironmentAtmosphere => {
+  let effectiveMode: EnvironmentMode = mode;
+  if (mode === 'auto') {
+    if (currentHour >= 5 && currentHour < 11) effectiveMode = 'dawn';
+    else if (currentHour >= 11 && currentHour < 17) effectiveMode = 'midday';
+    else if (currentHour >= 17 && currentHour < 21) effectiveMode = 'golden_hour';
+    else effectiveMode = 'midnight';
+  }
+
+  if (effectiveMode === 'dawn') {
+    return {
+      id: 'dawn',
+      name: 'Dawn Freshness',
+      timeRange: '05:00 - 11:00 AM',
+      description: 'Crisp morning amber auroras with soft cyan sky undertones',
+      primaryGlow: 'rgba(251, 146, 60, 0.22)',
+      secondaryGlow: 'rgba(56, 189, 248, 0.18)',
+      tertiaryGlow: 'rgba(245, 158, 11, 0.15)',
+      accentGlow: 'rgba(14, 165, 233, 0.14)',
+      prismShimmer: 'from-amber-400/20 via-sky-400/20 to-emerald-400/20',
+      borderRefraction: 'border-amber-400/30 shadow-amber-950/20',
+    };
+  }
+  if (effectiveMode === 'midday') {
+    return {
+      id: 'midday',
+      name: 'Midday Power Surge',
+      timeRange: '11:00 AM - 05:00 PM',
+      description: 'High-intensity hyper-charged solar chromatic spectrum',
+      primaryGlow: 'rgba(239, 68, 68, 0.24)',
+      secondaryGlow: 'rgba(245, 158, 11, 0.22)',
+      tertiaryGlow: 'rgba(168, 85, 247, 0.18)',
+      accentGlow: 'rgba(234, 179, 8, 0.20)',
+      prismShimmer: 'from-rose-500/25 via-amber-400/25 to-purple-500/20',
+      borderRefraction: 'border-rose-500/30 shadow-rose-950/30',
+    };
+  }
+  if (effectiveMode === 'golden_hour') {
+    return {
+      id: 'golden_hour',
+      name: 'Golden Hour Rush',
+      timeRange: '05:00 PM - 09:00 PM',
+      description: 'Warm sunset copper, crimson, and deep velvet twilight',
+      primaryGlow: 'rgba(249, 115, 22, 0.26)',
+      secondaryGlow: 'rgba(225, 29, 72, 0.22)',
+      tertiaryGlow: 'rgba(147, 51, 234, 0.18)',
+      accentGlow: 'rgba(251, 191, 36, 0.20)',
+      prismShimmer: 'from-orange-500/25 via-rose-500/25 to-violet-600/20',
+      borderRefraction: 'border-orange-500/30 shadow-orange-950/30',
+    };
+  }
+  if (effectiveMode === 'prismatic') {
+    return {
+      id: 'prismatic',
+      name: 'Prismatic Dispersion',
+      timeRange: 'Dynamic Spectrum',
+      description: 'Full-spectrum kinetic chromatic prism with dynamic light refraction',
+      primaryGlow: 'rgba(168, 85, 247, 0.28)',
+      secondaryGlow: 'rgba(6, 182, 212, 0.25)',
+      tertiaryGlow: 'rgba(244, 63, 94, 0.22)',
+      accentGlow: 'rgba(16, 185, 129, 0.20)',
+      prismShimmer: 'from-fuchsia-500/30 via-cyan-400/30 to-rose-400/30',
+      borderRefraction: 'border-fuchsia-500/40 shadow-purple-950/40',
+    };
+  }
+  // Midnight Iron (Default night / late evening)
+  return {
+    id: 'midnight',
+    name: 'Midnight Hardcore Iron',
+    timeRange: '09:00 PM - 05:00 AM',
+    description: 'Deep stealth obsidian with electric laser highlights',
+    primaryGlow: 'rgba(99, 102, 241, 0.22)',
+    secondaryGlow: 'rgba(168, 85, 247, 0.20)',
+    tertiaryGlow: 'rgba(244, 63, 94, 0.16)',
+    accentGlow: 'rgba(56, 189, 248, 0.16)',
+    prismShimmer: 'from-indigo-500/20 via-purple-500/20 to-pink-500/20',
+    borderRefraction: 'border-indigo-500/30 shadow-indigo-950/30',
+  };
+};
+
+// Branch & Enrollment Programme Code Mappings
+// Format: XX-YYY-NNNN
+// XX: RG (Ranaghat), CD (Chakdah), MD (Madanpur)
+// YYY: GYM, KRT, YGA, CRF, KID
+export const CENTER_CODE_MAP: Record<CenterType, string> = {
+  Ranaghat: 'RG',
+  Chakdah: 'CD',
+  Madanpur: 'MD',
+};
+
+export const PROGRAMME_CODE_MAP: Record<EnrollmentProgramme, string> = {
+  Gym: 'GYM',
+  Karate: 'KRT',
+  Yoga: 'YGA',
+  Crossfit: 'CRF',
+  Kidsfit: 'KID',
+};
+
+export const getBranchCode = (center?: CenterType | string): string => {
+  if (!center) return 'RG';
+  const c = center.toString().trim().toLowerCase();
+  if (c.includes('chakdah') || c === 'cd' || c.startsWith('chak')) return 'CD';
+  if (c.includes('madanpur') || c === 'md' || c.startsWith('madan')) return 'MD';
+  if (c.includes('ranaghat') || c === 'rg' || c.startsWith('rana')) return 'RG';
+  return 'RG';
+};
+
+export const getProgrammeCode = (prog?: EnrollmentProgramme | string): string => {
+  if (!prog) return 'GYM';
+  const p = prog.toString().trim().toLowerCase();
+  if (p.includes('karate') || p === 'krt') return 'KRT';
+  if (p.includes('yoga') || p === 'yga') return 'YGA';
+  if (p.includes('cross') || p === 'crf') return 'CRF';
+  if (p.includes('kid') || p === 'kid') return 'KID';
+  if (p.includes('gym') || p === 'gym') return 'GYM';
+  return 'GYM';
+};
+
+export const formatMemberId = (
+  center: CenterType | string = 'Ranaghat',
+  prog: EnrollmentProgramme | string = 'Gym',
+  counter: number = 1
+): string => {
+  const branch = getBranchCode(center);
+  const programme = getProgrammeCode(prog);
+  const padded = String(Math.max(1, counter)).padStart(4, '0');
+  return `${branch}-${programme}-${padded}`;
+};
+
+export const calculateFineForDay = (date: Date = new Date()): number => {
+  const dayOfMonth = date.getDate();
+  if (dayOfMonth <= 7) return 0;
+  return (dayOfMonth - 7) * 5;
+};
+
+export const getPlanStandardFee = (planDurationOrName?: string): number => {
+  const str = (planDurationOrName || '').toLowerCase();
+  if (str.includes('annual') || str.includes('year') || str.includes('champion')) return 6500;
+  if (str.includes('semi') || str.includes('half') || str.includes('elite') || str.includes('6 month')) return 3500;
+  if (str.includes('quarter') || str.includes('pro') || str.includes('3 month')) return 1900;
+  return 700; // Monthly standard
+};
+
+// Calculates exact term expiration (1st of renewal month, ignoring joining day)
+export const calculateMemberTermExpiry = (startDateStr?: string, planDuration: string = 'monthly'): Date => {
+  const start = startDateStr ? new Date(startDateStr) : new Date();
+  const startYear = start.getFullYear();
+  const startMonth = start.getMonth(); // 0-indexed: Jan=0, Feb=1, etc.
+  
+  let termMonths = 1;
+  const lower = (planDuration || '').toLowerCase();
+  if (lower.includes('annual') || lower.includes('year') || lower.includes('champion')) termMonths = 12;
+  else if (lower.includes('semi') || lower.includes('half') || lower.includes('elite') || lower.includes('6 month')) termMonths = 6;
+  else if (lower.includes('quarter') || lower.includes('pro') || lower.includes('3 month')) termMonths = 3;
+  else termMonths = 1;
+
+  // Exact 1st of the renewal month: e.g. Jan (month 0) + 3 months -> Month 3 (April) 1st 00:00:00
+  return new Date(startYear, startMonth + termMonths, 1, 0, 0, 0);
+};
+
+export const calculateMemberDue = (user: User): {
+  isExpired: boolean;
+  normalFee: number;
+  fine: number;
+  totalDue: number;
+  expiryDateStr: string;
+  daysLate: number;
+} => {
+  if (user.role !== 'member') {
+    return { isExpired: false, normalFee: 0, fine: 0, totalDue: 0, expiryDateStr: '', daysLate: 0 };
+  }
+
+  const planDuration = user.membership?.plan_duration || 'monthly';
+  const normalFee = getPlanStandardFee(user.membership?.plan_name || planDuration);
+  const expiryDate = calculateMemberTermExpiry(user.membership?.start_date, planDuration);
+  const now = new Date();
+  const isExpired = now >= expiryDate || user.is_active === false;
+  const expiryDateStr = expiryDate.toISOString().slice(0, 10);
+
+  let fine = 0;
+  let daysLate = 0;
+  if (isExpired) {
+    const dayOfMonth = now.getDate();
+    if (dayOfMonth > 7) {
+      daysLate = dayOfMonth - 7;
+      fine = daysLate * 5;
+    }
+  }
+
+  const totalDue = isExpired ? (normalFee + fine) : 0;
+
+  return {
+    isExpired,
+    normalFee,
+    fine,
+    totalDue,
+    expiryDateStr,
+    daysLate,
+  };
+};
+
 interface GymContextType {
   currentUser: User | null;
   selectedCenter: CenterType | 'All';
@@ -45,6 +317,7 @@ interface GymContextType {
   isNavOpen: boolean;
   setIsNavOpen: (open: boolean) => void;
   toggleNav: () => void;
+  getCenterTheme: (center?: CenterType | 'All') => CenterTheme;
 
   // Backend Sync Status (MongoDB Atlas)
   backendConnected: boolean;
@@ -117,10 +390,27 @@ interface GymContextType {
   createAnnouncement: (ann: Omit<Announcement, 'id' | 'created_at'>) => Promise<void>;
   deleteAnnouncement: (id: string) => Promise<void>;
 
-  // Payments & Revenues
+  // Payments & Revenues (Admin Register & Split Calculation)
   payments: PaymentRecord[];
   recordPayment: (payment: Omit<PaymentRecord, 'id' | 'receipt_no'>) => void;
   verifyPayment: (paymentId: string, status: 'verified' | 'rejected') => void;
+  adminRegisterPayment: (params: {
+    userId: string;
+    category: 'gym_fees' | 'gym_item' | 'others';
+    paymentMode: 'online' | 'offline';
+    moneyPaid: number;
+    reason: string;
+    note?: string;
+    orderId?: string;
+  }) => PaymentRecord;
+  calculateMemberDue: (user: User) => {
+    isExpired: boolean;
+    normalFee: number;
+    fine: number;
+    totalDue: number;
+    expiryDateStr: string;
+    daysLate: number;
+  };
 
   // Offers & Occasion Plans
   offers: OfferPlan[];
@@ -139,6 +429,17 @@ interface GymContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
   t: (key: string) => string;
+
+  // Environmental Theming & Circadian Prism
+  environmentMode: EnvironmentMode;
+  setEnvironmentMode: (mode: EnvironmentMode) => void;
+  currentAtmosphere: EnvironmentAtmosphere;
+
+  // Auto Member ID Counter Engine (Innovation & Branch Category Sequence)
+  // Format: XX-YYY-NNNN (e.g. RG-GYM-0001, CD-KRT-0002)
+  memberCounters: Record<string, number>;
+  getNextMemberId: (center?: CenterType | string, prog?: EnrollmentProgramme | string) => string;
+  incrementMemberCounter: (center?: CenterType | string, prog?: EnrollmentProgramme | string) => void;
 }
 
 const GymContext = createContext<GymContextType | undefined>(undefined);
@@ -216,23 +517,24 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Evaluation for 2-month overdue unpaid fees -> Auto Inactivity
+  // Evaluation for exact term month 1st overdue -> Auto Inactivity
   const evaluateMemberInactivity = (userList: User[]): User[] => {
-    const now = Date.now();
-    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+    const now = new Date();
 
     return userList.map(u => {
       if (u.role !== 'member') return u;
 
-      // If member membership end_date is more than 60 days overdue, automatically set inactive
-      if (u.membership?.end_date) {
-        const endMs = new Date(u.membership.end_date).getTime();
-        if (!isNaN(endMs) && (now - endMs) > sixtyDaysMs) {
+      if (u.membership?.start_date) {
+        const expiryDate = calculateMemberTermExpiry(u.membership.start_date, u.membership.plan_duration || 'monthly');
+        const isPastDue = now >= expiryDate;
+
+        if (isPastDue) {
           return {
             ...u,
             is_active: false,
             membership: {
               ...u.membership,
+              end_date: expiryDate.toISOString().slice(0, 10),
               status: 'expired' as const,
             },
           };
@@ -331,6 +633,69 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [theme, setTheme] = useState<'dark' | 'light'>(() => loadLocal('theme', 'dark'));
   const [language, setLanguageState] = useState<Language>(() => loadLocal('language', 'en'));
+  const [environmentMode, setEnvironmentModeState] = useState<EnvironmentMode>(() => loadLocal<EnvironmentMode>('environment_mode', 'auto'));
+
+  // Auto Member ID Counter Engine
+  // Stores monotonic sequential counters for branch and programme categories (e.g., RG-GYM: 1, CD-KRT: 1)
+  const [memberCounters, setMemberCounters] = useState<Record<string, number>>(() => {
+    return loadLocal<Record<string, number>>('member_counters', {
+      'RG-GYM': 1,
+      'RG-KRT': 1,
+      'RG-YGA': 1,
+      'RG-CRF': 1,
+      'RG-KID': 1,
+      'CD-GYM': 1,
+      'CD-KRT': 1,
+      'CD-YGA': 1,
+      'CD-CRF': 1,
+      'CD-KID': 1,
+      'MD-GYM': 1,
+      'MD-KRT': 1,
+      'MD-YGA': 1,
+      'MD-CRF': 1,
+      'MD-KID': 1,
+    });
+  });
+
+  useEffect(() => {
+    saveLocal('member_counters', memberCounters);
+  }, [memberCounters]);
+
+  const getNextMemberId = useCallback(
+    (center?: CenterType | string, prog?: EnrollmentProgramme | string): string => {
+      const branch = getBranchCode(center || selectedCenter || 'Ranaghat');
+      const programme = getProgrammeCode(prog || 'Gym');
+      const key = `${branch}-${programme}`;
+      const currentVal = memberCounters[key] ?? 1;
+      return formatMemberId(branch, programme, currentVal);
+    },
+    [memberCounters, selectedCenter]
+  );
+
+  const incrementMemberCounter = useCallback(
+    (center?: CenterType | string, prog?: EnrollmentProgramme | string) => {
+      const branch = getBranchCode(center || selectedCenter || 'Ranaghat');
+      const programme = getProgrammeCode(prog || 'Gym');
+      const key = `${branch}-${programme}`;
+      setMemberCounters((prev) => {
+        const current = prev[key] ?? 1;
+        const updated = {
+          ...prev,
+          [key]: current + 1,
+        };
+        saveLocal('member_counters', updated);
+        return updated;
+      });
+    },
+    [selectedCenter]
+  );
+
+  const setEnvironmentMode = (mode: EnvironmentMode) => {
+    setEnvironmentModeState(mode);
+    saveLocal('environment_mode', mode);
+  };
+
+  const currentAtmosphere = getEnvironmentalAtmosphere(environmentMode);
 
   // Sync / Connection state
   const [backendConnected, setBackendConnected] = useState<boolean>(false);
@@ -1470,6 +1835,114 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  const adminRegisterPayment = (params: {
+    userId: string;
+    category: 'gym_fees' | 'gym_item' | 'others';
+    paymentMode: 'online' | 'offline';
+    moneyPaid: number;
+    reason: string;
+    note?: string;
+    orderId?: string;
+  }): PaymentRecord => {
+    const targetUser = users.find(u => u.id === params.userId);
+    const receiptNo = `HG-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    let normalAmount = 0;
+    let fineAmount = 0;
+    let planName = params.reason;
+
+    if (params.category === 'gym_fees' && targetUser) {
+      const planDuration = targetUser.membership?.plan_duration || 'monthly';
+      const normalFee = getPlanStandardFee(targetUser.membership?.plan_name || planDuration);
+      planName = targetUser.membership?.plan_name || `${planDuration.toUpperCase()} Gym Membership`;
+
+      if (params.moneyPaid <= normalFee) {
+        normalAmount = params.moneyPaid;
+        fineAmount = 0;
+      } else {
+        normalAmount = normalFee;
+        fineAmount = params.moneyPaid - normalFee;
+      }
+
+      // Calculate new term expiration (1st of next renewal term month)
+      const newExpiry = calculateMemberTermExpiry(todayStr, planDuration);
+      const newExpiryStr = newExpiry.toISOString().slice(0, 10);
+
+      const updatedMembership = {
+        plan_name: planName,
+        plan_duration: planDuration,
+        start_date: todayStr,
+        end_date: newExpiryStr,
+        status: 'active' as const,
+        fee_paid: normalAmount,
+        due_amount: 0,
+        approved_at: now.toISOString(),
+        reminder_frequency: planDuration,
+        next_reminder_date: newExpiryStr,
+      };
+
+      setUsers(prev =>
+        prev.map(u => {
+          if (u.id === params.userId) {
+            return {
+              ...u,
+              is_active: true,
+              days_overdue: 0,
+              membership: updatedMembership,
+            };
+          }
+          return u;
+        })
+      );
+
+      if (currentUser?.id === params.userId) {
+        setCurrentUser(prev => (prev ? { ...prev, is_active: true, days_overdue: 0, membership: updatedMembership } : null));
+      }
+    } else if (params.category === 'gym_item') {
+      normalAmount = 0;
+      fineAmount = 0;
+      planName = params.reason || 'Gym Store / Merchandise Item Payment';
+      if (params.orderId) {
+        setOrders(prev =>
+          prev.map(o => (o.id === params.orderId ? { ...o, status: 'completed', payment_status: 'paid' } : o))
+        );
+      }
+    } else {
+      // others
+      normalAmount = 0;
+      fineAmount = 0;
+      planName = params.reason || 'Other Revenue / Misc Gym Payment';
+    }
+
+    const newPaymentRecord: PaymentRecord = {
+      id: `pay-${Date.now()}`,
+      user_id: params.userId,
+      user_name: targetUser?.full_name || 'Member',
+      center: targetUser?.center || 'Ranaghat',
+      plan_name: planName,
+      amount: params.moneyPaid,
+      normal_amount: normalAmount,
+      fine_amount: fineAmount,
+      revenue_category: params.category,
+      payment_for: params.reason,
+      payment_date: todayStr,
+      due_date: todayStr,
+      status: 'paid',
+      payment_method: params.paymentMode === 'online' ? 'UPI' : 'Cash',
+      payment_mode: params.paymentMode,
+      receipt_no: receiptNo,
+      verification_status: 'verified',
+      verified_at: now.toISOString(),
+      verified_by: currentUser?.full_name || 'Admin',
+      offline_note: params.note,
+    };
+
+    setPayments(prev => [newPaymentRecord, ...prev]);
+    return newPaymentRecord;
+  };
+
   return (
     <GymContext.Provider
       value={{
@@ -1481,6 +1954,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         isNavOpen,
         setIsNavOpen,
         toggleNav,
+        getCenterTheme: (center) => getCenterTheme(center || selectedCenter, theme),
         backendConnected,
         isSyncing,
         syncWithBackend,
@@ -1536,6 +2010,8 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         payments,
         recordPayment,
         verifyPayment,
+        adminRegisterPayment,
+        calculateMemberDue,
         offers,
         addOffer,
         updateOffer,
@@ -1548,6 +2024,12 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         language,
         setLanguage,
         t,
+        environmentMode,
+        setEnvironmentMode,
+        currentAtmosphere,
+        memberCounters,
+        getNextMemberId,
+        incrementMemberCounter,
       }}
     >
       {children}

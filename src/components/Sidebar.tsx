@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, currentUser, users, t, theme, cart, isNavOpen, setIsNavOpen } = useGym();
+  const { activeTab, setActiveTab, currentUser, users, t, theme, cart, isNavOpen, setIsNavOpen, selectedCenter, getCenterTheme } = useGym();
+  const centerTheme = getCenterTheme(selectedCenter);
 
   const pendingApprovalsCount = users.filter(u => u.approval_status === 'pending').length;
   const cartItemsCount = cart.reduce((acc, item) => acc + item.quantity, 0);
@@ -32,7 +33,7 @@ export const Sidebar: React.FC = () => {
     },
     {
       id: 'members',
-      label: t('members'),
+      label: 'Members & Trainers',
       icon: Users,
       roles: ['admin', 'trainer'],
     },
@@ -52,7 +53,7 @@ export const Sidebar: React.FC = () => {
     },
     {
       id: 'workouts',
-      label: t('workouts'),
+      label: 'Workouts & Diet',
       icon: Dumbbell,
       roles: ['admin', 'trainer', 'member'],
     },
@@ -66,7 +67,7 @@ export const Sidebar: React.FC = () => {
     },
     {
       id: 'shop',
-      label: t('shop'),
+      label: 'Shop & Store',
       icon: ShoppingBag,
       roles: ['admin', 'trainer', 'member'],
       badge: cartItemsCount > 0 ? cartItemsCount : undefined,
@@ -80,7 +81,7 @@ export const Sidebar: React.FC = () => {
     },
     {
       id: 'revenues',
-      label: t('revenues'),
+      label: 'Revenue Record',
       icon: CreditCard,
       roles: ['admin', 'member', 'trainer'],
     },

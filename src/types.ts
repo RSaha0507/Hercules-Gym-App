@@ -242,6 +242,8 @@ export interface Announcement {
   category: 'Event' | 'Notice' | 'Achievement' | 'Holiday' | 'Maintenance';
 }
 
+export type RevenueCategory = 'gym_fees' | 'gym_item' | 'others';
+
 export interface PaymentRecord {
   id: string;
   user_id: string;
@@ -249,6 +251,10 @@ export interface PaymentRecord {
   center: CenterType;
   plan_name: string;
   amount: number;
+  normal_amount?: number; // Fee portion without fine
+  fine_amount?: number;   // Fine portion (5 rs/day after 7th)
+  revenue_category?: RevenueCategory; // 'gym_fees' | 'gym_item' | 'others'
+  payment_for?: 'Gym Fees Payment' | 'Gym Item Order Payment' | 'Others' | string;
   payment_date: string;
   due_date: string;
   status: 'paid' | 'pending' | 'overdue';
@@ -309,4 +315,19 @@ export interface OfferPlan {
   created_by?: string;
   discount_badge?: string;
   features?: string[];
+}
+
+export type EnvironmentMode = 'auto' | 'dawn' | 'midday' | 'golden_hour' | 'midnight' | 'prismatic';
+
+export interface EnvironmentAtmosphere {
+  id: EnvironmentMode;
+  name: string;
+  timeRange: string;
+  description: string;
+  primaryGlow: string;
+  secondaryGlow: string;
+  tertiaryGlow: string;
+  accentGlow: string;
+  prismShimmer: string;
+  borderRefraction: string;
 }

@@ -24,6 +24,7 @@
   <p align="center">
     <a href="https://herculesgym.rounaks-student.workers.dev">🌐 <strong>Live Web App</strong></a> •
     <a href="https://hercules-gym-api-847366288287.asia-southeast1.run.app/docs">⚡ <strong>API Documentation</strong></a> •
+    <a href="#-bespoke-stakeholder-specific-implementations">🧠 <strong>Stakeholder Logic</strong></a> •
     <a href="#-mobile-app-screenshots">📱 <strong>Screenshots</strong></a> •
     <a href="#-system-architecture">🏗️ <strong>Architecture</strong></a>
   </p>
@@ -34,6 +35,7 @@
 ## 📌 Table of Contents
 - [Why This Was Built](#-why-this-was-built)
 - [Stakeholder Demands & Client Requirements](#-stakeholder-demands-client-requirements)
+- [Bespoke Stakeholder-Specific Implementations](#-bespoke-stakeholder-specific-implementations)
 - [Production Deployments](#-production-deployments)
 - [System Architecture](#-system-architecture)
 - [Core Salient Features](#-core-salient-features)
@@ -58,7 +60,7 @@
 - **Member Lifecycle & Approvals**: End-to-end registration, document approval, KYC, and emergency contacts.
 - **Attendance & Check-in Consistency**: Real-time QR attendance with synchronized check-in / check-out logic and geo-location branch locks.
 - **Workouts, Diet Plans & Trainer Assignments**: Structured routine builder and trainer-to-member allocation.
-- **Membership & Shop Payment Records**: UPI UTR verification, instant payment receipts, and automated billing cycles.
+- **Membership & Shop Payment Records**: Front-desk verified payment receipts, fine splitting, and automated billing cycles.
 - **Branch-Wise Communication & Announcements**: Real-time broadcasts, member feeds, and bilingual notices (English & Bengali).
 - **Profile Data, Reminders & Operational Reporting**: Automated birthday greetings, fee expiration alerts, and comprehensive financial reports.
 
@@ -76,11 +78,76 @@ Built directly to client specifications:
 * 🗄️ **Centralized Cloud Database**: Highly available, clustered storage for all operational and historical data.
 * 🛡️ **Zero-Loss Disaster Recovery**: Continuous automated backup snapshots and passive replica copies to ensure zero data loss.
 * ⚡ **High-Throughput Redis Caching**: In-memory caching layer shielding primary databases from heavy spikes and malicious scraper traffic.
-* 💳 **Payment Workflows**: Monthly payment reminders, proof upload (screenshots/receipts), and admin approval flows with late-fee calculations.
+* 💳 **Payment Workflows**: Monthly payment reminders, fine splitting, proof upload (screenshots/receipts), and admin approval flows.
 * ⏱️ **Role-Restricted Attendance**: Instant QR scan check-in/check-out with secure historical logs.
 * 🌐 **Bilingual Support**: Native English and Bengali script support across all interfaces.
 * 🚀 **Zero Downtime & Zero Cloud Cost**: Optimized for modern serverless free tiers (Google Cloud Run + Cloudflare + Cloudinary + MongoDB Atlas + Redis).
 * 📦 **Production Play Store Pipeline**: EAS Android App Bundle (`.aab`) and APK distribution ready.
+
+---
+
+## 🧠 Bespoke Stakeholder-Specific Implementations
+
+Unlike generic corporate gym management systems or cookie-cutter SaaS templates, the Hercules Gym platform incorporates **deep domain-driven design (DDD)** tailored directly to the client's physical town operational workflows:
+
+```text
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│               GENERIC SAAS PATTERN                  HERCULES GYM STAKEHOLDER LOGIC     │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ 1. Rolling 30/90-day subscription cycles     ──►    Strict 1st-of-month calendar expiry│
+│ 2. Unattended payment gateway checkout       ──►    Admin-mediated desk clearance      │
+│ 3. Binary account lockout / auto charge      ──►    1-7 day grace + ₹5/day fine split  │
+│ 4. Single turnover revenue line              ──►    4-tier split revenue ledger pools  │
+│ 5. Monolithic neutral color theme            ──►    Dynamic 3-center visual inheritance│
+│ 6. Minimal email-only registration           ──►    2-slide full physical KYC registry │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 1. 📅 Strict 1st-of-the-Month Term Inactivity Rule
+* **Generic SaaS Approach**: A member subscribing on January 18th is charged or expires on February 18th (rolling timestamp intervals).
+* **Stakeholder Implementation**: Membership terms are strictly pinned to the **1st of the renewal month**, ignoring registration day:
+  * **Monthly Plan**: Joins in January (any date) $\rightarrow$ Inactive from **February 1st**.
+  * **Quarterly Plan**: Joins in January $\rightarrow$ Valid for Jan, Feb, Mar $\rightarrow$ Inactive from **April 1st**.
+  * **Semi-Annual Plan**: Joins in January $\rightarrow$ Inactive from **July 1st**.
+  * **Annual Plan**: Joins in January 2026 $\rightarrow$ Inactive from **January 1st, 2027**.
+* **Reactivation**: Accounts automatically flip to active status the moment the admin records their term renewal payment.
+
+### 2. ⚡ The 1–7 Day Grace Period & Progressive ₹5/Day Late Fine Splitting
+* **Generic SaaS Approach**: Instant card charge retry or immediate membership cancellation.
+* **Stakeholder Implementation**: Mirrors the physical gym front-desk collection practice:
+  * **Days 1 to 7 of a month**: Normal fee only ($\text{Fine} = ₹0$).
+  * **Day 8 onwards**: A penalty of **₹5 per passing day** accumulates ($\text{Fine} = (\text{Day} - 7) \times 5$).
+  * **Due Visibility**: Dues and fine breakdowns are displayed directly on member cards in the admin roster and on the member's Digital Pass.
+  * **Automated Accounting Split**: When registering payment, the system knows the standard plan baseline and splits the total paid into **Normal Fee Portion** and **Late Fine Portion** on all receipts and financial statements.
+
+### 3. 💳 Admin-Only Payment Mediation (No Direct App Checkout)
+* **Generic SaaS Approach**: End-users checkout unattended via payment gateway webhooks.
+* **Stakeholder Implementation**: To accommodate real-world cash collections and direct desk-to-bank UPI transfers in physical gym branches:
+  * Regular members do not trigger automatic gateway billing inside the app.
+  * Admin registers all payments via a dedicated **"Register Payment"** action on each member's card.
+  * Fields include Category (`Gym Fees Payment`, `Gym Item Order Payment`, `Others`), Mode (`Online` vs `Offline`), Money Paid, and Reason.
+  * Immediate receipt generation with instant member reactivation.
+  
+### 4. 🎨 Multi-Center Dynamic Chromatic Theme Inheritance
+* **Generic SaaS Approach**: Neutral, monochromatic, or static white/dark user interfaces.
+* **Stakeholder Implementation**: A unified network where switching branches dynamically transforms the visual theme, gradients, 3D buttons, badges, and glows across the entire application:
+  * 🔴 **Ranaghat Center**: Fiery Amber / Rose / Red (`from-amber-400 via-rose-500 to-red-600`)
+  * 🟣 **Chakdah Center**: Purplish-Pink (`from-fuchsia-600 via-purple-600 to-pink-600`)
+  * 🟢 **Madanpur Center**: Greenish-Yellow (`from-emerald-500 via-green-500 to-yellow-400`)
+
+### 5. 📊 4-Pool Segregated Revenue Intelligence ("Revenue Record")
+* **Generic SaaS Approach**: Single gross sales turnover number.
+* **Stakeholder Implementation**: Clean separation into 4 distinct operational revenue streams matching front-desk books:
+  1. 💰 **Normal Revenue Collected**: Core membership plan collections (without late fees).
+  2. ⚡ **Fine Revenue Collected**: Accumulated ₹5/day late fee penalties.
+  3. 🛍️ **Gym Item Revenue Collected**: Supplement store, apparel, and merchandise orders.
+  4. 📋 **Other Revenue Collected**: Lockers, induction fees, personal coaching, and event passes.
+  
+### 6. 📝 Two-Slide Full-Page Admission & Plan Selection Architecture
+* **Generic SaaS Approach**: Cramped popup modal with minimal input fields.
+* **Stakeholder Implementation**:
+  * **Slide 1 (Profile & Verification Data)**: Full-viewport layout capturing guardian contact, present & permanent addresses, body weight/height, medical notes, enrollment programme (Gym, Karate, Yoga, Crossfit, Kidsfit), and batch shifts (Ladies vs General).
+  * **Slide 2 (Fees & Membership Plan Selection)**: Displays the **4 Official Membership Plans** (Monthly ₹700, Quarterly ₹1,900, Half-Yearly ₹3,500, Annual ₹6,500) and active festive occasion passes, logging initial payment proof directly.
 
 ---
 
@@ -153,9 +220,9 @@ Built directly to client specifications:
 - Attendance history with date-range filters, monthly aggregation, and exportable logs.
 
 ### 4. Payments, Shop & Revenue Intelligence
-- **Membership Subscriptions**: Monthly tracking, cycle renewals, grace periods, and late fee automation.
+- **Revenue Record**: 4-pool financial segregation (Normal, Fine, Store, Other).
 - **Gym Store Module**: Full supplement catalog with flavour and size variant selectors, inventory counters, and branch pickup verification.
-- **Gym Store Module**: Inventory catalog, item purchases, and supplement order tracking.
+- **Front-Desk Verification**: Receipt generation, automatic fine calculation, and ledger audits.
 - **Proof-of-Payment Verification**: Screenshot and UTR upload with admin one-click approval/rejection.
 - **Financial Analytics**: Total collections, overdue payments, and monthly revenue visualizers.
 
@@ -214,7 +281,7 @@ To guarantee business continuity even if the primary database is lost or corrupt
 - **Branch-Aware Domain Modeling**: Strict validation ensuring data operations remain scoped to the selected gym branch.
 - **API-First Backend Design**: Pydantic schemas enforce type safety and seamless cross-platform consistency.
 - **Operational Resilience**: Retry wrappers for database queries and graceful degradation on transient connections.
-- **Dynamic Visual Language**: Modern cards, responsive data grids, accessible color contrast, and fluid animations.
+- **Tactile 3D Visual Language**: Modern clickable 3D navigation buttons, responsive multi-slide data grids, accessible color contrast, and fluid animations.
 
 ---
 
@@ -343,7 +410,7 @@ Scan the displayed QR code with the **Expo Go** app on Android or iOS.
 ## 🧪 Testing & Quality Assurance
 
 - **Type Safety**: Verified via `npx tsc --noEmit`.
-- **Linter & Syntax Checks**: Executed via project build pipeline.
+- **Unit Test Suite**: 23 automated Vitest tests covering RBAC, roster search, term inactivity, fine calculations, and center theme color schemes.
 - **Backend Validation**: Python byte-compilation check (`python -m py_compile backend/server.py`).
 - **End-to-End Workflows**: Multi-branch authentication, QR scanning, payment uploads, and admin approval tests.
 

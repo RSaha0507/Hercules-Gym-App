@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { formatMemberId, getBranchCode, getProgrammeCode } from '../src/context/GymContext';
 
 export interface AdmissionPayload {
   full_name: string;
@@ -95,9 +96,24 @@ describe('Member Admission & Data Integrity Verification (Fix 1)', () => {
     expect(res.errors).toContain('Valid 10-digit mobile number required');
   });
 
-  it('should format standard Gym Member IDs conforming to HG-<BRANCH>-<SERIAL>', () => {
-    expect(generateMemberId('Ranaghat', 1)).toBe('HG-RAN-001');
-    expect(generateMemberId('Chakdah', 42)).toBe('HG-CHA-042');
-    expect(generateMemberId('Madanpur', 105)).toBe('HG-MAD-105');
+  it('should format standard Member IDs conforming to XX-YYY-NNNN (Branch-Category-Serial)', () => {
+    // Branch codes: Ranaghat -> RG, Chakdah -> CD, Madanpur -> MD
+    expect(getBranchCode('Ranaghat')).toBe('RG');
+    expect(getBranchCode('Chakdah')).toBe('CD');
+    expect(getBranchCode('Madanpur')).toBe('MD');
+
+    // 5 Category codes: Gym -> GYM, Karate -> KRT, Yoga -> YGA, Crossfit -> CRF, Kidsfit -> KID
+    expect(getProgrammeCode('Gym')).toBe('GYM');
+    expect(getProgrammeCode('Karate')).toBe('KRT');
+    expect(getProgrammeCode('Yoga')).toBe('YGA');
+    expect(getProgrammeCode('Crossfit')).toBe('CRF');
+    expect(getProgrammeCode('Kidsfit')).toBe('KID');
+
+    // XX-YYY-NNNN 4-digit formatting
+    expect(formatMemberId('Ranaghat', 'Gym', 1)).toBe('RG-GYM-0001');
+    expect(formatMemberId('Chakdah', 'Karate', 5)).toBe('CD-KRT-0005');
+    expect(formatMemberId('Madanpur', 'Yoga', 12)).toBe('MD-YGA-0012');
+    expect(formatMemberId('Ranaghat', 'Crossfit', 99)).toBe('RG-CRF-0099');
+    expect(formatMemberId('Chakdah', 'Kidsfit', 1045)).toBe('CD-KID-1045');
   });
 });

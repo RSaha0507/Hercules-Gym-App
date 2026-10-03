@@ -29,7 +29,8 @@ import {
 import { EnrollmentProgramme, EnrollmentCategory, CenterType } from '../types';
 
 export const ProfileView: React.FC = () => {
-  const { currentUser, updateUserProfile, theme } = useGym();
+  const { currentUser, updateUserProfile, theme, calculateMemberDue } = useGym();
+  const dueInfo = currentUser ? calculateMemberDue(currentUser) : { isExpired: false, normalFee: 0, fine: 0, totalDue: 0, expiryDateStr: '', daysLate: 0 };
   const [showEditModal, setShowEditModal] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -239,6 +240,32 @@ export const ProfileView: React.FC = () => {
                 <div className="font-bold text-amber-300 mt-0.5 truncate">{currentUser.enrollment_category || 'Ladies & Gents'}</div>
               </div>
             </div>
+
+            {/* Due Money & Late Fine Display specifically for Member */}
+            {currentUser.role === 'member' && dueInfo.isExpired && (
+              <div className="p-3.5 rounded-2xl bg-rose-950/70 border border-rose-800/80 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-rose-300 font-black">
+                  <span className="flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-rose-400" />
+                    <span>Membership Due / Expired</span>
+                  </span>
+                  <span className="font-mono text-sm text-white">₹{dueInfo.totalDue.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-[11px] text-zinc-300 pt-1 border-t border-rose-900/60">
+                  <span>Standard Plan Fee:</span>
+                  <span className="font-mono font-bold text-emerald-400">₹{dueInfo.normalFee.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-[11px] text-zinc-300">
+                  <span>Late Fine (₹5/day past 7th):</span>
+                  <span className="font-mono font-bold text-rose-400">
+                    {dueInfo.fine > 0 ? `₹${dueInfo.fine} (${dueInfo.daysLate}d late)` : '₹0 (Within 1-7 grace period)'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-zinc-400 pt-1">
+                  * Note: Please clear your dues at the gym front desk. Admin will approve and register your payment receipt.
+                </p>
+              </div>
+            )}
 
             {currentUser.membership && (
               <div className="text-[10px] text-zinc-400 flex justify-between border-t border-zinc-800 pt-3">
