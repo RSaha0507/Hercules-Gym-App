@@ -24,6 +24,7 @@
   <p align="center">
     <a href="https://herculesgym.rounaks-student.workers.dev">🌐 <strong>Live Web App</strong></a> •
     <a href="https://hercules-gym-api-847366288287.asia-southeast1.run.app/docs">⚡ <strong>API Documentation</strong></a> •
+    <a href="backend/MIGRATION_RATIONALE.md">🚀 <strong>Backend Migration Blueprint (Hono/Fastify)</strong></a> •
     <a href="#-bespoke-stakeholder-specific-implementations">🧠 <strong>Stakeholder Logic</strong></a> •
     <a href="#-mobile-app-screenshots">📱 <strong>Screenshots</strong></a> •
     <a href="#-system-architecture">🏗️ <strong>Architecture</strong></a>
@@ -38,6 +39,7 @@
 - [Bespoke Stakeholder-Specific Implementations](#-bespoke-stakeholder-specific-implementations)
 - [Production Deployments](#-production-deployments)
 - [System Architecture](#-system-architecture)
+- [Backend Migration & Infrastructure Evolution](#-backend-migration--infrastructure-evolution)
 - [Core Salient Features](#-core-salient-features)
 - [High-Performance & Zero-Egress Optimizations](#-high-performance--zero-egress-optimizations)
 - [Redis Caching & Automated Disaster Recovery](#-redis-caching--automated-disaster-recovery)
@@ -205,6 +207,20 @@ Unlike generic corporate gym management systems or cookie-cutter SaaS templates,
 
 ---
 
+## 🚀 Backend Migration & Infrastructure Evolution
+
+To drastically reduce compute-resource consumption, eliminate serverless cold-start latency, and streamline multi-branch operations, the backend infrastructure is evolving from Python (FastAPI) to a high-efficiency **Hono / Fastify (TypeScript)** engine on Google Cloud Run.
+
+### Key Drivers & Architectural Decisions
+- **Cold-Start Elimination**: Python's 2.5s – 4.5s cold start on scale-to-zero Cloud Run instances is replaced by Hono/Fastify's **<50ms instant boot**.
+- **Memory Footprint Drop**: Idle container memory drops from **~250MB to <35MB** (an 85% drop), fitting cleanly into Cloud Run's lowest cost tier.
+- **Unified TypeScript Contract**: Both the client (`src/types.ts`) and backend API share a single source of truth for all types (`User`, `PaymentRecord`, `AttendanceRecord`), preventing schema drift.
+- **Why Not Golang?**: While Golang delivers unmatched raw CPU throughput, its requirement for a split two-language toolchain (Go structs vs. TypeScript interfaces) and duplicated manual typing introduced unnecessary developer overhead for a database-I/O bound gym platform. Hono provides ~90% of Go's efficiency while preserving 100% full-stack TypeScript speed.
+
+> 📖 **Read the Full Deep-Dive**: See the comprehensive benchmark comparison, decision criteria, and implementation plan in [**backend/MIGRATION_RATIONALE.md**](backend/MIGRATION_RATIONALE.md).
+
+---
+
 ## ⚡ Core Salient Features
 
 ### 1. Role-Based Access Control (RBAC) & Approvals
@@ -330,8 +346,8 @@ To guarantee business continuity even if the primary database is lost or corrupt
 - **Distribution**: EAS Build (APK & AAB)
 
 ### Backend & Cloud Services
-- **API Framework**: FastAPI (Python 3.11)
-- **Primary Database**: MongoDB Atlas via Motor (AsyncIO driver)
+- **API Framework**: FastAPI (Python 3.11) ➔ *Migrating to high-efficiency [Hono / Fastify (TypeScript)](backend/MIGRATION_RATIONALE.md)*
+- **Primary Database**: MongoDB Atlas via Motor (AsyncIO driver) & Node.js Native Driver
 - **Caching & Rate Limiting**: Redis & In-Memory TTL Fallback
 - **Disaster Recovery**: Automated 12h point-in-time snapshot archiving
 - **Image Optimization & CDN**: Cloudinary Media API
@@ -344,7 +360,8 @@ To guarantee business continuity even if the primary database is lost or corrupt
 
 ```text
 Hercules-Gym-App/
-├── backend/                  # FastAPI Microservices Backend
+├── backend/                  # Cloud Microservices Backend
+│   ├── MIGRATION_RATIONALE.md # Architecture & benchmarking rationale (FastAPI ➔ Hono/Fastify)
 │   ├── server.py             # Primary API server, RBAC, Caching & Disaster Recovery
 │   └── requirements.txt      # Python dependencies
 ├── src/                      # React 18 + Vite Web Application
