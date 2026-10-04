@@ -25,6 +25,7 @@ export const Hero3DShowcase: React.FC<Hero3DShowcaseProps> = ({ onOpenQrModal })
     selectedCenter,
     setSelectedCenter,
     attendance,
+    workoutPlan,
     isCheckedIn,
     checkOut,
     setActiveTab,
@@ -42,6 +43,16 @@ export const Hero3DShowcase: React.FC<Hero3DShowcaseProps> = ({ onOpenQrModal })
 
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const todayName = dayNames[new Date().getDay()];
+
+  const hasAssignedWorkout = Boolean(
+    workoutPlan &&
+    workoutPlan.days &&
+    workoutPlan.days.length > 0 &&
+    workoutPlan.days.some((d) => d.exercises && d.exercises.length > 0)
+  );
+  const todayWorkoutSplit = hasAssignedWorkout
+    ? workoutPlan.days.find((d) => d.day === todayName) || workoutPlan.days[0]
+    : null;
 
   const centerConfigs = [
     {
@@ -174,7 +185,7 @@ export const Hero3DShowcase: React.FC<Hero3DShowcaseProps> = ({ onOpenQrModal })
                 className="px-5 py-3.5 rounded-2xl bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs sm:text-sm font-bold transition-all flex items-center gap-2"
               >
                 <Dumbbell className="w-4 h-4 text-amber-400" />
-                <span>Today's Split</span>
+                <span>{hasAssignedWorkout && todayWorkoutSplit ? `Today: ${todayWorkoutSplit.title}` : 'Explore Workouts'}</span>
               </button>
 
               <button

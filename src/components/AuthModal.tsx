@@ -39,7 +39,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   isStandaloneView = false,
   initialMode = 'login',
 }) => {
-  const { currentUser, login, register, theme, toggleTheme, language, setLanguage, t } = useGym();
+  const { currentUser, login, register, theme, toggleTheme, language, setLanguage, t, getNextMemberId, incrementMemberCounter } = useGym();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>(initialMode);
@@ -250,8 +250,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setIsLoading(true);
     try {
-      const centerPrefix = center ? center.slice(0, 3).toUpperCase() : 'RAN';
-      const autoMemberId = `HG-${centerPrefix}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const autoMemberId = getNextMemberId(center || 'Ranaghat', enrollmentProgramme || 'Gym');
 
       await register({
         full_name: fullName.trim(),
@@ -483,6 +482,78 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
             <span>{isLoading ? 'Signing In...' : t('login')}</span>
           </button>
+
+          {/* Quick Demo Credentials Switcher */}
+          <div className="pt-2 border-t border-zinc-800/80">
+            <div className="text-[11px] font-bold text-zinc-400 mb-2 flex items-center justify-between">
+              <span>Quick Demo 1-Click Login:</span>
+              <span className="text-[10px] text-amber-400">Instant Access</span>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {/*<button
+                type="button"
+                onClick={async () => {
+                  setIdentifier('admin@herculesgym.in');
+                  setPassword('admin123');
+                  setIsLoading(true);
+                  try {
+                    await login('admin@herculesgym.in', 'admin123');
+                    onClose();
+                  } catch (e: any) {
+                    setError(e?.message);
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }}
+                className="p-2 rounded-xl bg-zinc-800/70 hover:bg-zinc-800 border border-zinc-700/60 text-left transition-all"
+              >
+                <div className="text-[11px] font-black text-rose-400">Admin</div>
+                <div className="text-[10px] text-zinc-400 truncate">Sourav Ghosh</div>
+              </button>*/}
+
+              {/*<button
+                type="button"
+                onClick={async () => {
+                  setIdentifier('trainer@herculesgym.in');
+                  setPassword('trainer123');
+                  setIsLoading(true);
+                  try {
+                    await login('trainer@herculesgym.in', 'trainer123');
+                    onClose();
+                  } catch (e: any) {
+                    setError(e?.message);
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }}
+                className="p-2 rounded-xl bg-zinc-800/70 hover:bg-zinc-800 border border-zinc-700/60 text-left transition-all"
+              >
+                <div className="text-[11px] font-black text-amber-400">Trainer</div>
+                <div className="text-[10px] text-zinc-400 truncate">Rajesh</div>
+              </button>*/}
+
+              <button
+                type="button"
+                onClick={async () => {
+                  setIdentifier('member@herculesgym.in');
+                  setPassword('member123');
+                  setIsLoading(true);
+                  try {
+                    await login('member@herculesgym.in', 'member123');
+                    onClose();
+                  } catch (e: any) {
+                    setError(e?.message);
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }}
+                className="p-2 rounded-xl bg-zinc-800/70 hover:bg-zinc-800 border border-zinc-700/60 text-left transition-all"
+              >
+                <div className="text-[11px] font-black text-emerald-400">Member</div>
+                <div className="text-[10px] text-zinc-400 truncate">Rounak Saha</div>
+              </button>
+            </div>
+          </div>
         </form>
       )}
 

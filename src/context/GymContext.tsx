@@ -1087,7 +1087,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         is_active: true,
         approval_status: 'approved',
         profile_image: data.profile_image,
-        member_id: data.member_id || `HG-${(data.center || 'RAN').slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`,
+        member_id: data.member_id || getNextMemberId(data.center, data.enrollment_programme),
         admission_type: data.admission_type,
         profession: data.profession,
         present_address: data.present_address,
@@ -1168,8 +1168,7 @@ export const GymProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addUser = (userData: Partial<User>) => {
     const newId = userData.id || `user-${Date.now()}`;
-    const centerPrefix = userData.center ? userData.center.slice(0, 3).toUpperCase() : 'RAN';
-    const autoMemberId = userData.member_id || `HG-${centerPrefix}-${Math.floor(100 + Math.random() * 900)}`;
+    const autoMemberId = userData.member_id || getNextMemberId(userData.center, userData.enrollment_programme);
 
     const newUser: User = {
       id: newId,

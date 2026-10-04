@@ -69,6 +69,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
   const centerTheme = getCenterTheme(selectedCenter);
   const [activeSlide, setActiveSlide] = useState(0);
 
+  const isAdmin = currentUser?.role === 'admin';
+
   // Auto slide carousel
   useEffect(() => {
     const timer = setInterval(() => {
@@ -102,8 +104,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
 
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const todayDayName = dayNames[new Date().getDay()];
-  const todayWorkoutSplit =
-    workoutPlan.days.find((d) => d.day === todayDayName) || workoutPlan.days[0] || null;
+
+  // Check if an actual workout plan with exercises has been assigned
+  const hasAssignedWorkout = Boolean(
+    workoutPlan &&
+    workoutPlan.days &&
+    workoutPlan.days.length > 0 &&
+    workoutPlan.days.some((d) => d.exercises && d.exercises.length > 0)
+  );
+
+  const todayWorkoutSplit = hasAssignedWorkout
+    ? workoutPlan.days.find((d) => d.day === todayDayName) || workoutPlan.days[0]
+    : null;
 
   // Center revenue pulse & 4-Pool breakdown
   const centerPayments = payments.filter(
@@ -158,122 +170,180 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
 
       {/* 2. ADAPTIVE BENTO-GRID SYSTEM (Asymmetric 12-Column Responsive Matrix with Kinetic Morphing Cards) */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-        {/* BENTO TILE 1 (Large 7-Col): Kinetic Morphing Roster & Athlete Matrix */}
-        <KineticBentoCard
-          colSpan="col-span-12 md:col-span-7"
-          kicker="ATHLETES & ROSTER METRICS"
-          title="Active Membership Density"
-          metric={activeMembersCount}
-          metricLabel={`Active Members · ${selectedCenter === 'All' ? 'All Centers' : selectedCenter}`}
-          isMorphable={true}
-          isInitiallyExpanded={false}
-          icon={<Users className="w-5 h-5" />}
-          actionButton={
-            <button
-              onClick={() => setActiveTab('members')}
-              className="p-2 rounded-2xl bg-zinc-800/60 hover:bg-zinc-700/80 text-zinc-300 hover:text-white transition-all flex items-center gap-1 text-xs font-semibold"
-              title="Open Roster Directory"
-            >
-              <span>View Roster</span>
-              <ArrowUpRight className="w-4 h-4" />
-            </button>
-          }
-          expandedContent={
-            <div className="space-y-3">
-              <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-                Branch Distribution Matrix
+        {/* BENTO TILE 1: Kinetic Morphing Roster & Athlete Matrix (Admin) or Member/Trainer Profile (Member/Trainer) */}
+        {isAdmin ? (
+          <KineticBentoCard
+            colSpan="col-span-12 md:col-span-7"
+            kicker="ATHLETES & ROSTER METRICS"
+            title="Active Membership Density"
+            metric={activeMembersCount}
+            metricLabel={`Active Members · ${selectedCenter === 'All' ? 'All Centers' : selectedCenter}`}
+            isMorphable={true}
+            isInitiallyExpanded={false}
+            icon={<Users className="w-5 h-5" />}
+            actionButton={
+              <button
+                onClick={() => setActiveTab('members')}
+                className="p-2 rounded-2xl bg-zinc-800/60 hover:bg-zinc-700/80 text-zinc-300 hover:text-white transition-all flex items-center gap-1 text-xs font-semibold"
+                title="Open Roster Directory"
+              >
+                <span>View Roster</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </button>
+            }
+            expandedContent={
+              <div className="space-y-3">
+                <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  Branch Distribution Matrix
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="p-3 rounded-2xl bg-zinc-950/40 border border-white/[0.03]">
+                    <div className="text-zinc-400 text-[11px]">Ranaghat</div>
+                    <div className="text-lg font-bold text-rose-400 font-mono mt-0.5">{ranaghatMembers}</div>
+                    <div className="text-[10px] text-zinc-500 mt-1">Main Facility</div>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-zinc-950/40 border border-white/[0.03]">
+                    <div className="text-zinc-400 text-[11px]">Chakdah</div>
+                    <div className="text-lg font-bold text-purple-400 font-mono mt-0.5">{chakdahMembers}</div>
+                    <div className="text-[10px] text-zinc-500 mt-1">Split Branch</div>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-zinc-950/40 border border-white/[0.03]">
+                    <div className="text-zinc-400 text-[11px]">Madanpur</div>
+                    <div className="text-lg font-bold text-emerald-400 font-mono mt-0.5">{madanpurMembers}</div>
+                    <div className="text-[10px] text-zinc-500 mt-1">Turf Arena</div>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="p-3 rounded-2xl bg-zinc-950/40 border border-white/[0.03]">
-                  <div className="text-zinc-400 text-[11px]">Ranaghat</div>
-                  <div className="text-lg font-bold text-rose-400 font-mono mt-0.5">{ranaghatMembers}</div>
-                  <div className="text-[10px] text-zinc-500 mt-1">Main Facility</div>
-                </div>
-                <div className="p-3 rounded-2xl bg-zinc-950/40 border border-white/[0.03]">
-                  <div className="text-zinc-400 text-[11px]">Chakdah</div>
-                  <div className="text-lg font-bold text-purple-400 font-mono mt-0.5">{chakdahMembers}</div>
-                  <div className="text-[10px] text-zinc-500 mt-1">Split Branch</div>
-                </div>
-                <div className="p-3 rounded-2xl bg-zinc-950/40 border border-white/[0.03]">
-                  <div className="text-zinc-400 text-[11px]">Madanpur</div>
-                  <div className="text-lg font-bold text-emerald-400 font-mono mt-0.5">{madanpurMembers}</div>
-                  <div className="text-[10px] text-zinc-500 mt-1">Turf Arena</div>
-                </div>
+            }
+          >
+            <div className="mt-4 pt-4 border-t border-white/[0.04] grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <div className="text-[11px] text-zinc-400">Coaching Staff</div>
+                <div className="text-base font-bold text-white font-mono mt-0.5">{trainersCount || 3} Coaches</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-zinc-400">Multi-Branch</div>
+                <div className="text-base font-bold text-white font-mono mt-0.5">3 Locations</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-zinc-400">Verification</div>
+                <div className="text-base font-bold text-emerald-400 font-mono mt-0.5">100% KYC</div>
               </div>
             </div>
-          }
-        >
-          <div className="mt-4 pt-4 border-t border-white/[0.04] grid grid-cols-3 gap-3 text-xs">
-            <div>
-              <div className="text-[11px] text-zinc-400">Coaching Staff</div>
-              <div className="text-base font-bold text-white font-mono mt-0.5">{trainersCount || 3} Coaches</div>
+          </KineticBentoCard>
+        ) : (
+          <KineticBentoCard
+            colSpan="col-span-12 md:col-span-6"
+            kicker={currentUser?.role === 'trainer' ? 'COACH PROFILE & CREDENTIALS' : 'MEMBER ENROLLMENT & STATUS'}
+            title={currentUser?.full_name || 'Hercules Athlete'}
+            metric={currentUser?.member_id || (currentUser?.role === 'trainer' ? 'Official Coach' : 'Member')}
+            metricLabel={`${currentUser?.center || 'Ranaghat'} Branch · ${currentUser?.role === 'trainer' ? 'Coaching Staff' : (currentUser?.membership?.plan_name || 'Active Membership')}`}
+            isMorphable={true}
+            icon={<Users className="w-5 h-5" />}
+            actionButton={
+              <button
+                onClick={() => setActiveTab('profile')}
+                className="p-2 rounded-2xl bg-zinc-800/60 hover:bg-zinc-700/80 text-zinc-300 hover:text-white transition-all flex items-center gap-1 text-xs font-semibold"
+                title="View Full Profile"
+              >
+                <span>My Profile</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </button>
+            }
+            expandedContent={
+              <div className="space-y-3">
+                <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  Profile & Enrollment Details
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="p-3 rounded-2xl bg-zinc-950/40 border border-white/[0.03]">
+                    <div className="text-zinc-400 text-[11px]">Center Branch</div>
+                    <div className="text-sm font-bold text-rose-400 mt-0.5">{currentUser?.center} Center</div>
+                    <div className="text-[10px] text-zinc-500 mt-1">Multi-branch access enabled</div>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-zinc-950/40 border border-white/[0.03]">
+                    <div className="text-zinc-400 text-[11px]">Program / Discipline</div>
+                    <div className="text-sm font-bold text-emerald-400 mt-0.5">{currentUser?.enrollment_programme || 'Gym'}</div>
+                    <div className="text-[10px] text-zinc-500 mt-1">{currentUser?.enrollment_category || 'General Shift'}</div>
+                  </div>
+                </div>
+              </div>
+            }
+          >
+            <div className="mt-4 pt-4 border-t border-white/[0.04] grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <div className="text-[11px] text-zinc-400">Account Status</div>
+                <div className="text-base font-bold text-emerald-400 font-mono mt-0.5">Active</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-zinc-400">Branch</div>
+                <div className="text-base font-bold text-white font-mono mt-0.5">{currentUser?.center}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-zinc-400">Verification</div>
+                <div className="text-base font-bold text-emerald-400 font-mono mt-0.5">Verified</div>
+              </div>
             </div>
-            <div>
-              <div className="text-[11px] text-zinc-400">Multi-Branch</div>
-              <div className="text-base font-bold text-white font-mono mt-0.5">3 Locations</div>
-            </div>
-            <div>
-              <div className="text-[11px] text-zinc-400">Verification</div>
-              <div className="text-base font-bold text-emerald-400 font-mono mt-0.5">100% KYC</div>
-            </div>
-          </div>
-        </KineticBentoCard>
+          </KineticBentoCard>
+        )}
 
-        {/* BENTO TILE 2 (Medium 5-Col): Kinetic Live Attendance & Floor Presence */}
-        <KineticBentoCard
-          colSpan="col-span-12 md:col-span-5"
-          kicker={
-            <span className="flex items-center gap-1.5 text-emerald-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              LIVE ATTENDANCE
-            </span>
-          }
-          title="Floor Occupancy Pulse"
-          metric={currentlyInGymCount}
-          metricLabel="Athletes On Floor Right Now"
-          isMorphable={true}
-          icon={<CalendarCheck2 className="w-5 h-5" />}
-          actionButton={
-            <button
-              onClick={() => setActiveTab('attendance')}
-              className="p-2 rounded-2xl bg-zinc-800/60 hover:bg-zinc-700/80 text-zinc-300 hover:text-white transition-all flex items-center gap-1 text-xs font-semibold"
-            >
-              <span>Live Log</span>
-              <ArrowUpRight className="w-4 h-4" />
-            </button>
-          }
-          expandedContent={
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-[11px] text-zinc-400">
-                <span>Facility Capacity Ratio</span>
-                <span className="font-mono font-bold text-emerald-400">
-                  {Math.min(100, Math.round((currentlyInGymCount / 40) * 100))}% Load
-                </span>
+        {/* BENTO TILE 2 (Medium 5-Col): Kinetic Live Attendance & Floor Presence - ADMIN ONLY */}
+        {isAdmin && (
+          <KineticBentoCard
+            colSpan="col-span-12 md:col-span-5"
+            kicker={
+              <span className="flex items-center gap-1.5 text-emerald-400">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                LIVE ATTENDANCE
+              </span>
+            }
+            title="Floor Occupancy Pulse"
+            metric={currentlyInGymCount}
+            metricLabel="Athletes On Floor Right Now"
+            isMorphable={true}
+            icon={<CalendarCheck2 className="w-5 h-5" />}
+            actionButton={
+              <button
+                onClick={() => setActiveTab('attendance')}
+                className="p-2 rounded-2xl bg-zinc-800/60 hover:bg-zinc-700/80 text-zinc-300 hover:text-white transition-all flex items-center gap-1 text-xs font-semibold"
+              >
+                <span>Live Log</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </button>
+            }
+            expandedContent={
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>Facility Capacity Ratio</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {Math.min(100, Math.round((currentlyInGymCount / 40) * 100))}% Load
+                  </span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-700"
+                    style={{ width: `${Math.min(100, Math.max(15, (currentlyInGymCount / 40) * 100))}%` }}
+                  />
+                </div>
+                <div className="text-[10px] text-zinc-500 flex justify-between">
+                  <span>Optimal Training Flow</span>
+                  <span>Max Safe Threshold: 40</span>
+                </div>
               </div>
-              <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-700"
-                  style={{ width: `${Math.min(100, Math.max(15, (currentlyInGymCount / 40) * 100))}%` }}
-                />
-              </div>
-              <div className="text-[10px] text-zinc-500 flex justify-between">
-                <span>Optimal Training Flow</span>
-                <span>Max Safe Threshold: 40</span>
-              </div>
+            }
+          >
+            <div className="mt-4 pt-4 border-t border-white/[0.04] flex items-center justify-between text-xs text-zinc-400">
+              <span>Dynamic QR Check-in System</span>
+              <span className="text-emerald-400 font-medium flex items-center gap-1">
+                <Activity className="w-3.5 h-3.5" /> Operational
+              </span>
             </div>
-          }
-        >
-          <div className="mt-4 pt-4 border-t border-white/[0.04] flex items-center justify-between text-xs text-zinc-400">
-            <span>Dynamic QR Check-in System</span>
-            <span className="text-emerald-400 font-medium flex items-center gap-1">
-              <Activity className="w-3.5 h-3.5" /> Operational
-            </span>
-          </div>
-        </KineticBentoCard>
+          </KineticBentoCard>
+        )}
 
-        {/* BENTO TILE 3 (Medium 5-Col): Smart HG.AI Intelligence Kinetic Bento */}
+        {/* BENTO TILE 3: Smart HG.AI Intelligence Kinetic Bento */}
         <KineticBentoCard
-          colSpan="col-span-12 md:col-span-5"
+          colSpan={isAdmin ? 'col-span-12 md:col-span-5' : 'col-span-12 md:col-span-6'}
           kicker={
             <span className="flex items-center gap-1.5 text-zinc-300">
               <Sparkles className="w-3.5 h-3.5" style={{ color: centerTheme.accentHex }} />
@@ -319,69 +389,71 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
           </div>
         </KineticBentoCard>
 
-        {/* BENTO TILE 4 (Large 7-Col): Kinetic Fiscal Ledger & Revenue Record */}
-        <KineticBentoCard
-          colSpan="col-span-12 md:col-span-7"
-          kicker="REVENUE RECORD & FISCAL LEDGER"
-          title="Multi-Category Revenue Collections"
-          metric={`₹${totalRevenue.toLocaleString()}`}
-          metricLabel="Total Recorded in System"
-          isMorphable={true}
-          icon={<CreditCard className="w-5 h-5" />}
-          actionButton={
-            <button
-              onClick={() => setActiveTab('revenues')}
-              className="p-2 rounded-2xl bg-zinc-800/60 hover:bg-zinc-700/80 text-zinc-300 hover:text-white transition-all flex items-center gap-1 text-xs font-semibold"
-            >
-              <span>Ledger</span>
-              <ArrowUpRight className="w-4 h-4" />
-            </button>
-          }
-          expandedContent={
-            <div className="space-y-3">
-              <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-                Fiscal Waterfall Allocation
+        {/* BENTO TILE 4 (Large 7-Col): Kinetic Fiscal Ledger & Revenue Record - ADMIN ONLY */}
+        {isAdmin && (
+          <KineticBentoCard
+            colSpan="col-span-12 md:col-span-7"
+            kicker="REVENUE RECORD & FISCAL LEDGER"
+            title="Multi-Category Revenue Collections"
+            metric={`₹${totalRevenue.toLocaleString()}`}
+            metricLabel="Total Recorded in System"
+            isMorphable={true}
+            icon={<CreditCard className="w-5 h-5" />}
+            actionButton={
+              <button
+                onClick={() => setActiveTab('revenues')}
+                className="p-2 rounded-2xl bg-zinc-800/60 hover:bg-zinc-700/80 text-zinc-300 hover:text-white transition-all flex items-center gap-1 text-xs font-semibold"
+              >
+                <span>Ledger</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </button>
+            }
+            expandedContent={
+              <div className="space-y-3">
+                <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  Fiscal Waterfall Allocation
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="p-2.5 rounded-xl bg-zinc-950/50 border border-white/[0.04]">
+                    <div className="text-zinc-400 text-[10px]">Normal Fees</div>
+                    <div className="font-mono font-bold text-white text-sm mt-0.5">₹{normalFeeTotal.toLocaleString()}</div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-zinc-950/50 border border-rose-500/20">
+                    <div className="text-rose-400 text-[10px]">Late Fines</div>
+                    <div className="font-mono font-bold text-rose-400 text-sm mt-0.5">₹{fineTotal.toLocaleString()}</div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-zinc-950/50 border border-white/[0.04]">
+                    <div className="text-zinc-400 text-[10px]">Gym Items</div>
+                    <div className="font-mono font-bold text-white text-sm mt-0.5">₹{shopTotal.toLocaleString()}</div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-zinc-950/50 border border-white/[0.04]">
+                    <div className="text-zinc-400 text-[10px]">Other Misc</div>
+                    <div className="font-mono font-bold text-white text-sm mt-0.5">₹{otherTotal.toLocaleString()}</div>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                <div className="p-2.5 rounded-xl bg-zinc-950/50 border border-white/[0.04]">
-                  <div className="text-zinc-400 text-[10px]">Normal Fees</div>
-                  <div className="font-mono font-bold text-white text-sm mt-0.5">₹{normalFeeTotal.toLocaleString()}</div>
-                </div>
-                <div className="p-2.5 rounded-xl bg-zinc-950/50 border border-rose-500/20">
-                  <div className="text-rose-400 text-[10px]">Late Fines</div>
-                  <div className="font-mono font-bold text-rose-400 text-sm mt-0.5">₹{fineTotal.toLocaleString()}</div>
-                </div>
-                <div className="p-2.5 rounded-xl bg-zinc-950/50 border border-white/[0.04]">
-                  <div className="text-zinc-400 text-[10px]">Gym Items</div>
-                  <div className="font-mono font-bold text-white text-sm mt-0.5">₹{shopTotal.toLocaleString()}</div>
-                </div>
-                <div className="p-2.5 rounded-xl bg-zinc-950/50 border border-white/[0.04]">
-                  <div className="text-zinc-400 text-[10px]">Other Misc</div>
-                  <div className="font-mono font-bold text-white text-sm mt-0.5">₹{otherTotal.toLocaleString()}</div>
-                </div>
+            }
+          >
+            <div className="mt-4 pt-3 border-t border-white/[0.04] grid grid-cols-4 gap-2 text-center text-xs">
+              <div className="p-2 rounded-xl bg-zinc-900/40 border border-white/[0.03]">
+                <div className="text-[10px] text-zinc-400">Normal Fees</div>
+                <div className="font-mono font-bold text-white text-[11px] mt-0.5">₹{normalFeeTotal.toLocaleString()}</div>
+              </div>
+              <div className="p-2 rounded-xl bg-zinc-900/40 border border-white/[0.03]">
+                <div className="text-[10px] text-rose-400">Late Fines</div>
+                <div className="font-mono font-bold text-rose-400 text-[11px] mt-0.5">₹{fineTotal.toLocaleString()}</div>
+              </div>
+              <div className="p-2 rounded-xl bg-zinc-900/40 border border-white/[0.03]">
+                <div className="text-[10px] text-zinc-400">Gym Items</div>
+                <div className="font-mono font-bold text-white text-[11px] mt-0.5">₹{shopTotal.toLocaleString()}</div>
+              </div>
+              <div className="p-2 rounded-xl bg-zinc-900/40 border border-white/[0.03]">
+                <div className="text-[10px] text-zinc-400">Other Misc</div>
+                <div className="font-mono font-bold text-white text-[11px] mt-0.5">₹{otherTotal.toLocaleString()}</div>
               </div>
             </div>
-          }
-        >
-          <div className="mt-4 pt-3 border-t border-white/[0.04] grid grid-cols-4 gap-2 text-center text-xs">
-            <div className="p-2 rounded-xl bg-zinc-900/40 border border-white/[0.03]">
-              <div className="text-[10px] text-zinc-400">Normal Fees</div>
-              <div className="font-mono font-bold text-white text-[11px] mt-0.5">₹{normalFeeTotal.toLocaleString()}</div>
-            </div>
-            <div className="p-2 rounded-xl bg-zinc-900/40 border border-white/[0.03]">
-              <div className="text-[10px] text-rose-400">Late Fines</div>
-              <div className="font-mono font-bold text-rose-400 text-[11px] mt-0.5">₹{fineTotal.toLocaleString()}</div>
-            </div>
-            <div className="p-2 rounded-xl bg-zinc-900/40 border border-white/[0.03]">
-              <div className="text-[10px] text-zinc-400">Gym Items</div>
-              <div className="font-mono font-bold text-white text-[11px] mt-0.5">₹{shopTotal.toLocaleString()}</div>
-            </div>
-            <div className="p-2 rounded-xl bg-zinc-900/40 border border-white/[0.03]">
-              <div className="text-[10px] text-zinc-400">Other Misc</div>
-              <div className="font-mono font-bold text-white text-[11px] mt-0.5">₹{otherTotal.toLocaleString()}</div>
-            </div>
-          </div>
-        </KineticBentoCard>
+          </KineticBentoCard>
+        )}
       </div>
 
       {/* 3. FACILITY SHOWCASE & ROUTINE SCHEDULE KINETIC BENTO ROW */}
@@ -439,7 +511,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
                 className="px-4 py-2 rounded-2xl bg-zinc-900/70 hover:bg-zinc-800/90 border border-white/[0.05] text-zinc-200 text-xs font-medium transition-all flex items-center gap-2"
               >
                 <Dumbbell className="w-3.5 h-3.5 text-zinc-400" />
-                <span>Today's Split ({todayDayName})</span>
+                <span>{hasAssignedWorkout ? `Today's Split (${todayDayName})` : 'Explore Workouts'}</span>
               </button>
             </div>
           </div>
@@ -448,34 +520,74 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenQrModal }) =
         {/* Today's Workout Split Bento Widget (4-Col) */}
         <KineticBentoCard
           colSpan="col-span-12 lg:col-span-4"
-          kicker={`TODAY'S SCHEDULE · ${todayDayName.toUpperCase()}`}
-          title={todayWorkoutSplit ? todayWorkoutSplit.title : 'General Fitness Induction'}
+          kicker={hasAssignedWorkout ? `TODAY'S SCHEDULE · ${todayDayName.toUpperCase()}` : `TODAY'S SCHEDULE · UNASSIGNED`}
+          title={hasAssignedWorkout && todayWorkoutSplit ? todayWorkoutSplit.title : 'No Workout Assigned'}
           isMorphable={false}
         >
-          <p className="text-xs text-zinc-400 mb-3">
-            {todayWorkoutSplit?.focus ? `Target Focus: ${todayWorkoutSplit.focus}` : 'Structured conditioning warmup'}
-          </p>
+          {hasAssignedWorkout && todayWorkoutSplit ? (
+            <>
+              <p className="text-xs text-zinc-400 mb-3">
+                {todayWorkoutSplit.focus ? `Target Focus: ${todayWorkoutSplit.focus}` : 'Assigned split routine'}
+              </p>
 
-          {todayWorkoutSplit && todayWorkoutSplit.exercises.length > 0 && (
-            <div className="space-y-2 border-t border-white/[0.04] pt-3 my-3">
-              {todayWorkoutSplit.exercises.slice(0, 3).map((ex, i) => (
-                <div key={i} className="flex items-center justify-between text-xs text-zinc-300">
-                  <span className="font-medium text-white truncate max-w-[180px]">{ex.name}</span>
-                  <span className="font-mono text-zinc-400 text-[11px]">{ex.sets} × {ex.reps}</span>
+              {todayWorkoutSplit.exercises.length > 0 ? (
+                <div className="space-y-2 border-t border-white/[0.04] pt-3 my-3">
+                  {todayWorkoutSplit.exercises.slice(0, 3).map((ex, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs text-zinc-300">
+                      <span className="font-medium text-white truncate max-w-[180px]">{ex.name}</span>
+                      <span className="font-mono text-zinc-400 text-[11px]">{ex.sets} × {ex.reps}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <div className="p-3 my-2 rounded-xl bg-zinc-900/40 text-xs text-zinc-400">
+                  Rest day or active recovery scheduled for today.
+                </div>
+              )}
+
+              <div className="mt-4 pt-3 border-t border-white/[0.04]">
+                <button
+                  onClick={() => setActiveTab('workouts')}
+                  className="w-full py-2.5 rounded-2xl bg-zinc-900/60 hover:bg-zinc-800/80 border border-white/[0.05] text-white font-medium text-xs transition-all flex items-center justify-center gap-2"
+                >
+                  <span>View Full Workout Plan</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-3 my-2">
+              <div className="p-4 rounded-2xl bg-zinc-950/40 border border-white/[0.03] space-y-2">
+                <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold">
+                  <Dumbbell className="w-4 h-4" />
+                  <span>Plan Status: Empty / Unassigned</span>
+                </div>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  {currentUser?.role === 'trainer'
+                    ? 'No personal workout assigned. You can configure training splits for members in the Workouts tab.'
+                    : 'Your profile does not have an active workout routine assigned yet. Request a customized split from your trainer or generate one instantly with HG.AI.'}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => setActiveTab('hg-ai')}
+                  className="py-2.5 px-3 rounded-2xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Ask HG.AI</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('workouts')}
+                  className="py-2.5 px-3 rounded-2xl bg-zinc-900/60 hover:bg-zinc-800/80 border border-white/[0.05] text-zinc-200 font-medium text-xs flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <span>Open Hub</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           )}
-
-          <div className="mt-4 pt-3 border-t border-white/[0.04]">
-            <button
-              onClick={() => setActiveTab('workouts')}
-              className="w-full py-2.5 rounded-2xl bg-zinc-900/60 hover:bg-zinc-800/80 border border-white/[0.05] text-white font-medium text-xs transition-all flex items-center justify-center gap-2"
-            >
-              <span>View Full Workout Plan</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
         </KineticBentoCard>
       </div>
     </div>
